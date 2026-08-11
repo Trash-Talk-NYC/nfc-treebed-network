@@ -9,6 +9,7 @@ import { getStore } from '../../../lib/store-local';
 import { RuleError, adoptBed, getBedView, validateAdoptInput } from '../../../lib/service';
 import { setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
 
 const { plate = '' } = Astro.params;
 const store = getStore();
@@ -67,7 +68,7 @@ const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slo
 
 <Screen title={`Adopt this tree bed · ${plate}`}>
   <div class="screen">
-    <a class="back-link" href={base}>← {plate}</a>
+    <a class="back-link" href={ourPlaqueLink(base)}>← {plate}</a>
     <div class="headline">Adopt this tree bed</div>
     <div class="subline">Your name goes on the plaque. One photo a week.</div>
     {
@@ -79,7 +80,7 @@ const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slo
             </div>
           </div>
           <div class="actions-bottom">
-            <a class="btn btn-dark btn-put" href={base}>BACK TO THE PLAQUE</a>
+            <a class="btn btn-dark btn-put" href={ourPlaqueLink(base)}>BACK TO THE PLAQUE</a>
           </div>
         </>
       ) : (

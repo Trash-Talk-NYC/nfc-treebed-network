@@ -14,7 +14,7 @@ import {
   severityIndexFromHead,
   type Refusal,
 } from '../../../lib/request-body';
-import { plaqueAfterAction } from '../../../lib/plaque-url';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
 import type { Severity } from '../../../lib/types';
 
 // A phone photo is a few MB; nothing here is stored, so the cap only has to
@@ -65,7 +65,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   } catch (err) {
     if (err instanceof RuleError) {
       // Someone else's report is already open → confirm/escalate screen.
-      if (err.code === 'open-report-exists') return redirect(plaqueAfterAction(base), 303);
+      if (err.code === 'open-report-exists') return redirect(ourPlaqueLink(base), 303);
       // Their own daily limit → the rate-limited screen.
       if (err.code === 'already-reported-today') return redirect(`${base}?limited=1`, 303);
       if (err.code === 'bed-not-found') return new Response(err.message, { status: 404 });

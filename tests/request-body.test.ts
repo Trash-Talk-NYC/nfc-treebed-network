@@ -8,6 +8,7 @@ import {
   photoAttachedFromHead,
   readCappedBody,
   readCappedHead,
+  SHED_DRAIN_BYTES,
   severityIndexFromHead,
 } from '../src/lib/request-body';
 
@@ -459,10 +460,12 @@ describe('the in-flight budget', () => {
     await holding.settled();
   });
 
-  it('bounds how many reads it sheds at once, and never reads the ones past it', async () => {
+  it('bounds how many reads it sheds at once, and keeps nothing past that', async () => {
     // The byte budget covers admitted reads; shed ones hold a head and the
     // chunk in hand of their own, so without a count they sit outside the very
-    // bound they were refused by. Past this many the body is never touched.
+    // bound they were refused by. Past this many a read keeps nothing at all
+    // and stops at SHED_DRAIN_BYTES — it still reads that much, because a body
+    // left untouched is one Node dumps to its end on our behalf.
     const holding = await hold(capLeaving(1024));
     const shedding = Array.from({ length: MAX_SHED_READS }, () => {
       const gated = gatedRequest(reportBody('1', 1024));
@@ -470,7 +473,7 @@ describe('the in-flight budget', () => {
     });
 
     const { req, deliveredBytes, wasCancelled } = streamedRequest(
-      reportBody('2', 64 * 1024),
+      reportBody('2', 4 * SHED_DRAIN_BYTES),
       8 * 1024,
     );
     const beyond = await readCappedHead(req, 12 * 1024 * 1024);
@@ -483,13 +486,13 @@ describe('the in-flight budget', () => {
     await holding.settled();
 
     expect(beyond.refusal).toBe('busy');
-    // Not one byte read, so not one byte held — this is what makes the peak
-    // heap claim absolute rather than a claim about the admitted half of it.
-    // (A ReadableStream fills its own queue with one chunk unasked, which is
-    // the harness's buffer, not the read's: `bytes` is what the read consumed.)
-    expect(beyond.bytes).toBe(0);
+    // Nothing kept, and the ingress stopped at the shed drain rather than at
+    // whatever the sender had left — this is what the peak heap claim rests on
+    // past the shed count, and what walking away instead would have cost.
     expect(beyond.head.byteLength).toBe(0);
-    expect(deliveredBytes()).toBeLessThanOrEqual(8 * 1024);
+    expect(beyond.bytes).toBeLessThanOrEqual(SHED_DRAIN_BYTES + CHUNK_ALLOWANCE_BYTES);
+    expect(deliveredBytes()).toBeLessThanOrEqual(SHED_DRAIN_BYTES + 2 * CHUNK_ALLOWANCE_BYTES);
+    // Not cancelled: the socket has to survive to carry the busy screen.
     expect(wasCancelled()).toBe(false);
     // The cost: no head means no severity, which the busy screen does without.
     expect(severityIndexFromHead(beyond.head)).toBeNull();
@@ -497,6 +500,28 @@ describe('the in-flight budget', () => {
     expect(shedRefusals.every((shed) => shed.refusal === 'busy')).toBe(true);
     expect(after.refusal).toBe('busy');
     expect(severityIndexFromHead(after.head)).toBe(0);
+  });
+
+  it('tells a shed read that was also oversized which of the two it was', async () => {
+    // The refusal ladder's own precedence, which the shed path used to invert:
+    // a 20MB photo told "the tag is busy" retries the same photo forever, where
+    // "that photo was too large" is the one thing they can act on.
+    const holding = await hold(capLeaving(1024));
+    const shedding = Array.from({ length: MAX_SHED_READS }, () => {
+      const gated = gatedRequest(reportBody('1', 1024));
+      return { release: gated.release, settled: readCappedHead(gated.req, 12 * 1024 * 1024) };
+    });
+
+    // Declared over the cap by its own Content-Length, and arriving with no
+    // room left for it: both true at once, and only one of them is actionable.
+    const beyond = await readCappedHead(request(reportBody('2', 256 * 1024)), 64 * 1024);
+
+    for (const shed of shedding) shed.release();
+    await Promise.all(shedding.map((shed) => shed.settled));
+    holding.release();
+    await holding.settled();
+
+    expect(beyond.refusal).toBe('over-limit');
   });
 
   it('still reads a small refused body to its end, so the answer reaches it', async () => {

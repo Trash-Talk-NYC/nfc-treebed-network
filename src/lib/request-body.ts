@@ -31,9 +31,10 @@
 //                                      hand, which is exactly what it reserves.
 //                                      Every refusal → the too-large screen,
 //                                      severity preserved — except past
-//                                      MAX_SHED_READS, where the body is never
-//                                      read and the busy screen goes out without
-//                                      it.
+//                                      MAX_SHED_READS, where the read keeps
+//                                      nothing and stops at SHED_DRAIN_BYTES /
+//                                      SHED_DRAIN_MS, so the busy screen goes
+//                                      out without the severity.
 //   POST .../report  (refile, no file) Size: MAX_FORM_BYTES buffered. Time and
 //                                      concurrency as below. Peak heap ~128KB.
 //                                      Refused → a plain short answer: this
@@ -62,7 +63,13 @@
 // Two counters carry the concurrency column: MAX_INFLIGHT_BODY_BYTES for reads
 // that were admitted, MAX_SHED_READS for the ones being turned away, which hold
 // a head and a chunk of their own while they shed. Their sum — about 52MB — is
-// the peak heap request bodies can reach here however deep a spike goes.
+// what this file holds for every read it is keeping anything for. Past
+// MAX_SHED_READS a read keeps nothing at all: no reservation, no head, and a
+// drain of one chunk, which is the same order as the socket buffer Node holds
+// for that connection whatever we do. What it costs at that depth is ingress,
+// and SHED_DRAIN_BYTES/SHED_DRAIN_MS is that bound — measured, because leaving
+// the body untouched instead does not avoid the cost: Node dumps the body of
+// any request whose response finished unread, which reads the whole thing.
 
 import { severityIndexFrom } from './severity';
 
@@ -155,6 +162,22 @@ export const READ_TIMEOUT_MS = 240_000;
 export const READ_IDLE_MS = 30_000;
 
 /**
+ * A bound the end-to-end suite can lower, so the paths that only open at
+ * capacity can be driven with two sockets instead of several hundred. Not a
+ * deployment knob: the shipped values are the defaults below, and a bad one is
+ * a boot failure rather than a bound that silently isn't there.
+ */
+function boundFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative number, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+/**
  * How many bytes all in-flight reads together may be holding.
  *
  * A per-request cap bounds one request; nothing bounded how many arrive at
@@ -169,12 +192,17 @@ export const READ_IDLE_MS = 30_000;
  * upload sheds nothing, which is the opposite of what a capacity bound is for.
  *
  * This budget covers admitted reads only. A shed read still holds a head and a
- * chunk while it sheds, so `MAX_SHED_READS` bounds those separately, and the
- * peak heap request bodies can reach in any spike is the two together:
+ * chunk while it sheds, so `MAX_SHED_READS` bounds those separately, and every
+ * read that keeps anything at all is inside the two together:
  * `MAX_INFLIGHT_BODY_BYTES + MAX_SHED_READS × (HEAD_BYTES +
- * CHUNK_ALLOWANCE_BYTES)`, about 52MB.
+ * CHUNK_ALLOWANCE_BYTES)`, about 52MB. Past the shed count a read keeps
+ * nothing, and what bounds it is `SHED_DRAIN_BYTES`/`SHED_DRAIN_MS` of ingress
+ * rather than a share of this.
  */
-export const MAX_INFLIGHT_BODY_BYTES = 48 * 1024 * 1024;
+export const MAX_INFLIGHT_BODY_BYTES = boundFromEnv(
+  'TREEBED_MAX_INFLIGHT_BODY_BYTES',
+  48 * 1024 * 1024,
+);
 
 /**
  * How many reads the server had no room for may be shedding at once.
@@ -185,12 +213,30 @@ export const MAX_INFLIGHT_BODY_BYTES = 48 * 1024 * 1024;
  * ones being served. Sized so the shed path's whole share — 64 × (8KB head +
  * 64KB chunk in hand) ≈ 4.5MB — stays small next to the 48MB above.
  *
- * Past this many, the answer goes out without the body being touched at all.
- * That costs the report route its severity preservation, since the severity is
- * read off the head — an acceptable loss at the depth of spike it takes to get
- * here, where the visitor still gets the busy screen and a retry.
+ * Past this many, the read keeps nothing: no reservation, no head, and the
+ * drain below in place of the busy budget. That costs the report route its
+ * severity preservation, since the severity is read off the head — an
+ * acceptable loss at the depth of spike it takes to get here, where the visitor
+ * still gets the busy screen and a retry.
  */
-export const MAX_SHED_READS = 64;
+export const MAX_SHED_READS = boundFromEnv('TREEBED_MAX_SHED_READS', 64);
+
+/**
+ * How far a read past `MAX_SHED_READS` is drained before it is answered.
+ *
+ * Not reading the body at all would be cheaper still, and it is not on offer:
+ * Node dumps the body of any request whose response finished without it being
+ * consumed, which resumes the socket and reads the body to its end — a full
+ * 200MB for one refused POST when measured, bounded by nothing but Node's own
+ * 300s request timeout. Taking the first chunk ourselves is what marks the body
+ * consumed, and from there the read stops where this says rather than where the
+ * sender does. The connection stays live either way, so the busy screen still
+ * reaches the person holding the phone (`tests/report-upload.e2e.test.ts`).
+ */
+export const SHED_DRAIN_BYTES = CHUNK_ALLOWANCE_BYTES;
+
+/** And for no longer than this, for a sender that has gone quiet. */
+export const SHED_DRAIN_MS = 1_000;
 
 /**
  * How far a read the server had no room for is drained.
@@ -321,13 +367,12 @@ async function consume(
   const reservation = (keepBody ? 2 * limit : HEAD_BYTES) + CHUNK_ALLOWANCE_BYTES;
   const busy = inflightBytes + reservation > MAX_INFLIGHT_BODY_BYTES;
   // Shedding is cheap but not free — a head and the chunk in hand each — so
-  // past `MAX_SHED_READS` at once the body is not touched at all and the
-  // refusal goes out on its own. Nothing is read, so nothing is kept: the head
-  // is empty and the report route's screen loses the severity it would have
-  // carried, which is the trade this depth of spike buys the bound with.
-  if (busy && shedReads >= MAX_SHED_READS) {
-    return { head: new Uint8Array(), bytes: 0, body: null, refusal: 'busy' };
-  }
+  // past `MAX_SHED_READS` at once the read keeps nothing: no reservation, no
+  // head, and `SHED_DRAIN_*` in place of the busy budget. The head is empty, so
+  // the report route's screen loses the severity it would have carried, which
+  // is the trade this depth of spike buys the bound with. What it can't do is
+  // skip the read: a body nobody touched is dumped by Node itself, to its end.
+  const shedding = busy && shedReads >= MAX_SHED_READS;
   // A refused body is still read to its end, and holding the head is what lets
   // the answer keep the visitor's severity — that much fits regardless.
   let keep = keepBody && !busy && !over;
@@ -335,8 +380,12 @@ async function consume(
   // Taken last, so nothing between here and the `finally` below can leak a
   // reservation — a reservation that is never released is a permanent one.
   const reader = request.body.getReader();
-  if (busy) shedReads += 1;
-  else inflightBytes += reservation;
+  // Nothing is booked at shed depth: nothing is held there past the chunk in
+  // hand, and a slot taken would be a slot denied to a read that keeps a head.
+  if (!shedding) {
+    if (busy) shedReads += 1;
+    else inflightBytes += reservation;
+  }
 
   const headChunks: Uint8Array[] = [];
   let headBytes = 0;
@@ -349,11 +398,13 @@ async function consume(
   // headroom; one refused for want of room is load to shed, and gets almost
   // nothing — but never more than it would have got anyway, since on the small
   // forms the headroom is already tighter than the busy budget.
-  const drainCeiling = busy
-    ? Math.min(BUSY_DRAIN_BYTES, limit + drainHeadroom)
-    : limit + drainHeadroom;
-  const drainBudgetMs = busy ? BUSY_DRAIN_MS : drainTimeoutMs;
-  const drainIdle = busy ? BUSY_DRAIN_MS : drainIdleMs;
+  const drainCeiling = shedding
+    ? SHED_DRAIN_BYTES
+    : busy
+      ? Math.min(BUSY_DRAIN_BYTES, limit + drainHeadroom)
+      : limit + drainHeadroom;
+  const drainBudgetMs = shedding ? SHED_DRAIN_MS : busy ? BUSY_DRAIN_MS : drainTimeoutMs;
+  const drainIdle = shedding ? SHED_DRAIN_MS : busy ? BUSY_DRAIN_MS : drainIdleMs;
   // Both clocks start now. Which one applies switches with `over`, so a body
   // refused halfway through gets the drain's bounds for what remains — but
   // never past `readDeadline`, which is the whole request's ceiling and sits
@@ -383,7 +434,7 @@ async function consume(
       if (raced.done) break;
       const value = raced.value;
       total += value.byteLength;
-      if (headBytes < HEAD_BYTES) {
+      if (!shedding && headBytes < HEAD_BYTES) {
         // Copied, not sliced: a view would pin this whole chunk in memory.
         const head = value.slice(0, HEAD_BYTES - headBytes);
         headChunks.push(head);
@@ -422,8 +473,10 @@ async function consume(
       failed = true;
     }
   } finally {
-    if (busy) shedReads -= 1;
-    else inflightBytes -= reservation;
+    if (!shedding) {
+      if (busy) shedReads -= 1;
+      else inflightBytes -= reservation;
+    }
   }
 
   const head = concat(headChunks, headBytes);

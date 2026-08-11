@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPostAction, plaqueAfterAction } from '../src/lib/plaque-url';
+import { isPostAction, ourPlaqueLink } from '../src/lib/plaque-url';
 
 const BASE = '/b/BED-HRL-0847';
 const url = (path: string): URL => new URL(path, 'https://plaque.test');
@@ -26,7 +26,7 @@ describe('telling our own redirects from a tap', () => {
   it('does not count the redirects with nothing to flash either', () => {
     // The report someone else already filed, a confirm on a report that has
     // since been closed, an anonymous clear: one visit, one tap.
-    expect(isPostAction(url(plaqueAfterAction(BASE)))).toBe(true);
-    expect(isPostAction(url(`${plaqueAfterAction(BASE)}&utm_source=popl`))).toBe(true);
+    expect(isPostAction(url(ourPlaqueLink(BASE)))).toBe(true);
+    expect(isPostAction(url(`${ourPlaqueLink(BASE)}&utm_source=popl`))).toBe(true);
   });
 });

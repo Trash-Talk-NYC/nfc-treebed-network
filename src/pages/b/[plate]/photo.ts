@@ -6,7 +6,7 @@ import { getStore } from '../../../lib/store-local';
 import { getBedView, logPhoto } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
-import { plaqueAfterAction } from '../../../lib/plaque-url';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   const plate = params.plate ?? '';
@@ -23,7 +23,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   // Flagged like every other POST route's way back: this render is the tail of
   // a submission, not somebody arriving at the tag.
   if (!view.adopters.some((a) => a.user.id === userId)) {
-    return redirect(plaqueAfterAction(`/b/${plate}`), 303);
+    return redirect(ourPlaqueLink(`/b/${plate}`), 303);
   }
 
   await logPhoto(store, { plate, actorId: userId });

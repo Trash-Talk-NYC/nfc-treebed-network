@@ -8,6 +8,7 @@ import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store-local';
 import { getBedView } from '../../../lib/service';
 import { SEVERITIES, severityIndexFrom } from '../../../lib/severity';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
 
 const { plate = '' } = Astro.params;
 const store = getStore();
@@ -90,12 +91,12 @@ const copy = COPY[reason];
             </form>
           </>
         ) : (
-          <a class="btn btn-primary btn-refile" href={`${base}#report`}>
+          <a class="btn btn-primary btn-refile" href={`${ourPlaqueLink(base)}#report`}>
             PICK THE SEVERITY AGAIN
           </a>
         )
       }
-      <a class="btn btn-ghost" href={base}>Back to the plaque</a>
+      <a class="btn btn-ghost" href={ourPlaqueLink(base)}>Back to the plaque</a>
     </div>
   </div>
 </Screen>

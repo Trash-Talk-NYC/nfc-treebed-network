@@ -7,6 +7,7 @@ import { getBedView, hasPhotoThisWeek } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { severityName } from '../../../lib/severity';
 import { relativeAge, sinceLabel } from '../../../lib/format';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
 
 const { plate = '' } = Astro.params;
 const store = getStore();
@@ -22,7 +23,7 @@ if (!me) return Astro.redirect(`${base}/auth`, 303);
 const { bed, adopters, openSlots, openReport } = view;
 const isAdopter = adopters.some((a) => a.user.id === me.id);
 // Signed in but not a guardian of this bed → back to the public plaque.
-if (!isAdopter) return Astro.redirect(base, 303);
+if (!isAdopter) return Astro.redirect(ourPlaqueLink(base), 303);
 
 const photoLogged = await hasPhotoThisWeek(store, plate, me.id);
 
@@ -39,7 +40,7 @@ const clearedByMe =
 <Screen title={`Your bed · ${plate}`}>
   <div class="screen">
     <div class="top-row">
-      <a class="back-link" href={base}>← {plate}</a>
+      <a class="back-link" href={ourPlaqueLink(base)}>← {plate}</a>
       <span class="your-bed">YOUR BED</span>
     </div>
     <div class="card">

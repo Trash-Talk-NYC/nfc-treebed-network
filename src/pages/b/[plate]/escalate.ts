@@ -5,7 +5,7 @@ import { getStore } from '../../../lib/store-local';
 import { RuleError, escalateReport } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
-import { plaqueAfterAction } from '../../../lib/plaque-url';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   const plate = params.plate ?? '';
@@ -16,7 +16,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
     return redirect(`/b/${plate}?raised=1`, 303);
   } catch (err) {
     if (err instanceof RuleError && (err.code === 'no-open-report' || err.code === 'already-dumping')) {
-      return redirect(plaqueAfterAction(`/b/${plate}`), 303);
+      return redirect(ourPlaqueLink(`/b/${plate}`), 303);
     }
     throw err;
   }

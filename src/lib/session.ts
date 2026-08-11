@@ -100,8 +100,6 @@ export function setSessionUser(cookies: AstroCookies, userId: string): void {
  * else the anonymous visitor id (minted and set if missing).
  */
 export function getActorId(cookies: AstroCookies): string {
-  const userId = getSessionUserId(cookies);
-  if (userId) return userId;
   const existing = getExistingActorId(cookies);
   if (existing) return existing;
   const visitorId = `visitor-${randomUUID()}`;

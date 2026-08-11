@@ -7,6 +7,7 @@ import { getStore } from '../../../../lib/store-local';
 import { getBedView } from '../../../../lib/service';
 import { severityName } from '../../../../lib/severity';
 import { receiptTime } from '../../../../lib/format';
+import { ourPlaqueLink } from '../../../../lib/plaque-url';
 
 const { plate = '', rid = '' } = Astro.params;
 const store = getStore();
@@ -47,7 +48,7 @@ const base = `/b/${plate}`;
           </>
         )
       }
-      <a class="btn btn-ghost" href={base}>Not today — just passing through</a>
+      <a class="btn btn-ghost" href={ourPlaqueLink(base)}>Not today — just passing through</a>
     </div>
   </div>
 </Screen>

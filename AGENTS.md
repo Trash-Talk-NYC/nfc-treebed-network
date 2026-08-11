@@ -34,9 +34,11 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - **`events` is append-only.** The store deliberately has no update/delete for events.
 - Anonymous visitors get an HMAC-signed `tg_visitor` cookie so the daily report limit has an identity to hang on.
   Known MVP limitation: clearing cookies mints a new identity; the limit is best-effort for anonymous users.
-- **A rule that is "once per person" reads the actor with `getExistingActorId`, not `getActorId`.**
+- **A rule that is "once per person" reads the actor with `getExistingActorId`, not `getActorId` — with `/report` as the one deliberate exception.**
   `getActorId` mints a visitor id when there isn't one, which on a write path hands a caller that sends no cookie a fresh identity every request — the rule then bounds nothing.
   `/confirm` therefore performs no write for a cookie-less POST and redirects like any other no-op action; a real neighbour always has the cookie, because the plaque GET they arrived through set it.
+  Filing a report is the exception because the trade is not the same one: a confirm the server declines to count costs a visitor nothing they came for, while a report it declines to file is the product.
+  So `/report` mints (`getActorId`), a cookie-less POST files, and the one-per-person-per-NY-day limit is best-effort for anonymous callers — the same concession already recorded above for the visitor cookie. Don't "fix" that line into `getExistingActorId`; it would silently stop anonymous filing, which is the core street action.
   This is a bound, not tamper-proofing: a script that keeps a cookie jar per identity still inflates the count, exactly as it can still refile past the daily limit. `MAX_CONFIRMATIONS` (service.ts) is what makes the cost of doing so finite — the stored array, the events beside it, and the number on the public screen all stop growing there.
 
 ## Security decisions (read before touching auth)
@@ -64,8 +66,10 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   Each read reserves what it may hold *at its peak* — `2 ×` the cap when buffering (the chunks, then the merged copy), `HEAD_BYTES` when head-only, and `CHUNK_ALLOWANCE_BYTES` either way for the chunk in hand — and it caps concurrency in the unit that matters (hundreds of head-only uploads fit; a buffering route gets a handful).
   Reserving only the bytes a read means to *keep* under-counted the report route by 8–16×, which is the same as not having the bound.
 - `MAX_INFLIGHT_BODY_BYTES` covers admitted reads only; `MAX_SHED_READS` (64) bounds the refused ones, which each hold a head plus the chunk in hand while they shed.
-  The peak heap request bodies can reach at any depth of spike is the two together: 48MB + 64 × 72KB, about 52MB. Neither number means anything without the other — a budget that bounds only what it admits is bypassed by everything it turns away.
-  Past `MAX_SHED_READS` at once the body is not read at all and the busy answer goes out on its own; on `/report` that costs the screen its severity, which is the trade that makes the bound absolute.
+  The peak heap for every read holding anything is the two together: 48MB + 64 × 72KB, about 52MB. Neither number means anything without the other — a budget that bounds only what it admits is bypassed by everything it turns away.
+  Past `MAX_SHED_READS` at once a read keeps nothing — no reservation, no head, so on `/report` the screen loses its severity — and stops at `SHED_DRAIN_BYTES`/`SHED_DRAIN_MS`.
+  It does still read that much, and must: **a request body the app never touches is not a body the server never receives.** Node dumps the body of any request whose response finished unconsumed, which resumes the socket and reads it to the end — measured at a full 200MB of ingress for one refused POST, bounded by nothing but Node's own 300s timeout. Taking the first chunk ourselves is what marks the body consumed and puts the stopping point back in our hands.
+  Both halves are measured over a real socket in `tests/report-upload.e2e.test.ts` (`TREEBED_MAX_INFLIGHT_BODY_BYTES` / `TREEBED_MAX_SHED_READS` exist so that path can be driven with two sockets instead of several hundred; they are test seams, not deployment knobs): the connection stays live, the busy screen arrives, and the server takes kilobytes of a 200MB upload rather than all of it.
 - A read refused as `'busy'` drains on `BUSY_DRAIN_BYTES`/`BUSY_DRAIN_MS`, not the headroom the other refusals get.
   Refusing a body and then spending an admitted upload's worth of ingress on it sheds no load at all.
   Everything carrying something a person typed is far under that and still gets its answer; a multi-megabyte photo arriving while the server is full is the one case whose connection closes, and at capacity that is the answer rather than a courtesy owed.
@@ -74,8 +78,9 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   The text-only forms answer in plain text instead (413/408/503/400) because there is no filled-in report behind them to preserve.
   A read that *fails* is not an oversized body, and an oversized body whose sender then hangs up is not a failed read — that one keeps `'over-limit'` and logs one quiet line, because a visitor closing the tab on a refused upload is not an incident.
 - Tap counting must be wrong in neither direction, and `src/lib/plaque-url.ts` is the one place that decides it.
-  Every POST route that sends someone back to the plaque builds the URL with `plaqueAfterAction`, and the plaque suppresses its tap event only for the flags in `POST_ACTION_FLAGS`.
+  Every POST route that sends someone back to the plaque and every link back to it from one of our own screens builds the URL with `ourPlaqueLink` — one function, because it answers one question — and the plaque suppresses its tap event only for the flags in `POST_ACTION_FLAGS`.
   Suppressing on "the URL has a query string" would drop every tap from a decorated tag URL (UTM, Popl, a link shortener); matching only the flags that flash something counted one visit twice every time a rule sent a visitor back with nothing to say.
+  A link back counts as ours for the same reason a redirect does — somebody already on the receipt or the sign-in form had their tap counted when they arrived — and it is the commonest flow of all: tap, file, read the receipt, press "just passing through".
 - Email and phone are PII: stored on the user record, never rendered on any public screen, never included in any client-visible payload. Only name/username is engraved, and only while `displayNameHidden` is false.
 
 ## Design tokens

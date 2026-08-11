@@ -30,18 +30,68 @@ let server: ChildProcessWithoutNullStreams;
 let origin = '';
 let port = 0;
 let dataDir = '';
-/** Everything the server said on stderr, printed when an assertion fails. */
-let serverLog = '';
+/** Everything the shared server has said on stderr, so far. */
+let serverLog: () => string = () => '';
 
 /**
  * Show the server's own account of a failure — including the
- * `[request-body]` lines that exist for exactly this — and keep the stderr
- * pipe drained, which a full one would otherwise block the server on.
+ * `[request-body]` lines that exist for exactly this. The stderr pipe is read
+ * as it arrives either way, which a full one would otherwise block the server
+ * on.
  */
-function withServerLog(): void {
+function withServerLog(log: () => string = serverLog): void {
   onTestFailed(() => {
-    if (serverLog) console.error(`--- server stderr ---\n${serverLog}--- end ---`);
+    const said = log();
+    if (said) console.error(`--- server stderr ---\n${said}--- end ---`);
   });
+}
+
+interface Served {
+  process: ChildProcessWithoutNullStreams;
+  origin: string;
+  port: number;
+  dataDir: string;
+  log: () => string;
+}
+
+/**
+ * Start the built server on a port of its own, with a store of its own.
+ *
+ * `env` is how a test reaches a path that only opens under load: the in-flight
+ * budget and the shed count are readable from the environment so the paths at
+ * capacity can be driven with two sockets rather than several hundred.
+ */
+async function startServer(env: Record<string, string> = {}): Promise<Served> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'treebed-e2e-'));
+  const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
+    env: {
+      ...process.env,
+      TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
+      TREEBED_DATA_DIR: dir,
+      HOST: '127.0.0.1',
+      PORT: '0',
+      ...env,
+    },
+  }) as ChildProcessWithoutNullStreams;
+
+  let log = '';
+  child.stderr.on('data', (buf: Buffer) => {
+    log += String(buf);
+  });
+
+  const [url, listening] = await new Promise<[string, number]>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('server never reported a port')), 30_000);
+    child.stdout.on('data', (buf: Buffer) => {
+      const found = /(http:\/\/127\.0\.0\.1:(\d+))/.exec(String(buf));
+      if (found) {
+        clearTimeout(timer);
+        resolve([found[1]!, Number(found[2])]);
+      }
+    });
+    child.on('exit', (code) => reject(new Error(`server exited early (${code})\n${log}`)));
+  });
+
+  return { process: child, origin: url, port: listening, dataDir: dir, log: () => log };
 }
 
 /** What the server actually wrote for a report, out of its own store file. */
@@ -101,19 +151,40 @@ interface Upload {
  * process's memory rather than of the server's ingress — and any assertion on
  * it a race against the event loop.
  */
-function writeBackpressured(socket: net.Socket, chunk: Buffer): Promise<void> {
-  if (socket.write(chunk)) return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    const done = (): void => {
-      socket.off('drain', done);
-      socket.off('error', done);
-      socket.off('close', done);
-      resolve();
-    };
-    socket.on('drain', done);
-    socket.on('error', done);
-    socket.on('close', done);
+function writeBackpressured(socket: net.Socket, chunk: Buffer, waitMs = Infinity): Promise<boolean> {
+  if (socket.write(chunk)) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    // A server that stops reading without closing leaves the socket full and
+    // quiet: no drain, no error, no close. Waiting forever on that would hang
+    // the run instead of failing it.
+    const timer = Number.isFinite(waitMs) ? setTimeout(() => done(false), waitMs) : undefined;
+    function done(drained: boolean): void {
+      clearTimeout(timer);
+      socket.off('drain', onDrain);
+      socket.off('error', onEnd);
+      socket.off('close', onEnd);
+      resolve(drained);
+    }
+    const onDrain = (): void => done(true);
+    const onEnd = (): void => done(false);
+    socket.on('drain', onDrain);
+    socket.on('error', onEnd);
+    socket.on('close', onEnd);
   });
+}
+
+/** Which server to upload at, and how a real browser's connection differs. */
+interface UploadTo {
+  port?: number;
+  /**
+   * Send the request the way a browser does, with the connection left open.
+   * `Connection: close` is a header Node itself acts on — it closes the socket
+   * once the response is written, which would bound the ingress on its own and
+   * hide whether the server bounds it.
+   */
+  keepAlive?: boolean;
+  /** Stop writing after this long, so a server that never reads can't hang the test. */
+  budgetMs?: number;
 }
 
 /**
@@ -125,10 +196,11 @@ async function slowUpload(
   photoBytes: number,
   chunkBytes: number,
   pauseMs: number,
+  { port: target = port, keepAlive = false, budgetMs = Infinity }: UploadTo = {},
 ): Promise<Upload> {
   const head = preamble(severity);
   const length = head.byteLength + photoBytes + TRAILER.byteLength;
-  const socket = net.connect(port, '127.0.0.1');
+  const socket = net.connect(target, '127.0.0.1');
   let response = '';
   let dropped: string | null = null;
   let written = 0;
@@ -146,28 +218,35 @@ async function slowUpload(
 
   socket.write(
     `POST /b/${PLATE}/report HTTP/1.1\r\n` +
-      `Host: 127.0.0.1:${port}\r\n` +
+      `Host: 127.0.0.1:${target}\r\n` +
       // Astro rejects cross-site form POSTs; a browser on the plaque sends this.
-      `Origin: http://127.0.0.1:${port}\r\n` +
+      `Origin: http://127.0.0.1:${target}\r\n` +
       `Content-Type: multipart/form-data; boundary=${BOUNDARY}\r\n` +
       `Content-Length: ${length}\r\n` +
-      'Connection: close\r\n\r\n',
+      (keepAlive ? '\r\n' : 'Connection: close\r\n\r\n'),
   );
   socket.write(head);
 
   const chunk = Buffer.alloc(chunkBytes, 0x7f);
-  while (written < photoBytes && !dropped) {
+  const until = Date.now() + budgetMs;
+  while (written < photoBytes && !dropped && Date.now() < until) {
     if (socket.destroyed) {
       dropped ??= 'socket destroyed';
       break;
     }
     const size = Math.min(chunkBytes, photoBytes - written);
-    await writeBackpressured(socket, chunk.subarray(0, size));
-    if (dropped || socket.destroyed) break;
+    const drained = await writeBackpressured(socket, chunk.subarray(0, size), budgetMs);
     written += size;
+    if (!drained) {
+      // The socket took this chunk and then went nowhere: the server has
+      // stopped reading, which for a refused upload is the whole point.
+      dropped ??= socket.destroyed ? 'socket destroyed' : 'server stopped reading';
+      break;
+    }
+    if (dropped || socket.destroyed) break;
     await new Promise((resolve) => setTimeout(resolve, pauseMs));
   }
-  if (!dropped && !socket.destroyed) socket.write(TRAILER);
+  if (!dropped && !socket.destroyed && written >= photoBytes) socket.write(TRAILER);
   await new Promise((resolve) => setTimeout(resolve, 1_000));
   socket.destroy();
 
@@ -233,32 +312,12 @@ beforeAll(async () => {
   });
   if (built.status !== 0) throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
 
-  dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-e2e-'));
-  server = spawn(process.execPath, ['dist/server/entry.mjs'], {
-    env: {
-      ...process.env,
-      TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
-      TREEBED_DATA_DIR: dataDir,
-      HOST: '127.0.0.1',
-      PORT: '0',
-    },
-  }) as ChildProcessWithoutNullStreams;
-  server.stderr.on('data', (buf: Buffer) => {
-    serverLog += String(buf);
-  });
-
-  origin = await new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('server never reported a port')), 30_000);
-    server.stdout.on('data', (buf: Buffer) => {
-      const found = /(http:\/\/127\.0\.0\.1:(\d+))/.exec(String(buf));
-      if (found) {
-        clearTimeout(timer);
-        port = Number(found[2]);
-        resolve(found[1]!);
-      }
-    });
-    server.on('exit', (code) => reject(new Error(`server exited early (${code})\n${serverLog}`)));
-  });
+  const started = await startServer();
+  server = started.process;
+  origin = started.origin;
+  port = started.port;
+  dataDir = started.dataDir;
+  serverLog = started.log;
 }, 180_000);
 
 afterAll(async () => {
@@ -465,4 +524,78 @@ describe('oversized report uploads, end to end', () => {
     expect(posted.status).toBe(413);
     expect(await posted.text()).toContain('too large');
   });
+});
+
+describe('an upload that arrives past the shed count', () => {
+  // The deepest branch in request-body.ts: no room in the byte budget and no
+  // shed slot left either, where the read keeps nothing at all. Driven with a
+  // server whose two bounds are set to zero, because reaching it honestly takes
+  // several hundred concurrent uploads and proves nothing extra.
+  //
+  // Worth a real socket rather than a unit test twice over. A body the app
+  // never reads is not a body the server never receives: Node dumps it, which
+  // measured at the full 200MB — bounded by nothing but its own 300s timeout —
+  // and no synthetic ReadableStream can show that, because the dump lives in
+  // Node's HTTP server, not in the stream. And the answer still has to reach
+  // the visitor over a socket that is still there, which is the exact thing an
+  // earlier version of this file got wrong.
+  let shed: Served;
+
+  beforeAll(async () => {
+    shed = await startServer({
+      TREEBED_MAX_INFLIGHT_BODY_BYTES: '0',
+      TREEBED_MAX_SHED_READS: '0',
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    shed?.process.kill();
+    if (shed?.dataDir) await rm(shed.dataDir, { recursive: true, force: true });
+  });
+
+  it('answers a 200MB body after taking kilobytes of it', async () => {
+    withServerLog(() => shed.log());
+    // Keep-alive, like a browser: `Connection: close` would have Node end the
+    // socket for us and prove nothing about what this code bounds.
+    const upload = await slowUpload('2', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+      port: shed.port,
+      keepAlive: true,
+      budgetMs: 20_000,
+    });
+
+    // The screen, on a live socket — never a reset in place of an answer.
+    expect(upload.status).toBe(303);
+    // Declared over the cap as well as unroomed, and the size is what it is
+    // told: "the tag is busy" would send it to retry the same photo forever.
+    // No head was kept at this depth, so no severity rides along.
+    expect(upload.location).toBe(`/b/${PLATE}/too-large`);
+    // And the ingress stopped where we say it does, not where the sender does.
+    // Left untouched instead, this body is one Node reads to its end for us.
+    expect(upload.written).toBeLessThan(16 * MEGABYTE);
+
+    const screen = await fetch(`${shed.origin}${upload.location}`);
+    expect(screen.status).toBe(200);
+    const html = await screen.text();
+    expect(html).toContain('That photo was too large.');
+    expect(html).toContain('PICK THE SEVERITY AGAIN');
+  }, 60_000);
+
+  it('says the tag is busy when the body itself was never the problem', async () => {
+    withServerLog(() => shed.log());
+    const body = Buffer.concat([preamble('1'), Buffer.alloc(16 * 1024, 0x7f), TRAILER]);
+    const posted = await fetch(`${shed.origin}/b/${PLATE}/report`, {
+      method: 'POST',
+      headers: {
+        'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
+        origin: shed.origin,
+      },
+      body: new Uint8Array(body),
+      redirect: 'manual',
+    });
+
+    expect(posted.status).toBe(303);
+    expect(posted.headers.get('location')).toBe(`/b/${PLATE}/too-large?reason=busy`);
+    const screen = await fetch(`${shed.origin}/b/${PLATE}/too-large?reason=busy`);
+    expect(await screen.text()).toContain('The tag is busy right now.');
+  }, 60_000);
 });

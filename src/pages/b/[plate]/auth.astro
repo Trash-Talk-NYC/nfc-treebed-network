@@ -6,6 +6,7 @@ import { getStore } from '../../../lib/store-local';
 import { RuleError, getBedView, signIn } from '../../../lib/service';
 import { getSessionUserId, setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
 
 const { plate = '' } = Astro.params;
 const store = getStore();
@@ -45,7 +46,7 @@ if (Astro.request.method === 'POST') {
 
 <Screen title={`Sign in · ${plate}`}>
   <div class="screen">
-    <a class="back-link" href={base}>← {plate}</a>
+    <a class="back-link" href={ourPlaqueLink(base)}>← {plate}</a>
     <div class="headline">Welcome back, guardian.</div>
     <form method="POST" class="auth-form">
       <div class="card form-card">

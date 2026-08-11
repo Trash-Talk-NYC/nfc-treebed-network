@@ -5,7 +5,7 @@ import { getStore } from '../../../lib/store-local';
 import { RuleError, closeReport } from '../../../lib/service';
 import { getActorId, getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
-import { plaqueAfterAction } from '../../../lib/plaque-url';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   const plate = params.plate ?? '';
@@ -14,7 +14,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   const signedIn = getSessionUserId(cookies) !== null;
   // The guardian's own view logs no tap; the plaque does, so the anonymous way
   // back carries the flag that says this render is our redirect, not a visit.
-  const back = signedIn ? `/b/${plate}/mine` : plaqueAfterAction(`/b/${plate}`);
+  const back = signedIn ? `/b/${plate}/mine` : ourPlaqueLink(`/b/${plate}`);
   try {
     await closeReport(getStore(), { plate, actorId: getActorId(cookies) });
     return redirect(back, 303);
