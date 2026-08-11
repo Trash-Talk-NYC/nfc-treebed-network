@@ -1,20 +1,24 @@
 name: promotion-chain
 
-# Enforces the branch promotion chain: dev -> qa -> stage -> prod (main mirrors prod).
-# This can only reject pull requests; it CANNOT block direct pushes to qa/stage/prod.
-# Branch protection is unavailable (free plan + private repo), so CI is the only guard.
+# Flags pull requests that break the promotion chain: dev -> qa -> stage -> prod
+# (main mirrors prod), plus sanctioned hotfix/* -> prod.
+# This check is advisory only. Branch protection, rulesets, and required status
+# checks are all unavailable (free plan + private repo), so a failing run marks the
+# PR red but leaves the merge button enabled, and nothing here sees direct pushes.
 
 on:
   pull_request:
     types: [opened, reopened, synchronize, edited]
     branches: [qa, stage, prod, main]
 
+permissions: {}
+
 jobs:
   check-promotion-source:
     name: PR source matches promotion chain
     runs-on: ubuntu-latest
     steps:
-      - name: Assert head branch is the valid predecessor of the base branch
+      - name: Assert head branch is a valid source for the base branch
         env:
           BASE: ${{ github.base_ref }}
           HEAD: ${{ github.head_ref }}
@@ -22,20 +26,36 @@ jobs:
           set -euo pipefail
 
           case "$BASE" in
-            qa)    valid="dev" ;;
-            stage) valid="qa" ;;
-            prod)  valid="stage" ;;
-            main)  valid="prod" ;;
+            qa)    expected="dev" ;;
+            stage) expected="qa" ;;
+            prod)  expected="stage" ;;
+            main)  expected="prod" ;;
             *)
               # Unreachable given the trigger filter, but fail loudly if it happens.
-              echo "::error::Unexpected PR base branch '$BASE'; this workflow only guards qa, stage, prod, and main."
+              echo "::error::Unexpected PR base branch '$BASE'; this workflow only covers qa, stage, prod, and main."
               exit 1
               ;;
           esac
 
-          if [ "$HEAD" = "$valid" ]; then
-            echo "OK: PR into '$BASE' comes from '$valid'."
+          allowed="'$expected'"
+          valid=false
+
+          if [ "$HEAD" = "$expected" ]; then
+            valid=true
+          fi
+
+          # Hotfixes are the one sanctioned exception to the chain: they skip
+          # dev/qa/stage and land straight on prod, then get back-merged down.
+          if [ "$BASE" = "prod" ]; then
+            allowed="'$expected' or a 'hotfix/*' branch"
+            case "$HEAD" in
+              hotfix/?*) valid=true ;;
+            esac
+          fi
+
+          if [ "$valid" = true ]; then
+            echo "OK: PR into '$BASE' comes from '$HEAD', a valid source ($allowed)."
           else
-            echo "::error::PR into '$BASE' must come from '$valid', not '$HEAD'. Promote through the chain: dev -> qa -> stage -> prod (main mirrors prod)."
+            echo "::error::PR into '$BASE' must come from $allowed, not '$HEAD'. Promote through the chain: dev -> qa -> stage -> prod (main mirrors prod)."
             exit 1
           fi
