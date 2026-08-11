@@ -54,6 +54,14 @@ async function storedReport(id: string): Promise<{ severity: string; photoAttach
   return found;
 }
 
+/** Tap events the server has actually written, out of its own store file. */
+async function storedTaps(): Promise<number> {
+  const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+    events: Array<{ eventType: string }>;
+  };
+  return data.events.filter((event) => event.eventType === 'tap').length;
+}
+
 /** The multipart preamble the severity sheet sends: severity, then the file. */
 function preamble(severityIndex: string): Buffer {
   return Buffer.from(
@@ -163,6 +171,53 @@ async function slowUpload(
   };
 }
 
+/**
+ * Start an upload the server would accept, then go quiet — a phone that walked
+ * out of signal halfway through. Nothing declares this body oversized; only
+ * the accepted path's own idle bound ends it.
+ */
+async function stalledUpload(severity: string, sentBytes: number, waitMs: number): Promise<Upload> {
+  const head = preamble(severity);
+  // Under the 12MB cap, so this is never an oversized body — just an unfinished one.
+  const length = head.byteLength + 4 * MEGABYTE + TRAILER.byteLength;
+  const socket = net.connect(port, '127.0.0.1');
+  let response = '';
+  let dropped: string | null = null;
+
+  socket.on('data', (data: Buffer) => {
+    response += data.toString('latin1');
+  });
+  socket.on('error', (err: NodeJS.ErrnoException) => {
+    dropped ??= err.code ?? err.message;
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+  });
+
+  socket.write(
+    `POST /b/${PLATE}/report HTTP/1.1\r\n` +
+      `Host: 127.0.0.1:${port}\r\n` +
+      `Origin: http://127.0.0.1:${port}\r\n` +
+      `Content-Type: multipart/form-data; boundary=${BOUNDARY}\r\n` +
+      `Content-Length: ${length}\r\n` +
+      'Connection: close\r\n\r\n',
+  );
+  socket.write(head);
+  await writeBackpressured(socket, Buffer.alloc(sentBytes, 0x7f));
+
+  // …and then nothing at all, until the server gives up on the rest.
+  await new Promise((resolve) => setTimeout(resolve, waitMs));
+  socket.destroy();
+
+  return {
+    written: sentBytes,
+    dropped,
+    status: Number(/^HTTP\/1\.1 (\d{3})/.exec(response)?.[1]) || null,
+    location: /location: (\S+)/i.exec(response)?.[1] ?? null,
+  };
+}
+
 beforeAll(async () => {
   const built = spawnSync('npm', ['run', 'build'], {
     encoding: 'utf8',
@@ -235,6 +290,28 @@ describe('oversized report uploads, end to end', () => {
     expect(upload.written).toBeLessThan(DRAIN_CEILING_BYTES + 24 * MEGABYTE);
   });
 
+  it('keeps the report of an upload that stalled under the cap', async () => {
+    withServerLog();
+    // Slow by construction: the server waits READ_IDLE_MS (30s) before calling
+    // a quiet sender finished, and shortening that would test a bound nobody
+    // ships. A body under the cap that never all arrives is the likelier
+    // failure on a sidewalk than exceeding 12MB, and the standing ruling is
+    // that neither one costs somebody the report they already filled in.
+    const upload = await stalledUpload('1', 256 * 1024, 45_000);
+
+    expect(upload.status).toBe(303);
+    expect(upload.location).toBe(`/b/${PLATE}/too-large?severity=1&reason=incomplete`);
+
+    const screen = await fetch(`${origin}${upload.location}`);
+    expect(screen.status).toBe(200);
+    const html = await screen.text();
+    expect(html).toContain('That upload didn&#39;t finish.');
+    // Never blamed on the photo: this one may well have been under the cap.
+    expect(html).not.toContain('That photo was too large.');
+    expect(html).toContain('HEAVY');
+    expect(html).toContain('FILE IT WITHOUT THE PHOTO');
+  }, 120_000);
+
   it('still files a report a photo fits in, and records the attachment', async () => {
     withServerLog();
     const body = Buffer.concat([preamble('1'), Buffer.alloc(64 * 1024, 0x7f), TRAILER]);
@@ -292,6 +369,30 @@ describe('oversized report uploads, end to end', () => {
     expect(html).toContain('HEAVY');
     expect(html).toContain('SEND IT AGAIN');
     expect(html).not.toContain('That photo was too large.');
+  });
+
+  it('counts one tap per visit, and none for its own redirects', async () => {
+    withServerLog();
+    // The bed still has the report the refile case filed; closing it is one of
+    // the redirects that used to land on the bare plaque and be counted twice.
+    const cleared = await fetch(`${origin}/b/${PLATE}/clear`, {
+      method: 'POST',
+      headers: { origin },
+      redirect: 'manual',
+    });
+    expect(cleared.status).toBe(303);
+    const back = cleared.headers.get('location');
+    expect(back).toBe(`/b/${PLATE}?tg_action=1`);
+
+    const before = await storedTaps();
+    const landed = await fetch(`${origin}${back}`);
+    expect(landed.status).toBe(200);
+    expect(await storedTaps()).toBe(before);
+
+    // A decorated tag URL is still somebody at the tree bed.
+    const tapped = await fetch(`${origin}/b/${PLATE}?utm_source=popl&utm_medium=nfc`);
+    expect(tapped.status).toBe(200);
+    expect(await storedTaps()).toBe(before + 1);
   });
 
   it('refuses an oversized sign-in body without reading a megabyte of it', async () => {

@@ -1,5 +1,5 @@
 ---
-// Where an oversized photo lands. Filing is the core action on the street, so
+// Where a refused upload lands. Filing is the core action on the street, so
 // an optional attachment must never cost someone the report they already
 // filled in: the severity they picked is carried here and one tap files it
 // without the photo. Plain forms and links only — no client JS, like the
@@ -20,36 +20,60 @@ const base = `/b/${plate}`;
 const kept = severityIndexFrom(Astro.url.searchParams.get('severity'));
 const tier = kept === null ? null : SEVERITIES[kept]!;
 
-// The other way an upload is refused: too many arriving at once. Same screen,
-// because the offer is the same one — the report is still theirs to send —
-// but never the same words: a photo they should shrink and a queue they should
-// retry ask for different things.
-const busy = Astro.url.searchParams.get('reason') === 'busy';
+// The three ways an upload is refused land on this one screen, because the
+// offer is the same every time — the report is still theirs to send — but
+// never on the same words: a photo to shrink, a queue to retry and an upload
+// that stopped halfway ask for different things from the person holding the
+// phone. Telling someone their photo was too large when it never all arrived
+// sends them off to fix something that was fine.
+const reasonParam = Astro.url.searchParams.get('reason');
+const reason = reasonParam === 'busy' || reasonParam === 'incomplete' ? reasonParam : 'over-limit';
+const COPY = {
+  'over-limit': {
+    tab: 'Photo too large',
+    title: 'That photo was too large.',
+    action: 'FILE IT WITHOUT THE PHOTO',
+  },
+  busy: {
+    tab: 'Tag busy',
+    title: 'The tag is busy right now.',
+    action: 'SEND IT AGAIN',
+  },
+  incomplete: {
+    tab: "Upload didn't finish",
+    title: "That upload didn't finish.",
+    action: 'FILE IT WITHOUT THE PHOTO',
+  },
+} as const;
+const copy = COPY[reason];
 ---
 
-<Screen title={busy ? `Tag busy · ${plate}` : `Photo too large · ${plate}`}>
+<Screen title={`${copy.tab} · ${plate}`}>
   <div class="screen">
     <div class="kicker kicker-muted">{plate}</div>
     <div class="card card-roomy">
-      <div class="too-large-title">
-        {busy ? 'The tag is busy right now.' : 'That photo was too large.'}
-      </div>
+      <div class="too-large-title">{copy.title}</div>
       <div class="too-large-meta mono">NOTHING FILED YET · THE REPORT IS STILL YOURS TO SEND</div>
     </div>
     <div class="body-copy">
-      {
-        busy ? (
-          <>
-            Too many uploads landed on the tag at once. Nothing was lost —{' '}
-            <span class="emph">send the report and it goes into the queue.</span>
-          </>
-        ) : (
-          <>
-            Photos over 12 MB don't make it through the tag. The photo is optional —{' '}
-            <span class="emph">the report is what the crews rank.</span>
-          </>
-        )
-      }
+      {reason === 'busy' && (
+        <>
+          Too many uploads landed on the tag at once. Nothing was lost —{' '}
+          <span class="emph">send the report and it goes into the queue.</span>
+        </>
+      )}
+      {reason === 'incomplete' && (
+        <>
+          The photo stopped coming through before all of it arrived. The photo is optional —{' '}
+          <span class="emph">the report is what the crews rank.</span>
+        </>
+      )}
+      {reason === 'over-limit' && (
+        <>
+          Photos over 12 MB don't make it through the tag. The photo is optional —{' '}
+          <span class="emph">the report is what the crews rank.</span>
+        </>
+      )}
     </div>
     <div class="actions-bottom">
       {
@@ -61,7 +85,7 @@ const busy = Astro.url.searchParams.get('reason') === 'busy';
             <form method="POST" action={`${base}/report`}>
               <input type="hidden" name="severity" value={kept} />
               <button class="btn btn-primary btn-refile" type="submit">
-                {busy ? 'SEND IT AGAIN' : 'FILE IT WITHOUT THE PHOTO'}
+                {copy.action}
               </button>
             </form>
           </>

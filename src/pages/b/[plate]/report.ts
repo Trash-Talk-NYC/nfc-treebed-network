@@ -11,9 +11,10 @@ import {
   photoAttachedFromHead,
   readCappedHead,
   readFormOrRefuse,
-  refusalResponse,
   severityIndexFromHead,
+  type Refusal,
 } from '../../../lib/request-body';
+import { plaqueAfterAction } from '../../../lib/plaque-url';
 import type { Severity } from '../../../lib/types';
 
 // A phone photo is a few MB; nothing here is stored, so the cap only has to
@@ -40,10 +41,12 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
     // they already filled in: the severity they picked rides the redirect to a
     // screen that offers to file it without the attachment.
     const { head, refusal } = await readCappedHead(request, MAX_PHOTO_BODY_BYTES);
-    if (refusal === 'over-limit' || refusal === 'busy') return redirect(tooLarge(base, head, refusal), 303);
-    // The body never finished arriving. The too-large screen would blame a
-    // photo that may well have been under the cap.
-    if (refusal !== null) return refusalResponse(refusal, 'report');
+    // Every refusal lands on the same screen, because the report is the thing
+    // being rescued and the head already holds the severity whichever way the
+    // upload ended. Only the words differ, and an upload that stalled is never
+    // told it was too large — a body under the cap that never finished sends
+    // somebody off to shrink a photo that was fine.
+    if (refusal !== null) return redirect(tooLarge(base, head, refusal), 303);
     const index = severityIndexFromHead(head);
     severity = index === null ? null : severityFromIndex(index);
     photoAttached = photoAttachedFromHead(head);
@@ -62,7 +65,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   } catch (err) {
     if (err instanceof RuleError) {
       // Someone else's report is already open → confirm/escalate screen.
-      if (err.code === 'open-report-exists') return redirect(base, 303);
+      if (err.code === 'open-report-exists') return redirect(plaqueAfterAction(base), 303);
       // Their own daily limit → the rate-limited screen.
       if (err.code === 'already-reported-today') return redirect(`${base}?limited=1`, 303);
       if (err.code === 'bed-not-found') return new Response(err.message, { status: 404 });
@@ -74,14 +77,18 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
 /**
  * Where a refused upload lands. The severity is carried across when the head
  * got far enough to hold it, so the screen can offer the report back — and the
- * reason is carried too, because "too large" and "too busy" ask for different
- * things from the person holding the phone.
+ * reason is carried too, because a photo to shrink, a queue to retry and an
+ * upload that stopped halfway ask for different things from the person holding
+ * the phone. `over-limit` is the screen's default and needs no parameter.
  */
-function tooLarge(base: string, head: Uint8Array, refusal: 'over-limit' | 'busy'): string {
+function tooLarge(base: string, head: Uint8Array, refusal: Refusal): string {
   const kept = severityIndexFromHead(head);
   const params = new URLSearchParams();
   if (kept !== null) params.set('severity', String(kept));
   if (refusal === 'busy') params.set('reason', 'busy');
+  // Timed out or broken off: both are one upload that never all arrived, and
+  // nothing a visitor could act on distinguishes them.
+  if (refusal === 'timed-out' || refusal === 'read-failed') params.set('reason', 'incomplete');
   const query = params.toString();
   return `${base}/too-large${query ? `?${query}` : ''}`;
 }

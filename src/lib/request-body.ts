@@ -21,28 +21,32 @@
 //                                      head is ever held, so a 12MB photo costs
 //                                      no copies of itself. Time: READ_* while
 //                                      the body may still be filed, DRAIN_* once
-//                                      it is refused. Concurrency: HEAD_BYTES
-//                                      reserved out of MAX_INFLIGHT_BODY_BYTES.
-//                                      Peak heap: ~8KB + the chunk in hand.
-//                                      Over the cap, or at capacity → the
-//                                      too-large screen, severity preserved.
+//                                      it is refused. Concurrency: HEAD_BYTES +
+//                                      CHUNK_ALLOWANCE_BYTES reserved out of
+//                                      MAX_INFLIGHT_BODY_BYTES. Peak heap: the
+//                                      head plus the chunk in hand, which is
+//                                      exactly what it reserves. Every refusal →
+//                                      the too-large screen, severity preserved.
 //   POST .../report  (refile, no file) Size: MAX_FORM_BYTES buffered. Time and
 //                                      concurrency as below. Peak heap ~128KB.
 //                                      Refused → a plain short answer: this
 //                                      body is one field, so only a broken
-//                                      connection ever gets there.
+//                                      connection ever gets there, and the
+//                                      screen it would go back to is the one it
+//                                      was just sent from.
 //   POST .../auth, .../adopt           Size: MAX_FORM_BYTES buffered. Time:
-//                                      READ_*/DRAIN_*. Concurrency: that cap
-//                                      reserved out of MAX_INFLIGHT_BODY_BYTES.
-//                                      Peak heap: ~2× the cap (the chunks, then
-//                                      the parse). Refused → a plain short
-//                                      answer, the same shape these forms
-//                                      already give a rejected field.
+//                                      READ_*/DRAIN_*. Concurrency: 2× that cap
+//                                      + CHUNK_ALLOWANCE_BYTES reserved out of
+//                                      MAX_INFLIGHT_BODY_BYTES, which is the
+//                                      peak heap too (the chunks, the merged
+//                                      copy, the chunk in hand). Refused → a
+//                                      plain short answer, the same shape these
+//                                      forms already give a rejected field.
 //   POST .../confirm, escalate, clear  One button each, so `discardBody` reads
 //                                      the body to its end under MAX_FORM_BYTES
-//                                      and keeps nothing: same time bounds,
-//                                      HEAD_BYTES reserved, ~8KB peak. Refused →
-//                                      a plain short answer. Leaving it unread
+//                                      and keeps nothing: same time bounds, the
+//                                      head-only reservation, same peak. Refused
+//                                      → a plain short answer. Leaving it unread
 //                                      would cost heap nothing and could cost
 //                                      the caller this route's redirect.
 //   POST .../photo                     The same, behind session and adopter
@@ -82,6 +86,15 @@ export const HEAD_BYTES = 8 * 1024;
 
 /** Cap for the text-only forms (sign in, adopt, refile): short fields only. */
 export const MAX_FORM_BYTES = 64 * 1024;
+
+/**
+ * What a read is holding on top of whatever it keeps: Node's HTTP reader hands
+ * a body up in chunks of about this size, and one of them is in hand while the
+ * loop decides what to do with it. Small next to a buffered body and eight
+ * times the head of a head-only read, which is why leaving it out of the
+ * reservation below under-counted the report route by an order of magnitude.
+ */
+export const CHUNK_ALLOWANCE_BYTES = 64 * 1024;
 
 /**
  * How far past the cap a refused body is still read to its end. Draining is
@@ -126,17 +139,36 @@ export const READ_IDLE_MS = 30_000;
  * How many bytes all in-flight reads together may be holding.
  *
  * A per-request cap bounds one request; nothing bounded how many arrive at
- * once. Each read reserves what it can hold — the cap for a body being
- * buffered, HEAD_BYTES for a head-only read — before it starts, and releases
- * it when it finishes, so this number *is* the peak heap the request bodies of
- * a whole traffic spike can reach. It caps concurrency in the unit that
- * matters: thousands of head-only uploads fit, while a route that buffers
- * megabytes gets only a handful.
+ * once. Each read reserves what it can hold at its peak — see `reservation`
+ * below, which counts the chunk in hand as well as the bytes kept — before it
+ * starts, and releases it when it finishes, so this number *is* the peak heap
+ * the request bodies of a whole traffic spike can reach. It caps concurrency
+ * in the unit that matters: hundreds of head-only uploads fit, while a route
+ * that buffers megabytes gets only a handful.
  *
- * A read that doesn't fit is refused as 'busy' — read to its end and answered
- * with a screen, never dropped.
+ * A read that doesn't fit is refused as 'busy', on `BUSY_DRAIN_BYTES` rather
+ * than the drain headroom: a refusal that costs as much ingress as an admitted
+ * upload sheds nothing, which is the opposite of what a capacity bound is for.
  */
 export const MAX_INFLIGHT_BODY_BYTES = 48 * 1024 * 1024;
+
+/**
+ * How far a read the server had no room for is drained.
+ *
+ * The headroom above exists so a visitor's photo can finish arriving and be
+ * answered with a screen. That reasoning does not survive being at capacity:
+ * the whole point of refusing is to stop spending on this request, and 36MB of
+ * ingress per refusal is the same bill an admitted upload runs up. Every body
+ * that carries something a person typed — a sign-in, an adopt form, a refile,
+ * a single-button POST — is far under this and still gets its answer intact.
+ * A multi-megabyte photo arriving while the server is already full is the one
+ * case that loses its screen: the read stops and the connection closes behind
+ * it, which at that point is the correct answer rather than a courtesy owed.
+ */
+export const BUSY_DRAIN_BYTES = 256 * 1024;
+
+/** And for no longer than this, for the same reason. */
+export const BUSY_DRAIN_MS = 5_000;
 
 /** What a body may cost before the read gives up on it. */
 export interface ReadBounds {
@@ -212,10 +244,11 @@ interface Consumed {
  * connection reset instead of the response we wrote for it. Reading to the end
  * costs bandwidth we were going to receive anyway and leaves a live socket to
  * answer on. That courtesy has bounds — `drainHeadroom` bytes, `drainIdleMs`
- * of silence, `drainTimeoutMs` in all — and past any of them this stops
+ * of silence, `drainTimeoutMs` in all, and `BUSY_DRAIN_*` in place of all
+ * three once the server is out of room — and past any of them this stops
  * reading, which lets the platform close the connection on a body it never
- * finished. Whatever is on the other end of that one is not a visitor waiting
- * for a screen.
+ * finished. Whatever is on the other end of that one is either not a visitor
+ * waiting for a screen, or arriving in a spike that has to be shed somewhere.
  */
 async function consume(
   request: Request,
@@ -238,8 +271,11 @@ async function consume(
   }
 
   // Reserved up front, for the whole read: admitting a request and discovering
-  // afterwards that there was no room for it would be no bound at all.
-  const reservation = keepBody ? limit : HEAD_BYTES;
+  // afterwards that there was no room for it would be no bound at all. What is
+  // reserved is what this read can be holding at its peak, not what it means to
+  // keep — a buffered body is the chunk list and then the merged copy built
+  // from it, and either kind of read has a chunk in hand on top of that.
+  const reservation = (keepBody ? 2 * limit : HEAD_BYTES) + CHUNK_ALLOWANCE_BYTES;
   const busy = inflightBytes + reservation > MAX_INFLIGHT_BODY_BYTES;
   // A refused body is still read to its end, and holding the head is what lets
   // the answer keep the visitor's severity — that much fits regardless.
@@ -256,10 +292,20 @@ async function consume(
   let total = 0;
   let failed = false;
   let stalled = false;
+  // What the drain may cost, decided by which kind of refusal it is: a body
+  // refused for its size is a photo still finishing its upload, and gets the
+  // headroom; one refused for want of room is load to shed, and gets almost
+  // nothing — but never more than it would have got anyway, since on the small
+  // forms the headroom is already tighter than the busy budget.
+  const drainCeiling = busy
+    ? Math.min(BUSY_DRAIN_BYTES, limit + drainHeadroom)
+    : limit + drainHeadroom;
+  const drainBudgetMs = busy ? BUSY_DRAIN_MS : drainTimeoutMs;
+  const drainIdle = busy ? BUSY_DRAIN_MS : drainIdleMs;
   // Both clocks start now. Which one applies switches with `over`, so a body
   // refused halfway through gets the drain's bounds for what remains.
   const started = Date.now();
-  let drainDeadline = started + drainTimeoutMs;
+  let drainDeadline = started + drainBudgetMs;
   const readDeadline = started + readTimeoutMs;
 
   // Past a bound the read simply stops here, without cancelling: cancelling
@@ -275,7 +321,7 @@ async function consume(
         break;
       }
       // Whichever bound comes first: gone quiet, or out of total time.
-      const raced = await readWithin(reader, Math.min(remaining, refused ? drainIdleMs : readIdleMs));
+      const raced = await readWithin(reader, Math.min(remaining, refused ? drainIdle : readIdleMs));
       if (raced === STALLED) {
         stalled = true;
         break;
@@ -291,13 +337,15 @@ async function consume(
       }
       if (!over && total > limit) {
         over = true;
-        // The drain's budget is measured from the moment the body was refused.
-        drainDeadline = Date.now() + drainTimeoutMs;
+        // The drain's budget is measured from the moment the body was refused
+        // — unless there was no room for it to begin with, in which case its
+        // clock has been running since the read started.
+        if (!busy) drainDeadline = Date.now() + drainBudgetMs;
       }
       if (over || !keep) {
         keep = false;
         kept = null;
-        if (total > limit + drainHeadroom) break;
+        if (total > drainCeiling) break;
         continue;
       }
       kept!.push(value);

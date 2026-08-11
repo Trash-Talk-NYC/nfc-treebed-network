@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  BUSY_DRAIN_BYTES,
+  CHUNK_ALLOWANCE_BYTES,
   HEAD_BYTES,
   MAX_INFLIGHT_BODY_BYTES,
   photoAttachedFromHead,
@@ -343,13 +345,27 @@ describe('the in-flight budget', () => {
     return { req, release: () => release() };
   }
 
-  it('refuses a read there is no room for, and admits it once there is', async () => {
-    const holding = gatedRequest(reportBody('1', 1024));
-    // Reserves the whole budget for as long as its body is still arriving.
-    const held = readCappedBody(holding.req, MAX_INFLIGHT_BODY_BYTES);
-    await new Promise((resolve) => setImmediate(resolve));
+  /**
+   * A buffered read's cap sized so its reservation leaves `free` bytes of the
+   * budget behind — the reservation being twice the cap plus a chunk.
+   */
+  function capLeaving(free: number): number {
+    return (MAX_INFLIGHT_BODY_BYTES - CHUNK_ALLOWANCE_BYTES - free) / 2;
+  }
 
-    const crowded = await readCappedBody(request(reportBody('2', 1024)), MAX_INFLIGHT_BODY_BYTES);
+  /** A read holding its reservation until it is released. */
+  async function hold(cap: number) {
+    const holding = gatedRequest(reportBody('1', 1024));
+    const held = readCappedBody(holding.req, cap);
+    await new Promise((resolve) => setImmediate(resolve));
+    return { release: holding.release, settled: () => held };
+  }
+
+  it('refuses a read there is no room for, and admits it once there is', async () => {
+    const holding = await hold(capLeaving(8 * 1024 * 1024));
+
+    const cap = 20 * 1024 * 1024;
+    const crowded = await readCappedBody(request(reportBody('2', 1024)), cap);
     // Not 'over-limit': this body was small. The server had no room for it,
     // and it was read to its end so the answer reaches whoever sent it.
     expect(crowded.refusal).toBe('busy');
@@ -358,25 +374,75 @@ describe('the in-flight budget', () => {
     expect(severityIndexFromHead(crowded.head)).toBe(2);
 
     holding.release();
-    expect((await held).refusal).toBeNull();
+    expect((await holding.settled()).refusal).toBeNull();
 
     // The reservation is released with the read, not leaked past it.
-    const after = await readCappedBody(request(reportBody('0', 1024)), MAX_INFLIGHT_BODY_BYTES);
+    const after = await readCappedBody(request(reportBody('0', 1024)), cap);
     expect(after.refusal).toBeNull();
   });
 
   it('costs a head-only read only its head, so uploads keep being admitted', async () => {
-    const holding = gatedRequest(reportBody('1', 1024));
-    const held = readCappedHead(holding.req, MAX_INFLIGHT_BODY_BYTES);
-    await new Promise((resolve) => setImmediate(resolve));
+    const holding = await hold(capLeaving(8 * 1024 * 1024));
 
-    // Same cap the buffered read above had no room to share — a head-only read
-    // reserves HEAD_BYTES instead, which is what keeps the report route open
-    // to thousands of concurrent phone uploads.
-    const alongside = await readCappedHead(request(reportBody('2', 1024)), MAX_INFLIGHT_BODY_BYTES);
+    // No room at all for another buffered read of that size — but a head-only
+    // read holds kilobytes, which is what keeps the report route open to
+    // hundreds of concurrent phone uploads.
+    const alongside = await readCappedHead(request(reportBody('2', 1024)), 12 * 1024 * 1024);
     expect(alongside.refusal).toBeNull();
 
     holding.release();
-    expect((await held).refusal).toBeNull();
+    expect((await holding.settled()).refusal).toBeNull();
+  });
+
+  it('counts the chunk in hand, not just the head it keeps', async () => {
+    // Room for the head and nothing else. A read holds the chunk it is looking
+    // at as well as the bytes it decided to keep, and reserving only the latter
+    // under-counted the report route by the better part of an order of
+    // magnitude — a budget that admits eight times what it can hold is no
+    // budget at all.
+    const holding = await hold(capLeaving(HEAD_BYTES + 1024));
+
+    const crowded = await readCappedHead(request(reportBody('2', 1024)), 12 * 1024 * 1024);
+    expect(crowded.refusal).toBe('busy');
+
+    holding.release();
+    await holding.settled();
+  });
+
+  it('stops reading a body it has no room for instead of draining it', async () => {
+    // The shed that makes the budget mean something: a refusal that costs the
+    // same ingress as an admitted upload sheds nothing.
+    const holding = await hold(capLeaving(1024));
+
+    const { req, deliveredBytes, wasCancelled } = streamedRequest(
+      reportBody('2', 8 * 1024 * 1024),
+      64 * 1024,
+    );
+    const crowded = await readCappedHead(req, 12 * 1024 * 1024);
+    expect(crowded.refusal).toBe('busy');
+    expect(wasCancelled()).toBe(false);
+    // A chunk of slack either side: the read stops on the chunk that crosses
+    // the budget, and the stream has already pulled the next one behind it.
+    expect(deliveredBytes()).toBeLessThanOrEqual(BUSY_DRAIN_BYTES + 2 * CHUNK_ALLOWANCE_BYTES);
+
+    holding.release();
+    await holding.settled();
+  });
+
+  it('still reads a small refused body to its end, so the answer reaches it', async () => {
+    // Everything carrying something a person typed is far under the busy
+    // drain: a sign-in, an adopt form, a refile, a single-button POST. Those
+    // keep the answer they would have had.
+    const holding = await hold(capLeaving(1024));
+
+    const body = reportBody('1', 16 * 1024);
+    const { req, deliveredBytes } = streamedRequest(body, 4 * 1024);
+    const crowded = await readCappedHead(req, 12 * 1024 * 1024);
+    expect(crowded.refusal).toBe('busy');
+    expect(deliveredBytes()).toBe(body.byteLength);
+    expect(severityIndexFromHead(crowded.head)).toBe(1);
+
+    holding.release();
+    await holding.settled();
   });
 });

@@ -56,9 +56,18 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   `READ_IDLE_MS`/`READ_TIMEOUT_MS` are the same bounds on a body nothing has refused — an 11.9MB trickle is under the cap and still may not hold a request open forever.
   Past a bound the read stops and does *not* cancel: cancelling leaves the response unwritten and the socket idling until that 300s timeout, while walking away lets the route answer and lets Node close the connection behind a request body it never finished. Measured both ways — `tests/report-upload.e2e.test.ts` posts real bodies at a real server, because this is not a thing to reason about.
 - `MAX_INFLIGHT_BODY_BYTES` is what one request's cap can't bound: how many arrive at once.
-  Each read reserves what it may hold — the cap when buffering, `HEAD_BYTES` when head-only — so that number is the peak the request bodies of a whole spike can reach, and it caps concurrency in the unit that matters (thousands of head-only uploads fit; a buffering route gets a handful).
-- Each refusal is its own answer, and none of them is a dropped connection: `'over-limit'` and `'busy'` reach the too-large screen with the severity preserved (`?reason=busy` changes the words — a photo to shrink and a queue to retry ask for different things), `'read-failed'` logs and answers 400, `'timed-out'` answers 408.
+  Each read reserves what it may hold *at its peak* — `2 ×` the cap when buffering (the chunks, then the merged copy), `HEAD_BYTES` when head-only, and `CHUNK_ALLOWANCE_BYTES` either way for the chunk in hand — so that number is the peak the request bodies of a whole spike can reach, and it caps concurrency in the unit that matters (hundreds of head-only uploads fit; a buffering route gets a handful).
+  Reserving only the bytes a read means to *keep* under-counted the report route by 8–16×, which is the same as not having the bound.
+- A read refused as `'busy'` drains on `BUSY_DRAIN_BYTES`/`BUSY_DRAIN_MS`, not the headroom the other refusals get.
+  Refusing a body and then spending an admitted upload's worth of ingress on it sheds no load at all.
+  Everything carrying something a person typed is far under that and still gets its answer; a multi-megabyte photo arriving while the server is full is the one case whose connection closes, and at capacity that is the answer rather than a courtesy owed.
+- Each refusal is its own answer: on `/report` every one of them reaches the too-large screen with the severity preserved, because the head holds it whichever way the upload ended and the report is what is being rescued.
+  `?reason` picks the words — nothing (a photo to shrink), `busy` (a queue to retry), `incomplete` (an upload that stopped halfway, which is *not* to be blamed on a photo that may have been well under the cap).
+  The text-only forms answer in plain text instead (413/408/503/400) because there is no filled-in report behind them to preserve.
   A read that *fails* is not an oversized body, and an oversized body whose sender then hangs up is not a failed read — that one keeps `'over-limit'` and logs one quiet line, because a visitor closing the tab on a refused upload is not an incident.
+- Tap counting must be wrong in neither direction, and `src/lib/plaque-url.ts` is the one place that decides it.
+  Every POST route that sends someone back to the plaque builds the URL with `plaqueAfterAction`, and the plaque suppresses its tap event only for the flags in `POST_ACTION_FLAGS`.
+  Suppressing on "the URL has a query string" would drop every tap from a decorated tag URL (UTM, Popl, a link shortener); matching only the flags that flash something counted one visit twice every time a rule sent a visitor back with nothing to say.
 - Email and phone are PII: stored on the user record, never rendered on any public screen, never included in any client-visible payload. Only name/username is engraved, and only while `displayNameHidden` is false.
 
 ## Design tokens
@@ -71,7 +80,7 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - The bed screen's oversized action buttons are the captain's explicit override of the prototype's 66px buttons ("buttons taking close to as much of the screen as they can"). Don't shrink them back to match the prototype.
 - `b/[plate]/too-large.astro` is the one screen with no prototype counterpart: where a refused upload lands.
   Filing is the core street action, so an optional attachment must never cost someone the report they already filled in — the screen carries their chosen severity and offers to file it without the photo.
-  `?reason=busy` is the same screen for the other refusal (the server was at capacity), with its own copy: nothing is gained by telling somebody to shrink a photo that was never the problem.
+  `?reason=busy` (the server was at capacity) and `?reason=incomplete` (the upload stalled or broke off) are the same screen for the other two refusals, each with its own copy: nothing is gained by telling somebody to shrink a photo that was never the problem.
   It is built from the same tokens as the rate-limited screen and, like every other screen, works with JavaScript disabled.
 
 ## Scope deliberately left out (later tasks)

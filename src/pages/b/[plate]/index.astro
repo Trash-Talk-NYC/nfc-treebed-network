@@ -10,6 +10,7 @@ import { getStore } from '../../../lib/store-local';
 import { getBedView, hasReportedToday, logTap } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
 import { SEVERITIES, severityName } from '../../../lib/severity';
+import { isPostAction } from '../../../lib/plaque-url';
 import { nyCalendarDay, relativeAge, sinceLabel } from '../../../lib/format';
 
 const { plate = '' } = Astro.params;
@@ -25,12 +26,10 @@ const confirmedFlash = url.searchParams.has('confirmed');
 const raisedFlash = url.searchParams.has('raised');
 const limited = url.searchParams.has('limited');
 
-// Only our own post-action redirects are page reloads rather than new taps.
-// Matched by those three flags specifically: a tag URL arrives decorated with
-// all sorts of things (UTM tags, whatever a link shortener appends), and the
-// field test's whole metric is the tap count.
-const postAction = confirmedFlash || raisedFlash || limited;
-if (!postAction) {
+// Only our own post-action redirects are page reloads rather than new taps —
+// including the ones with nothing to flash, which is why the flag set lives in
+// one place with the helper the POST routes build those redirects with.
+if (!isPostAction(url)) {
   try {
     await logTap(store, { plate, actorId: actor });
   } catch (err) {

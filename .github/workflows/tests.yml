@@ -4,9 +4,11 @@
 # job exists so the slow half is never quietly lost.
 name: tests
 
+# Feature branches are covered by `pull_request`; listing them under `push` as
+# well would run this whole job — build, server and all — twice per commit.
 on:
   push:
-    branches: ['**']
+    branches: [main, dev, qa, stage, prod]
   pull_request:
 
 jobs:
