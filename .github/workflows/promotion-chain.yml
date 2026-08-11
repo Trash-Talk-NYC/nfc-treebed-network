@@ -24,7 +24,9 @@ jobs:
           BASE: ${{ github.base_ref }}
           HEAD: ${{ github.head_ref }}
         run: |
-          set -euo pipefail
+          # -f keeps the glob patterns in $valid_heads from being expanded against
+          # the working directory before they are used as case patterns.
+          set -euf -o pipefail
 
           # Each guarded base accepts its forward predecessor and, where one exists,
           # its immediate successor -- the direction a hotfix back-merge travels.
