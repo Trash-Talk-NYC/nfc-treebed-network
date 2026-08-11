@@ -23,8 +23,13 @@ let username = '';
 if (Astro.request.method === 'POST') {
   // Public and unauthenticated, like every POST here: two short text fields
   // never need more, and an unbounded body is free memory exhaustion.
-  const form = await readCappedForm(Astro.request, MAX_FORM_BYTES);
-  if (!form) return new Response('That sign-in was too large.', { status: 413 });
+  const { form, refusal } = await readCappedForm(Astro.request, MAX_FORM_BYTES);
+  // A body that failed to arrive is not one that was too big: 413 would send
+  // somebody off to shorten a sign-in that was never long.
+  if (refusal === 'over-limit') return new Response('That sign-in was too large.', { status: 413 });
+  if (refusal === 'read-failed') {
+    return new Response("That sign-in didn't come through. Please try again.", { status: 400 });
+  }
   username = String(form.get('username') ?? '');
   const pin = String(form.get('pin') ?? '');
   try {

@@ -21,7 +21,12 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   // disabled. An oversized photo never costs the visitor the report they
   // already filled in — the severity they picked rides the redirect to a
   // screen that offers to file it without the attachment.
-  const { body, head } = await readCappedBody(request, MAX_BODY_BYTES);
+  const { body, head, refusal } = await readCappedBody(request, MAX_BODY_BYTES);
+  if (refusal === 'read-failed') {
+    // The body never finished arriving. The too-large screen would blame a
+    // photo that may well have been under the cap.
+    return new Response("That report didn't come through. Please try again.", { status: 400 });
+  }
   if (!body) {
     const kept = severityIndexFromHead(head);
     const query = kept === null ? '' : `?severity=${kept}`;

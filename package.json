@@ -11,6 +11,7 @@
     "build": "astro build",
     "prestart": "node scripts/preflight.mjs",
     "start": "node dist/server/entry.mjs",
+    "prepreview": "node scripts/preflight.mjs",
     "preview": "astro preview",
     "check": "astro check",
     "test": "vitest run"
