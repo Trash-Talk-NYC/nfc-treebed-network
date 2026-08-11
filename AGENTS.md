@@ -39,8 +39,10 @@ The check is **advisory only — it cannot prevent anything.**
 GitHub branch protection, rulesets, and required status checks all return `403 Upgrade to GitHub Pro or make this repository public` because the Trash-Talk-NYC org is on a free plan and this repo is private.
 That single limitation has three consequences:
 
-- A red promotion-chain run leaves the merge button fully enabled. Anyone with write access can merge an out-of-chain PR straight past the failing check.
-- Nothing observes **direct pushes** to `qa`, `stage`, `prod`, or `main`. The workflow only runs on pull requests.
+- A red promotion-chain run leaves the merge button fully enabled.
+  Anyone with write access can merge an out-of-chain PR straight past the failing check.
+- Nothing observes **direct pushes** to `qa`, `stage`, `prod`, or `main`.
+  The workflow only runs on pull requests.
 - For `pull_request` events the workflow definition is resolved from the PR merge ref, so a head branch that deletes or renames `.github/workflows/promotion-chain.yml` produces a PR with **no** promotion-chain check at all rather than a failing one — an absent check is not proof the chain was followed.
 
 Leaving the chain advisory is a **deliberate accepted risk** taken by the captain (small team, nothing deployed yet), not an oversight.
