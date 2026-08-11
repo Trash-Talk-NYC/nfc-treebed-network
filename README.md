@@ -15,8 +15,12 @@ npm run dev            # http://localhost:4321/b/BED-HRL-0847
 ```sh
 npm test               # server-side rule tests (vitest)
 npm run check          # astro type check
-npm run build && node dist/server/entry.mjs   # production server
+npm run build && TREEBED_SESSION_SECRET=$(openssl rand -hex 32) npm start   # production server
 ```
+
+`TREEBED_SESSION_SECRET` is required to start the server: cookies are signed with it, and a generated one would sign everybody out on every restart.
+Set the same value on every instance, and keep it out of the repo.
+Dev needs nothing — it falls back to `.data/session-secret`.
 
 Local state lives in `.data/store.json` (gitignored), seeded on first boot with the one demo bed `BED-HRL-0847` and adopter `marisol_r` (PIN `1234`).
 Delete `.data/` to reset.

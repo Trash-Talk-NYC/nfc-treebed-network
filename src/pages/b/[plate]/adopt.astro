@@ -8,6 +8,7 @@ import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store-local';
 import { RuleError, adoptBed, getBedView, validateAdoptInput } from '../../../lib/service';
 import { setSessionUser } from '../../../lib/session';
+import { MAX_FORM_BYTES, readCappedForm } from '../../../lib/request-body';
 
 const { plate = '' } = Astro.params;
 const store = getStore();
@@ -22,7 +23,10 @@ let formError: string | null = null;
 let values = { name: '', username: '', email: '', phone: '' };
 
 if (Astro.request.method === 'POST') {
-  const form = await Astro.request.formData();
+  // Public and unauthenticated, like every POST here: five short text fields
+  // never need more, and an unbounded body is free memory exhaustion.
+  const form = await readCappedForm(Astro.request, MAX_FORM_BYTES);
+  if (!form) return new Response('That form was too large.', { status: 413 });
   const input = {
     name: String(form.get('name') ?? ''),
     username: String(form.get('username') ?? ''),

@@ -21,13 +21,41 @@ export interface CappedBody {
  */
 export const HEAD_BYTES = 8 * 1024;
 
+/** Cap for the text-only forms (sign in, adopt): short fields, nothing else. */
+export const MAX_FORM_BYTES = 64 * 1024;
+
+/**
+ * How far past the cap a refused body is still read to its end. Draining is
+ * what lets the response reach the client (see below), but it must not be an
+ * open invitation: past this the connection is dropped, and a client streaming
+ * that much after being refused is not a phone with a big photo.
+ */
+const DRAIN_CEILING = 8;
+
+function concat(chunks: Uint8Array[], total: number): Uint8Array {
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged;
+}
+
 /**
  * Buffer the request body, refusing anything over `limit`.
  *
  * Content-Length alone isn't enough — a chunked body doesn't send one, and a
  * declared length is only a claim — so the bytes are counted as they arrive.
- * Once the body is known to be too large, reading stops as soon as the head is
- * in hand; the rest of the upload is never buffered.
+ * Once the body is known to be too large, nothing past the head is kept: the
+ * rest is read and discarded, so memory stays bounded at the head plus one
+ * chunk.
+ *
+ * Discarding rather than cancelling is the whole point. Cancelling the reader
+ * destroys the underlying socket, and the client — still uploading — gets a
+ * connection reset instead of the response we wrote for it. Reading to the end
+ * costs bandwidth we were going to receive anyway and leaves a live socket to
+ * answer on.
  */
 export async function readCappedBody(request: Request, limit: number): Promise<CappedBody> {
   const declared = Number(request.headers.get('content-length'));
@@ -37,30 +65,62 @@ export async function readCappedBody(request: Request, limit: number): Promise<C
   }
 
   const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const headChunks: Uint8Array[] = [];
+  let headBytes = 0;
+  // Dropped the moment the body is refused — the refused bytes are never held.
+  let kept: Uint8Array[] | null = over ? null : [];
   let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    total += value.byteLength;
-    if (total > limit) over = true;
-    if (over && total >= HEAD_BYTES) {
-      await reader.cancel();
-      break;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (headBytes < HEAD_BYTES) {
+        // Copied, not sliced: a view would pin this whole chunk in memory.
+        const head = value.slice(0, HEAD_BYTES - headBytes);
+        headChunks.push(head);
+        headBytes += head.byteLength;
+      }
+      if (!over && total > limit) over = true;
+      if (over) {
+        kept = null;
+        if (total > limit * DRAIN_CEILING) {
+          await reader.cancel();
+          break;
+        }
+        continue;
+      }
+      kept!.push(value);
     }
+  } catch {
+    // The platform's own body limit, or a client that hung up mid-upload.
+    // Either way there is no complete body to hand back.
+    over = true;
+    kept = null;
   }
 
-  const merged = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return {
-    body: over ? null : (merged.buffer as ArrayBuffer),
-    head: merged.subarray(0, HEAD_BYTES),
-  };
+  const head = concat(headChunks, headBytes);
+  if (over || !kept) return { body: null, head };
+  return { body: concat(kept, total).buffer as ArrayBuffer, head };
+}
+
+/** Parse a body already read and accepted by `readCappedBody`. */
+export function formDataFrom(request: Request, body: ArrayBuffer): Promise<FormData> {
+  return new Request(request.url, {
+    method: 'POST',
+    headers: request.headers,
+    body,
+  }).formData();
+}
+
+/**
+ * A capped body parsed as form fields, or null when it was refused. For the
+ * text-only forms, where an oversized body has nothing worth rescuing.
+ */
+export async function readCappedForm(request: Request, limit: number): Promise<FormData | null> {
+  const { body } = await readCappedBody(request, limit);
+  return body === null ? null : formDataFrom(request, body);
 }
 
 /**

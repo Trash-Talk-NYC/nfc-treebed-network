@@ -16,6 +16,15 @@
 //  - `transaction` gives a read-check-write sequence exclusive access, so the
 //    service layer's rules (single open report, two-slot cap) can't be raced
 //    by a concurrent request between the check and the write.
+//
+// What `transaction` deliberately does NOT promise is isolation from readers.
+// Reads taken outside a transaction are not queued behind it, so a page render
+// can observe a write the transaction has not committed — and, if that
+// transaction later rolls back, a state that never existed. Read-uncommitted,
+// in database terms. It is the right trade here: every screen is a read, and
+// serializing renders behind writes would put the street screen in line behind
+// a disk flush. A rule must therefore never be enforced from a read taken
+// outside the transaction that acts on it.
 
 import type { Adoption, Bed, BedEvent, Report, Severity, User } from './types';
 

@@ -50,6 +50,15 @@ function getSecret(): string {
   return secret;
 }
 
+/**
+ * Force the secret to resolve now, so a missing one is a startup failure
+ * rather than a surprise on the first request that happens to touch a cookie.
+ * Called from the middleware, which the adapter loads ahead of any route.
+ */
+export function assertSessionSecret(): void {
+  getSecret();
+}
+
 function sign(value: string): string {
   const mac = createHmac('sha256', getSecret()).update(value).digest('base64url');
   return `${value}.${mac}`;

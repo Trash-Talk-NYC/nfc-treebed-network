@@ -25,10 +25,19 @@ const confirmedFlash = url.searchParams.has('confirmed');
 const raisedFlash = url.searchParams.has('raised');
 const limited = url.searchParams.has('limited');
 
-// Post-action redirects carry query flags and are page reloads, not new taps
-// — don't double count.
-if ([...url.searchParams.keys()].length === 0) {
-  await logTap(store, { plate, actorId: actor });
+// Only our own post-action redirects are page reloads rather than new taps.
+// Matched by those three flags specifically: a tag URL arrives decorated with
+// all sorts of things (UTM tags, whatever a link shortener appends), and the
+// field test's whole metric is the tap count.
+const postAction = confirmedFlash || raisedFlash || limited;
+if (!postAction) {
+  try {
+    await logTap(store, { plate, actorId: actor });
+  } catch (err) {
+    // Telemetry fails open: a lost tap event must never cost a passer-by the
+    // plaque, which every read below can still render.
+    console.error(`[plaque] tap not recorded for ${plate}:`, err);
+  }
 }
 
 type Variant = 'bed' | 'adopted' | 'ratelimit';

@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "prestart": "node scripts/preflight.mjs",
+    "start": "node dist/server/entry.mjs",
     "preview": "astro preview",
     "check": "astro check",
     "test": "vitest run"

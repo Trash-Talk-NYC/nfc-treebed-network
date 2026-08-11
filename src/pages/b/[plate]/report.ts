@@ -6,7 +6,7 @@ import { getStore } from '../../../lib/store-local';
 import { RuleError, fileReport } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
 import { severityFrom } from '../../../lib/severity';
-import { readCappedBody, severityIndexFromHead } from '../../../lib/request-body';
+import { formDataFrom, readCappedBody, severityIndexFromHead } from '../../../lib/request-body';
 
 // A phone photo is a few MB; nothing here is stored, so the cap only has to
 // leave real reports room.
@@ -28,11 +28,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
     return redirect(`${base}/too-large${query}`, 303);
   }
 
-  const form = await new Request(request.url, {
-    method: 'POST',
-    headers: request.headers,
-    body,
-  }).formData();
+  const form = await formDataFrom(request, body);
   const severity = severityFrom(form.get('severity'));
   if (!severity) return new Response('Severity must be 0, 1, or 2.', { status: 400 });
 

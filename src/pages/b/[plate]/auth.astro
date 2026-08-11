@@ -5,6 +5,7 @@ import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store-local';
 import { RuleError, getBedView, signIn } from '../../../lib/service';
 import { getSessionUserId, setSessionUser } from '../../../lib/session';
+import { MAX_FORM_BYTES, readCappedForm } from '../../../lib/request-body';
 
 const { plate = '' } = Astro.params;
 const store = getStore();
@@ -20,7 +21,10 @@ if (Astro.request.method === 'GET' && getSessionUserId(Astro.cookies)) {
 let error: string | null = null;
 let username = '';
 if (Astro.request.method === 'POST') {
-  const form = await Astro.request.formData();
+  // Public and unauthenticated, like every POST here: two short text fields
+  // never need more, and an unbounded body is free memory exhaustion.
+  const form = await readCappedForm(Astro.request, MAX_FORM_BYTES);
+  if (!form) return new Response('That sign-in was too large.', { status: 413 });
   username = String(form.get('username') ?? '');
   const pin = String(form.get('pin') ?? '');
   try {
