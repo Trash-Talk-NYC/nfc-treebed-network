@@ -137,7 +137,18 @@ export async function fileReport(
   });
 }
 
-/** "STILL THERE — CONFIRM IT". Idempotent per person. */
+/**
+ * How many confirmations one report keeps.
+ *
+ * The per-person rule bounds honest use — a block has nothing like this many
+ * neighbours — so the cap only ever binds on a caller working around it with a
+ * fresh identity each time. Bounding the stored array bounds what it costs:
+ * the row rewritten on every write, the event appended beside it, and the
+ * number rendered on a public screen.
+ */
+export const MAX_CONFIRMATIONS = 200;
+
+/** "STILL THERE — CONFIRM IT". Idempotent per person, and bounded per report. */
 export async function confirmReport(
   store: Store,
   args: { plate: string; actorId: string; now?: Date },
@@ -146,6 +157,10 @@ export async function confirmReport(
     const open = await tx.getOpenReport(args.plate);
     if (!open) throw new RuleError('no-open-report', `No open report on ${args.plate}`);
     if (open.confirmedBy.includes(args.actorId)) return open;
+    // Full: answered like the repeat confirm above — the screen a visitor
+    // lands on is the same either way, and there is nothing here worth an
+    // error message about a limit no real neighbourhood reaches.
+    if (open.confirmedBy.length >= MAX_CONFIRMATIONS) return open;
     const confirmed: Report = { ...open, confirmedBy: [...open.confirmedBy, args.actorId] };
     await tx.updateReport(confirmed);
     await appendEvent(tx, args.plate, 'confirm', args.actorId, null, args.now);

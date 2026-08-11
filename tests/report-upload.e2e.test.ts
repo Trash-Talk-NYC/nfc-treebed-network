@@ -54,6 +54,14 @@ async function storedReport(id: string): Promise<{ severity: string; photoAttach
   return found;
 }
 
+/** Who the server recorded as confirming a report, out of its own store file. */
+async function storedConfirmations(id: string): Promise<string[]> {
+  const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+    reports: Array<{ id: string; confirmedBy: string[] }>;
+  };
+  return data.reports.find((report) => report.id === id)?.confirmedBy ?? [];
+}
+
 /** Tap events the server has actually written, out of its own store file. */
 async function storedTaps(): Promise<number> {
   const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
@@ -369,6 +377,12 @@ describe('oversized report uploads, end to end', () => {
     expect(html).toContain('HEAVY');
     expect(html).toContain('SEND IT AGAIN');
     expect(html).not.toContain('That photo was too large.');
+
+    // Past MAX_SHED_READS the body is never read, so there is no severity to
+    // carry — the deepest a spike goes, and still a screen rather than a reset.
+    const bare = await fetch(`${origin}/b/${PLATE}/too-large?reason=busy`);
+    expect(bare.status).toBe(200);
+    expect(await bare.text()).toContain('The tag is busy right now.');
   });
 
   it('counts one tap per visit, and none for its own redirects', async () => {
@@ -393,6 +407,51 @@ describe('oversized report uploads, end to end', () => {
     const tapped = await fetch(`${origin}/b/${PLATE}?utm_source=popl&utm_medium=nfc`);
     expect(tapped.status).toBe(200);
     expect(await storedTaps()).toBe(before + 1);
+  });
+
+  it('counts a confirm only from a caller that already had an identity', async () => {
+    withServerLog();
+    const filed = await fetch(`${origin}/b/${PLATE}/report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: 'severity=1',
+      redirect: 'manual',
+    });
+    expect(filed.status).toBe(303);
+    const id = filed.headers.get('location')!.split('/').at(-1)!;
+
+    // No cookie, so the server has nothing to hang "once per person" on: it
+    // used to mint a fresh identity per request, which let a loop like this
+    // one drive the public count as high as it liked.
+    for (let i = 0; i < 3; i += 1) {
+      const posted = await fetch(`${origin}/b/${PLATE}/confirm`, {
+        method: 'POST',
+        headers: { origin },
+        redirect: 'manual',
+      });
+      expect(posted.status).toBe(303);
+      expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
+    }
+    expect(await storedConfirmations(id)).toHaveLength(0);
+
+    // A neighbour who tapped the tag has one — the plaque GET set it — and
+    // pressing the button twice still counts them once.
+    const plaque = await fetch(`${origin}/b/${PLATE}`);
+    const visitor = plaque.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith('tg_visitor='))!;
+    expect(visitor).toBeDefined();
+    const cookie = visitor.split(';')[0]!;
+    for (let i = 0; i < 2; i += 1) {
+      const posted = await fetch(`${origin}/b/${PLATE}/confirm`, {
+        method: 'POST',
+        headers: { origin, cookie },
+        redirect: 'manual',
+      });
+      expect(posted.status).toBe(303);
+      expect(posted.headers.get('location')).toBe(`/b/${PLATE}?confirmed=1`);
+    }
+    expect(await storedConfirmations(id)).toHaveLength(1);
   });
 
   it('refuses an oversized sign-in body without reading a megabyte of it', async () => {

@@ -34,6 +34,10 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - **`events` is append-only.** The store deliberately has no update/delete for events.
 - Anonymous visitors get an HMAC-signed `tg_visitor` cookie so the daily report limit has an identity to hang on.
   Known MVP limitation: clearing cookies mints a new identity; the limit is best-effort for anonymous users.
+- **A rule that is "once per person" reads the actor with `getExistingActorId`, not `getActorId`.**
+  `getActorId` mints a visitor id when there isn't one, which on a write path hands a caller that sends no cookie a fresh identity every request — the rule then bounds nothing.
+  `/confirm` therefore performs no write for a cookie-less POST and redirects like any other no-op action; a real neighbour always has the cookie, because the plaque GET they arrived through set it.
+  This is a bound, not tamper-proofing: a script that keeps a cookie jar per identity still inflates the count, exactly as it can still refile past the daily limit. `MAX_CONFIRMATIONS` (service.ts) is what makes the cost of doing so finite — the stored array, the events beside it, and the number on the public screen all stop growing there.
 
 ## Security decisions (read before touching auth)
 
@@ -53,11 +57,15 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   `readCappedForm` still buffers the text-only forms, where the whole body is 64KB and two copies of it are ~128KB.
 - A refused body is read to its end and discarded rather than cancelled: cancelling the reader destroys the socket, and a client still uploading gets a connection reset instead of the response.
   The drain budget is absolute, not a multiple of the cap — 24MB of headroom on the report route (covering the 12–30MB a real phone photo lands in), the cap itself on the text-only forms — and bounded in time as well: `DRAIN_IDLE_MS` for a sender that goes quiet, `DRAIN_TIMEOUT_MS` in all, both under Node's own 300s request timeout and both above what a slow phone upload needs.
+  `DRAIN_TIMEOUT_MS` is a budget for the drain, not an extension of the request: the drain deadline is clamped to `READ_TIMEOUT_MS` measured from the start of the read, so a body that crosses the cap late can't run `time-until-over + 180s` past the 300s backstop and lose the very screen the drain exists to deliver.
   `READ_IDLE_MS`/`READ_TIMEOUT_MS` are the same bounds on a body nothing has refused — an 11.9MB trickle is under the cap and still may not hold a request open forever.
   Past a bound the read stops and does *not* cancel: cancelling leaves the response unwritten and the socket idling until that 300s timeout, while walking away lets the route answer and lets Node close the connection behind a request body it never finished. Measured both ways — `tests/report-upload.e2e.test.ts` posts real bodies at a real server, because this is not a thing to reason about.
 - `MAX_INFLIGHT_BODY_BYTES` is what one request's cap can't bound: how many arrive at once.
-  Each read reserves what it may hold *at its peak* — `2 ×` the cap when buffering (the chunks, then the merged copy), `HEAD_BYTES` when head-only, and `CHUNK_ALLOWANCE_BYTES` either way for the chunk in hand — so that number is the peak the request bodies of a whole spike can reach, and it caps concurrency in the unit that matters (hundreds of head-only uploads fit; a buffering route gets a handful).
+  Each read reserves what it may hold *at its peak* — `2 ×` the cap when buffering (the chunks, then the merged copy), `HEAD_BYTES` when head-only, and `CHUNK_ALLOWANCE_BYTES` either way for the chunk in hand — and it caps concurrency in the unit that matters (hundreds of head-only uploads fit; a buffering route gets a handful).
   Reserving only the bytes a read means to *keep* under-counted the report route by 8–16×, which is the same as not having the bound.
+- `MAX_INFLIGHT_BODY_BYTES` covers admitted reads only; `MAX_SHED_READS` (64) bounds the refused ones, which each hold a head plus the chunk in hand while they shed.
+  The peak heap request bodies can reach at any depth of spike is the two together: 48MB + 64 × 72KB, about 52MB. Neither number means anything without the other — a budget that bounds only what it admits is bypassed by everything it turns away.
+  Past `MAX_SHED_READS` at once the body is not read at all and the busy answer goes out on its own; on `/report` that costs the screen its severity, which is the trade that makes the bound absolute.
 - A read refused as `'busy'` drains on `BUSY_DRAIN_BYTES`/`BUSY_DRAIN_MS`, not the headroom the other refusals get.
   Refusing a body and then spending an admitted upload's worth of ingress on it sheds no load at all.
   Everything carrying something a person typed is far under that and still gets its answer; a multi-megabyte photo arriving while the server is full is the one case whose connection closes, and at capacity that is the answer rather than a courtesy owed.

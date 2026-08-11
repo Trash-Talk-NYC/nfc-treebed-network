@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LocalStore } from '../src/lib/store-local';
 import {
+  MAX_CONFIRMATIONS,
   RuleError,
   adoptBed,
   closeReport,
@@ -161,6 +162,19 @@ describe('confirm and escalate', () => {
     await confirmReport(store, { plate: PLATE, actorId: 'visitor-2' });
     const report = await confirmReport(store, { plate: PLATE, actorId: 'visitor-3' });
     expect(report.confirmedBy).toEqual(['visitor-2', 'visitor-3']);
+  });
+
+  it('stops storing confirmations at the cap', async () => {
+    // The per-person rule bounds honest use; only a caller minting a new
+    // identity per request gets here, and what it costs has to stop growing —
+    // the stored array, the event beside it, and the public count alike.
+    for (let i = 0; i < MAX_CONFIRMATIONS + 5; i += 1) {
+      await confirmReport(store, { plate: PLATE, actorId: `visitor-${i}` });
+    }
+    const report = await store.getOpenReport(PLATE);
+    expect(report?.confirmedBy).toHaveLength(MAX_CONFIRMATIONS);
+    // No write past the cap, so no event either.
+    expect(await store.getEvents(PLATE, 'confirm')).toHaveLength(MAX_CONFIRMATIONS);
   });
 
   it('escalates to dumping exactly once, recording the prior severity', async () => {

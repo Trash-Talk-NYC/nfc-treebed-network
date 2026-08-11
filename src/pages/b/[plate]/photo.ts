@@ -6,6 +6,7 @@ import { getStore } from '../../../lib/store-local';
 import { getBedView, logPhoto } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
+import { plaqueAfterAction } from '../../../lib/plaque-url';
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   const plate = params.plate ?? '';
@@ -19,7 +20,11 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   if (!view) return new Response('No bed with that plate.', { status: 404 });
   // Being signed in isn't enough: only this bed's guardians can write to its
   // append-only history. Mirrors the gate on mine.astro.
-  if (!view.adopters.some((a) => a.user.id === userId)) return redirect(`/b/${plate}`, 303);
+  // Flagged like every other POST route's way back: this render is the tail of
+  // a submission, not somebody arriving at the tag.
+  if (!view.adopters.some((a) => a.user.id === userId)) {
+    return redirect(plaqueAfterAction(`/b/${plate}`), 303);
+  }
 
   await logPhoto(store, { plate, actorId: userId });
   return redirect(`/b/${plate}/mine`, 303);

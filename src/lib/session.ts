@@ -102,10 +102,25 @@ export function setSessionUser(cookies: AstroCookies, userId: string): void {
 export function getActorId(cookies: AstroCookies): string {
   const userId = getSessionUserId(cookies);
   if (userId) return userId;
-  const raw = cookies.get(VISITOR_COOKIE)?.value;
-  const existing = raw ? unsign(raw) : null;
+  const existing = getExistingActorId(cookies);
   if (existing) return existing;
   const visitorId = `visitor-${randomUUID()}`;
   cookies.set(VISITOR_COOKIE, sign(visitorId), cookieOptions);
   return visitorId;
+}
+
+/**
+ * The acting identity the caller already had, or null — nothing minted.
+ *
+ * For the rules that are only worth anything per person: minting an identity
+ * on the write itself hands a caller that discards cookies a fresh one every
+ * request, so "once per person" bounds nothing at all. A real visitor always
+ * has one by the time they can press a button, because the plaque GET they
+ * came through minted it.
+ */
+export function getExistingActorId(cookies: AstroCookies): string | null {
+  const userId = getSessionUserId(cookies);
+  if (userId) return userId;
+  const raw = cookies.get(VISITOR_COOKIE)?.value;
+  return raw ? unsign(raw) : null;
 }

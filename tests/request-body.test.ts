@@ -4,6 +4,7 @@ import {
   CHUNK_ALLOWANCE_BYTES,
   HEAD_BYTES,
   MAX_INFLIGHT_BODY_BYTES,
+  MAX_SHED_READS,
   photoAttachedFromHead,
   readCappedBody,
   readCappedHead,
@@ -173,6 +174,35 @@ describe('capped request bodies', () => {
     expect(capped.refusal).toBe('over-limit');
     expect(wasCancelled()).toBe(false);
     expect(deliveredBytes()).toBeLessThan(8 * 1024 * 1024);
+  });
+
+  it('never lets a late refusal outlive the read deadline', async () => {
+    // The drain's budget starts when the body is refused, so a body that
+    // crosses the cap late would run `time-until-over + drainTimeoutMs` in
+    // total — on a slow uplink that lands past Node's own 300s request
+    // timeout, which destroys the socket and hands the visitor the connection
+    // reset the drain exists to avoid. Here the crossing is at ~110ms of a
+    // 400ms read deadline, with a drain budget of a minute behind it.
+    const { req, deliveredBytes, wasCancelled } = streamedRequest(
+      reportBody('2', 2 * 1024 * 1024),
+      4 * 1024,
+      Infinity,
+      10,
+    );
+    const started = Date.now();
+    const capped = await readCappedBody(req, 40 * 1024, {
+      readTimeoutMs: 400,
+      drainTimeoutMs: 60_000,
+      drainIdleMs: 60_000,
+      drainHeadroom: 8 * 1024 * 1024,
+    });
+    expect(capped.refusal).toBe('over-limit');
+    expect(wasCancelled()).toBe(false);
+    // Still answerable: the head made it, so the screen still carries their
+    // severity — the whole request just fits inside the one deadline.
+    expect(severityIndexFromHead(capped.head)).toBe(2);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(deliveredBytes()).toBeLessThan(2 * 1024 * 1024);
   });
 
   it('gives up on a body under the cap that stops arriving', async () => {
@@ -427,6 +457,46 @@ describe('the in-flight budget', () => {
 
     holding.release();
     await holding.settled();
+  });
+
+  it('bounds how many reads it sheds at once, and never reads the ones past it', async () => {
+    // The byte budget covers admitted reads; shed ones hold a head and the
+    // chunk in hand of their own, so without a count they sit outside the very
+    // bound they were refused by. Past this many the body is never touched.
+    const holding = await hold(capLeaving(1024));
+    const shedding = Array.from({ length: MAX_SHED_READS }, () => {
+      const gated = gatedRequest(reportBody('1', 1024));
+      return { release: gated.release, settled: readCappedHead(gated.req, 12 * 1024 * 1024) };
+    });
+
+    const { req, deliveredBytes, wasCancelled } = streamedRequest(
+      reportBody('2', 64 * 1024),
+      8 * 1024,
+    );
+    const beyond = await readCappedHead(req, 12 * 1024 * 1024);
+
+    for (const shed of shedding) shed.release();
+    const shedRefusals = await Promise.all(shedding.map((shed) => shed.settled));
+    // A shed slot is released with its read, so the next one is read again.
+    const after = await readCappedHead(request(reportBody('0', 1024)), 12 * 1024 * 1024);
+    holding.release();
+    await holding.settled();
+
+    expect(beyond.refusal).toBe('busy');
+    // Not one byte read, so not one byte held — this is what makes the peak
+    // heap claim absolute rather than a claim about the admitted half of it.
+    // (A ReadableStream fills its own queue with one chunk unasked, which is
+    // the harness's buffer, not the read's: `bytes` is what the read consumed.)
+    expect(beyond.bytes).toBe(0);
+    expect(beyond.head.byteLength).toBe(0);
+    expect(deliveredBytes()).toBeLessThanOrEqual(8 * 1024);
+    expect(wasCancelled()).toBe(false);
+    // The cost: no head means no severity, which the busy screen does without.
+    expect(severityIndexFromHead(beyond.head)).toBeNull();
+
+    expect(shedRefusals.every((shed) => shed.refusal === 'busy')).toBe(true);
+    expect(after.refusal).toBe('busy');
+    expect(severityIndexFromHead(after.head)).toBe(0);
   });
 
   it('still reads a small refused body to its end, so the answer reaches it', async () => {
