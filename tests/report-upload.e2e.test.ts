@@ -112,6 +112,26 @@ async function storedConfirmations(id: string): Promise<string[]> {
   return data.reports.find((report) => report.id === id)?.confirmedBy ?? [];
 }
 
+/** Whether a report is still open, out of the server's own store file. */
+async function reportIsOpen(id: string): Promise<boolean> {
+  const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+    reports: Array<{ id: string; closedAt: string | null }>;
+  };
+  return data.reports.find((report) => report.id === id)?.closedAt === null;
+}
+
+/**
+ * The identity a neighbour standing at the tag has: the plaque GET mints it,
+ * which is what the routes that decline to write for a cookie-less POST rely
+ * on. Costs one tap, so take it before counting them.
+ */
+async function visitorCookie(): Promise<string> {
+  const plaque = await fetch(`${origin}/b/${PLATE}`);
+  const set = plaque.headers.getSetCookie().find((cookie) => cookie.startsWith('tg_visitor='));
+  if (!set) throw new Error('the plaque handed out no visitor cookie');
+  return set.split(';')[0]!;
+}
+
 /** Tap events the server has actually written, out of its own store file. */
 async function storedTaps(): Promise<number> {
   const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
@@ -402,10 +422,11 @@ describe('oversized report uploads, end to end', () => {
   it('files the too-large screen refile, which carries no photo at all', async () => {
     withServerLog();
     // The bed already has the report the previous case filed; anyone may clear
-    // it (spec §2), and this is what the next passer-by's refile then does.
+    // it (spec §2), and this is what the next passer-by's refile then does —
+    // a passer-by being somebody who tapped the tag, and so has its cookie.
     const cleared = await fetch(`${origin}/b/${PLATE}/clear`, {
       method: 'POST',
-      headers: { origin },
+      headers: { origin, cookie: await visitorCookie() },
       redirect: 'manual',
     });
     expect(cleared.status).toBe(303);
@@ -448,9 +469,11 @@ describe('oversized report uploads, end to end', () => {
     withServerLog();
     // The bed still has the report the refile case filed; closing it is one of
     // the redirects that used to land on the bare plaque and be counted twice.
+    // With the identity a neighbour standing at the tag would have — a
+    // cookie-less clear writes nothing, which the next test is about.
     const cleared = await fetch(`${origin}/b/${PLATE}/clear`, {
       method: 'POST',
-      headers: { origin },
+      headers: { origin, cookie: await visitorCookie() },
       redirect: 'manual',
     });
     expect(cleared.status).toBe(303);
@@ -511,6 +534,62 @@ describe('oversized report uploads, end to end', () => {
       expect(posted.headers.get('location')).toBe(`/b/${PLATE}?confirmed=1`);
     }
     expect(await storedConfirmations(id)).toHaveLength(1);
+  });
+
+  it('writes nothing for a cookie-less escalate or clear, and still answers', async () => {
+    withServerLog();
+    // The report the confirm case filed is still open, and /clear is what lets
+    // the next one be filed: report → clear → report is a loop, and every lap
+    // used to append a report and two events to a history nothing prunes.
+    const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+      reports: Array<{ id: string; closedAt: string | null }>;
+      events: unknown[];
+    };
+    const open = data.reports.find((report) => report.closedAt === null)!;
+    expect(open).toBeDefined();
+    const eventsBefore = data.events.length;
+
+    for (const route of ['escalate', 'clear']) {
+      for (let i = 0; i < 3; i += 1) {
+        const posted = await fetch(`${origin}/b/${PLATE}/${route}`, {
+          method: 'POST',
+          headers: { origin },
+          redirect: 'manual',
+        });
+        // Answered like any other no-op action — no reset, no error screen.
+        expect(posted.status).toBe(303);
+        expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
+      }
+    }
+    // Six POSTs, and the store is exactly where it was.
+    expect(await reportIsOpen(open.id)).toBe(true);
+    const after = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+      events: unknown[];
+    };
+    expect(after.events.length).toBe(eventsBefore);
+
+    // The neighbour who tapped the tag still closes it in one press.
+    const cookie = await visitorCookie();
+    const cleared = await fetch(`${origin}/b/${PLATE}/clear`, {
+      method: 'POST',
+      headers: { origin, cookie },
+      redirect: 'manual',
+    });
+    expect(cleared.status).toBe(303);
+    expect(await reportIsOpen(open.id)).toBe(false);
+  });
+
+  it('does not count a monitor polling the site root as a tap', async () => {
+    withServerLog();
+    // Nothing on a sidewalk tag sends anyone to `/`, so what does is an uptime
+    // check or a crawler — once a minute would be 1,440 taps a day.
+    const before = await storedTaps();
+    const root = await fetch(`${origin}/`, { redirect: 'manual' });
+    expect(root.status).toBe(302);
+    const landed = root.headers.get('location')!;
+    expect(landed).toBe(`/b/${PLATE}?tg_action=1`);
+    expect((await fetch(`${origin}${landed}`)).status).toBe(200);
+    expect(await storedTaps()).toBe(before);
   });
 
   it('refuses an oversized sign-in body without reading a megabyte of it', async () => {

@@ -3,7 +3,7 @@
 import type { APIRoute } from 'astro';
 import { getStore } from '../../../lib/store-local';
 import { RuleError, escalateReport } from '../../../lib/service';
-import { getActorId } from '../../../lib/session';
+import { getExistingActorId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 
@@ -11,8 +11,13 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   const plate = params.plate ?? '';
   const refused = await discardBody(request, 'update');
   if (refused) return refused;
+  // Same gate as /confirm and /clear: a write a cookie-less caller can repeat
+  // is a write that costs an event apiece and bounds nothing. The escalation
+  // itself only happens once per report, but the event beside it does not.
+  const actorId = getExistingActorId(cookies);
+  if (!actorId) return redirect(ourPlaqueLink(`/b/${plate}`), 303);
   try {
-    await escalateReport(getStore(), { plate, actorId: getActorId(cookies) });
+    await escalateReport(getStore(), { plate, actorId });
     return redirect(`/b/${plate}?raised=1`, 303);
   } catch (err) {
     if (err instanceof RuleError && (err.code === 'no-open-report' || err.code === 'already-dumping')) {

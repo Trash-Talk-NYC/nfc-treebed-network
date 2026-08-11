@@ -2,11 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   BUSY_DRAIN_BYTES,
   CHUNK_ALLOWANCE_BYTES,
+  discardBody,
+  FORM_READ_IDLE_MS,
   HEAD_BYTES,
+  MAX_FORM_BYTES,
   MAX_INFLIGHT_BODY_BYTES,
   MAX_SHED_READS,
   photoAttachedFromHead,
+  READ_IDLE_MS,
   readCappedBody,
+  readCappedForm,
   readCappedHead,
   SHED_DRAIN_BYTES,
   severityIndexFromHead,
@@ -70,6 +75,34 @@ function streamedRequest(body: Buffer, chunkBytes: number, stallAfter = Infinity
     duplex: 'half',
   });
   return { req, wasCancelled: () => cancelled, deliveredBytes: () => delivered };
+}
+
+/**
+ * A short form body that sends one field and then goes quiet — the trickle a
+ * single-button POST or a sign-in can be held open by.
+ */
+function stalledFormRequest() {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('severity=1'));
+    },
+    pull() {
+      return new Promise<void>(() => {});
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const req = new Request('http://localhost/b/BED-HRL-0847/confirm', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: stream,
+    // @ts-expect-error — undici requires duplex for a streamed body; it is
+    // absent from the DOM lib types.
+    duplex: 'half',
+  });
+  return { req, wasCancelled: () => cancelled };
 }
 
 describe('capped request bodies', () => {
@@ -522,6 +555,47 @@ describe('the in-flight budget', () => {
     await holding.settled();
 
     expect(beyond.refusal).toBe('over-limit');
+  });
+
+  it('holds a body that can only be short for seconds, not the photo route’s minutes', async () => {
+    // The bound that fires is the bound that gives the reservation back, so
+    // the photo-sized clocks on these routes were what let a trickle deny the
+    // server: one byte every 25s held a slot for four minutes, and a few
+    // hundred such sockets exhausted the whole in-flight budget between them.
+    // Both paths at once, and on a driven clock: the assertion is which bound
+    // fires, and waiting out the real one would put seconds into the fast suite.
+    vi.useFakeTimers();
+    try {
+      const single = stalledFormRequest();
+      const typed = stalledFormRequest();
+      const button = discardBody(single.req, 'confirmation');
+      const form = readCappedForm(typed.req, MAX_FORM_BYTES);
+      let settled = false;
+      const both = Promise.all([button, form]).then((answers) => {
+        settled = true;
+        return answers;
+      });
+
+      // One tick short of the form's own idle bound, both are still reading —
+      // so this is the bound being measured, not something else finishing early.
+      await vi.advanceTimersByTimeAsync(FORM_READ_IDLE_MS - 1);
+      expect(settled).toBe(false);
+
+      // One tick past it, both are answered. On the photo route's clocks these
+      // would still be holding their reservations 25 seconds from here.
+      await vi.advanceTimersByTimeAsync(2);
+      expect(settled).toBe(true);
+      expect(FORM_READ_IDLE_MS).toBeLessThan(READ_IDLE_MS);
+
+      const [answer, refused] = await both;
+      expect(answer?.status).toBe(408);
+      expect(refused.refusal).toBe('timed-out');
+      // Walked away from, not cancelled: the route still has a socket to answer on.
+      expect(single.wasCancelled()).toBe(false);
+      expect(typed.wasCancelled()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('still reads a small refused body to its end, so the answer reaches it', async () => {

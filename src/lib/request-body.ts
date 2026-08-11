@@ -43,22 +43,33 @@
 //                                      screen it would go back to is the one it
 //                                      was just sent from.
 //   POST .../auth, .../adopt           Size: MAX_FORM_BYTES buffered. Time:
-//                                      READ_*/DRAIN_*. Concurrency: 2× that cap
-//                                      + CHUNK_ALLOWANCE_BYTES reserved out of
-//                                      MAX_INFLIGHT_BODY_BYTES, which is the
-//                                      peak heap too (the chunks, the merged
+//                                      FORM_READ_TIMEOUT_MS / _IDLE_MS, on the
+//                                      drain as well — a body that can only be
+//                                      five short fields gets seconds, not the
+//                                      minutes a photo needs. Concurrency: 2×
+//                                      that cap + CHUNK_ALLOWANCE_BYTES reserved
+//                                      out of MAX_INFLIGHT_BODY_BYTES, which is
+//                                      the peak heap too (the chunks, the merged
 //                                      copy, the chunk in hand). Refused → a
 //                                      plain short answer, the same shape these
 //                                      forms already give a rejected field.
 //   POST .../confirm, escalate, clear  One button each, so `discardBody` reads
 //                                      the body to its end under MAX_FORM_BYTES
-//                                      and keeps nothing: same time bounds, the
-//                                      head-only reservation, same peak. Refused
-//                                      → a plain short answer. Leaving it unread
-//                                      would cost heap nothing and could cost
-//                                      the caller this route's redirect.
+//                                      and keeps nothing: the same short time
+//                                      bounds, the head-only reservation, same
+//                                      peak. Refused → a plain short answer.
+//                                      Leaving it unread would cost heap nothing
+//                                      and could cost the caller this route's
+//                                      redirect.
 //   POST .../photo                     The same, behind session and adopter
 //                                      checks.
+//
+// The time bounds split in two because the reservation is only released when
+// one of them fires, so the slowest body a route can receive is what decides
+// how long its share of MAX_INFLIGHT_BODY_BYTES can be held: minutes on the
+// report route, which really does receive 12MB over a bad uplink, and seconds
+// everywhere else, where a body that takes minutes is a trickle holding a slot
+// rather than anything a person sent.
 //
 // Two counters carry the concurrency column: MAX_INFLIGHT_BODY_BYTES for reads
 // that were admitted, MAX_SHED_READS for the ones being turned away, which hold
@@ -160,6 +171,29 @@ export const READ_TIMEOUT_MS = 240_000;
 
 /** How long such a body may go without sending anything. */
 export const READ_IDLE_MS = 30_000;
+
+/**
+ * The same two bounds for a body that can only be short: one button, or five
+ * text fields somebody typed with their thumbs.
+ *
+ * The photo-sized bounds above are what a 12MB upload needs on a bad sidewalk
+ * uplink, and inheriting them here was what let a trickle deny the whole
+ * server: a cookie-less client sending one byte every 25s holds each read for
+ * four minutes while its reservation sits inside `MAX_INFLIGHT_BODY_BYTES`, so
+ * a few hundred sockets at ~40 bytes/sec together exhaust the budget and every
+ * public POST answers `busy` until they time out. Heap stayed bounded, which is
+ * what that budget was built for; availability did not, because the bound that
+ * releases a reservation was sized for a body a thousand times larger than
+ * anything these routes can receive.
+ *
+ * Generous for what they carry — a sign-in on a bad connection is kilobytes —
+ * and they bound the drain too, so a refused short body can't outlast them
+ * either.
+ */
+export const FORM_READ_TIMEOUT_MS = 10_000;
+
+/** And how long one of those may go without sending anything. */
+export const FORM_READ_IDLE_MS = 5_000;
 
 /**
  * A bound the end-to-end suite can lower, so the paths that only open at
@@ -398,20 +432,22 @@ async function consume(
   // headroom; one refused for want of room is load to shed, and gets almost
   // nothing — but never more than it would have got anyway, since on the small
   // forms the headroom is already tighter than the busy budget.
-  const drainCeiling = shedding
-    ? SHED_DRAIN_BYTES
+  const drain = shedding
+    ? { ceiling: SHED_DRAIN_BYTES, budgetMs: SHED_DRAIN_MS, idleMs: SHED_DRAIN_MS }
     : busy
-      ? Math.min(BUSY_DRAIN_BYTES, limit + drainHeadroom)
-      : limit + drainHeadroom;
-  const drainBudgetMs = shedding ? SHED_DRAIN_MS : busy ? BUSY_DRAIN_MS : drainTimeoutMs;
-  const drainIdle = shedding ? SHED_DRAIN_MS : busy ? BUSY_DRAIN_MS : drainIdleMs;
+      ? {
+          ceiling: Math.min(BUSY_DRAIN_BYTES, limit + drainHeadroom),
+          budgetMs: BUSY_DRAIN_MS,
+          idleMs: BUSY_DRAIN_MS,
+        }
+      : { ceiling: limit + drainHeadroom, budgetMs: drainTimeoutMs, idleMs: drainIdleMs };
   // Both clocks start now. Which one applies switches with `over`, so a body
   // refused halfway through gets the drain's bounds for what remains — but
   // never past `readDeadline`, which is the whole request's ceiling and sits
   // under Node's own 300s backstop.
   const started = Date.now();
   const readDeadline = started + readTimeoutMs;
-  let drainDeadline = Math.min(started + drainBudgetMs, readDeadline);
+  let drainDeadline = Math.min(started + drain.budgetMs, readDeadline);
 
   // Past a bound the read simply stops here, without cancelling: cancelling
   // leaves the response unwritten and the socket idling until Node's request
@@ -426,7 +462,10 @@ async function consume(
         break;
       }
       // Whichever bound comes first: gone quiet, or out of total time.
-      const raced = await readWithin(reader, Math.min(remaining, refused ? drainIdle : readIdleMs));
+      const raced = await readWithin(
+        reader,
+        Math.min(remaining, refused ? drain.idleMs : readIdleMs),
+      );
       if (raced === STALLED) {
         stalled = true;
         break;
@@ -447,12 +486,12 @@ async function consume(
         // clock has been running since the read started. Clamped either way:
         // a body that crosses the cap late must not push the request past the
         // 300s backstop and lose the screen the drain exists to deliver.
-        if (!busy) drainDeadline = Math.min(Date.now() + drainBudgetMs, readDeadline);
+        if (!busy) drainDeadline = Math.min(Date.now() + drain.budgetMs, readDeadline);
       }
       if (over || !keep) {
         keep = false;
         kept = null;
-        if (total > drainCeiling) break;
+        if (total > drain.ceiling) break;
         continue;
       }
       kept!.push(value);
@@ -542,17 +581,34 @@ export type CappedForm =
   | { form: null; refusal: Refusal };
 
 /**
+ * Every bound a body that can only be short is read under.
+ *
+ * One place, so the single-button POSTs and the text forms can't drift apart
+ * on it: the drain budget is the cap itself (no legitimate sign-in overshoots
+ * 64KB by megabytes, and the photo-sized headroom the report route needs would
+ * only be an abuse budget here), and the clocks are the short ones, because the
+ * reservation these hold inside `MAX_INFLIGHT_BODY_BYTES` is only released when
+ * one of them fires.
+ */
+function formBounds(limit: number): ReadBounds {
+  return {
+    drainHeadroom: limit,
+    drainTimeoutMs: FORM_READ_TIMEOUT_MS,
+    drainIdleMs: FORM_READ_IDLE_MS,
+    readTimeoutMs: FORM_READ_TIMEOUT_MS,
+    readIdleMs: FORM_READ_IDLE_MS,
+  };
+}
+
+/**
  * A capped body parsed as form fields, for the text-only forms — where an
  * oversized body has nothing worth rescuing.
  *
- * These carry a handful of short fields, so the drain budget is the cap
- * itself: no legitimate sign-in overshoots 64KB by megabytes, and the
- * photo-sized headroom the report route needs would only be an abuse budget
- * here. At this size the two copies a parse costs are ~128KB, which is why
- * this path still buffers where the report route no longer does.
+ * At this size the two copies a parse costs are ~128KB, which is why this path
+ * still buffers where the report route no longer does.
  */
 export async function readCappedForm(request: Request, limit: number): Promise<CappedForm> {
-  const { body, refusal } = await readCappedBody(request, limit, { drainHeadroom: limit });
+  const { body, refusal } = await readCappedBody(request, limit, formBounds(limit));
   if (body === null) return { form: null, refusal };
   try {
     return { form: await formDataFrom(request, body), refusal: null };
@@ -601,9 +657,7 @@ export function refusalResponse(refusal: Refusal, subject: string): Response {
  * on the same bounds, with no route quietly exempt.
  */
 export async function discardBody(request: Request, subject: string): Promise<Response | null> {
-  const { refusal } = await readCappedHead(request, MAX_FORM_BYTES, {
-    drainHeadroom: MAX_FORM_BYTES,
-  });
+  const { refusal } = await readCappedHead(request, MAX_FORM_BYTES, formBounds(MAX_FORM_BYTES));
   return refusal === null ? null : refusalResponse(refusal, subject);
 }
 
