@@ -78,6 +78,6 @@ jobs:
           if [ "$valid" = true ]; then
             echo "OK: PR into '$BASE' comes from '$HEAD', a valid source ($allowed)."
           else
-            echo "::error::PR into '$BASE' must come from $allowed, not '$HEAD'. Promote through the chain: dev -> qa -> stage -> prod (main mirrors prod); hotfixes land on prod and are back-merged down."
+            echo "::error::PR into '$BASE' must come from $allowed, not '$HEAD'. Promote through the chain: dev -> qa -> stage -> prod (main mirrors prod); hotfixes land on prod and are back-merged down. If '$HEAD' is feature work, retarget this PR to 'dev' -- the check re-runs on the new base and clears."
             exit 1
           fi

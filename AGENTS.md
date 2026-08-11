@@ -20,6 +20,10 @@ feature branch -> dev -> qa -> stage -> prod
 - `main` is kept as a **mirror of `prod`** (the conventional default name pointing at what is live).
   It is never a merge target for feature work; the only valid PR into `main` comes from `prod`.
 
+**Open every feature-work pull request against `dev`, never against `main`.**
+This applies to agents and automation as much as to humans: tooling that picks a base branch by the conventional name `main` picks the wrong one here, because in this repo `main` is the prod mirror and `dev` is the default branch.
+Targeting `main` from a feature branch is what a red promotion-chain check almost always means; the fix is to retarget the pull request to `dev`, not to change the check.
+
 Forward promotion moves **up** the chain and always requires the exact predecessor, so nothing is promoted into `prod` without passing through `qa` and `stage`.
 The `hotfix/*` -> `prod` exception is the one way around that, and it is trusted **by branch name alone** — the check never verifies where a `hotfix/*` branch was cut from or what it contains, so any branch named `hotfix/anything` merges straight into `prod`.
 That is the deliberate cost of having a fast path at all.
