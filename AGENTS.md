@@ -20,11 +20,14 @@ feature branch -> dev -> qa -> stage -> prod
 - `main` is kept as a **mirror of `prod`** (the conventional default name pointing at what is live).
   It is never a merge target for feature work; the only valid PR into `main` comes from `prod`.
 
-Promotion moves **up** the chain and always requires the exact predecessor, so nothing reaches `prod` without passing through `qa` and `stage`.
+Forward promotion moves **up** the chain and always requires the exact predecessor, so nothing is promoted into `prod` without passing through `qa` and `stage`.
+The `hotfix/*` -> `prod` exception is the one way around that, and it is trusted **by branch name alone** — the check never verifies where a `hotfix/*` branch was cut from or what it contains, so any branch named `hotfix/anything` merges straight into `prod`.
+That is the deliberate cost of having a fast path at all.
 Merges **down** the chain are valid by design: `prod` -> `stage` and `stage` -> `qa` are back-merges, and the check accepts them alongside each base's forward source.
 
-Hotfix path: cut `hotfix/*` from `prod`, PR it into `prod`, then back-merge `prod` down through `stage`, `qa`, and `dev` — skipping the back-merge means the next normal promotion silently reverts the fix.
-Each of those back-merge PRs is an accepted source, so the sanctioned procedure never requires merging past a failing check.
+Hotfix path: cut `hotfix/*` from `prod`, PR it into `prod`, then PR `prod` -> `main` to re-establish the mirror, then back-merge `prod` down through `stage`, `qa`, and `dev`.
+Skipping the back-merge means the next normal promotion silently reverts the fix; skipping the `main` sync leaves `main` no longer mirroring live code.
+Each of those PRs is an accepted source, so the sanctioned procedure never requires merging past a failing check.
 
 ### What CI actually does, and what it cannot do
 

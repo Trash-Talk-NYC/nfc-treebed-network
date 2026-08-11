@@ -36,11 +36,16 @@ An urgent production fix is the one sanctioned exception to the chain:
 
 1. Cut the branch from `prod`: `git checkout -b hotfix/my-urgent-fix origin/prod`.
 2. Open the pull request against `prod`.
-3. **Back-merge `prod` down through `stage`, `qa`, and `dev`**, one PR each, immediately after the hotfix lands.
+3. **Open a PR from `prod` into `main`** to re-establish the mirror.
+4. **Back-merge `prod` down through `stage`, `qa`, and `dev`**, one PR each, immediately after the hotfix lands.
 
-Every PR in step 3 is a supported source, so all three pass the promotion-chain check — you should never have to merge a hotfix past a red check.
-Do not skip step 3.
-If the fix only exists on `prod`, the next normal `stage` -> `prod` promotion silently reverts it.
+Naming a branch `hotfix/*` is a real privilege: it is the only prefix that merges into `prod` without passing through `qa` and `stage`, and the check trusts the name without verifying where the branch came from.
+Use it only for genuine production incidents.
+
+Do not skip steps 3 and 4.
+Step 3 exists because `main` mirrors `prod`: drop it and `main` quietly stops matching live code during an incident, which is exactly when someone will look at `main` and trust it.
+Step 4 exists because if the fix only lives on `prod`, the next normal `stage` -> `prod` promotion silently reverts it.
+Every PR in both steps is a supported source, so they all pass the promotion-chain check — you should never have to merge a hotfix past a red check.
 
 ## Known limitation
 

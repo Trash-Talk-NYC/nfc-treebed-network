@@ -29,8 +29,8 @@ jobs:
           # Each guarded base accepts its forward predecessor and, where one exists,
           # its immediate successor -- the direction a hotfix back-merge travels.
           # Forward promotion still requires the exact predecessor, so nothing can
-          # skip a stage on the way up.
-          hotfix_allowed=false
+          # skip a stage on the way up. hotfix/* -> prod is the one exception, and
+          # it is trusted by branch name alone.
           case "$BASE" in
             qa)
               valid_heads="dev stage"
@@ -41,8 +41,7 @@ jobs:
               allowed="'qa' (promotion) or 'prod' (back-merge)"
               ;;
             prod)
-              valid_heads="stage"
-              hotfix_allowed=true
+              valid_heads="stage hotfix/?*"
               allowed="'stage' (promotion) or a 'hotfix/*' branch"
               ;;
             main)
@@ -58,19 +57,14 @@ jobs:
 
           valid=false
 
+          # $candidate is deliberately unquoted: a case pattern, so exact names
+          # match themselves and hotfix/?* matches the prefix.
           for candidate in $valid_heads; do
-            if [ "$HEAD" = "$candidate" ]; then
-              valid=true
-            fi
-          done
-
-          # Hotfixes are the one sanctioned exception to the chain: they skip
-          # dev/qa/stage and land straight on prod, then get back-merged down.
-          if [ "$hotfix_allowed" = true ]; then
+            # shellcheck disable=SC2254
             case "$HEAD" in
-              hotfix/?*) valid=true ;;
+              $candidate) valid=true ;;
             esac
-          fi
+          done
 
           if [ "$valid" = true ]; then
             echo "OK: PR into '$BASE' comes from '$HEAD', a valid source ($allowed)."
