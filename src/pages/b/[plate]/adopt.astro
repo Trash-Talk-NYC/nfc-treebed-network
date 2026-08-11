@@ -1,0 +1,152 @@
+---
+// Claim a slot. Collects the captain's full field set, in this order:
+// name, username, PIN, email, phone. Email and phone are PII: stored,
+// never displayed anywhere public, never echoed into any client payload.
+// The two-slot cap and username uniqueness are enforced server-side in
+// the service layer regardless of anything the browser claims.
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store-local';
+import { RuleError, adoptBed, getBedView, validateAdoptInput } from '../../../lib/service';
+import { setSessionUser } from '../../../lib/session';
+
+const { plate = '' } = Astro.params;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) return new Response('No bed with that plate.', { status: 404 });
+const base = `/b/${plate}`;
+
+let openSlots = view.openSlots;
+let errors: Partial<Record<'name' | 'username' | 'pin' | 'email' | 'phone', string>> = {};
+let formError: string | null = null;
+// Values echoed back on validation failure — the PIN deliberately never is.
+let values = { name: '', username: '', email: '', phone: '' };
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const input = {
+    name: String(form.get('name') ?? ''),
+    username: String(form.get('username') ?? ''),
+    pin: String(form.get('pin') ?? ''),
+    email: String(form.get('email') ?? ''),
+    phone: String(form.get('phone') ?? ''),
+  };
+  const checked = validateAdoptInput(input);
+  values = {
+    name: checked.values.name,
+    username: checked.values.username,
+    email: checked.values.email,
+    phone: checked.values.phone,
+  };
+  errors = checked.errors;
+  if (Object.keys(errors).length === 0) {
+    try {
+      const user = await adoptBed(store, { plate, input });
+      setSessionUser(Astro.cookies, user.id);
+      return Astro.redirect(`${base}/mine`, 303);
+    } catch (err) {
+      if (err instanceof RuleError && err.code === 'slots-full') {
+        formError = 'Both slots just filled up. This bed has its guardians.';
+        openSlots = 0;
+      } else if (err instanceof RuleError && err.code === 'username-taken') {
+        errors.username = 'That username is taken.';
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slots still open`;
+---
+
+<Screen title={`Adopt this tree bed · ${plate}`}>
+  <div class="screen">
+    <a class="back-link" href={base}>← {plate}</a>
+    <div class="headline">Adopt this tree bed</div>
+    <div class="subline">Your name goes on the plaque. One photo a week.</div>
+    {
+      openSlots === 0 ? (
+        <>
+          <div class="card form-card">
+            <div class="full-note">
+              {formError ?? 'Both slots are taken. This bed has its guardians — but other beds are waiting.'}
+            </div>
+          </div>
+          <div class="actions-bottom">
+            <a class="btn btn-dark btn-put" href={base}>BACK TO THE PLAQUE</a>
+          </div>
+        </>
+      ) : (
+        <form method="POST" class="adopt-form">
+          <div class="card form-card">
+            <div class="slots-row">
+              <span class="slots-label">SLOTS</span>
+              <span class="slots-open">{slotsOpenLabel}</span>
+            </div>
+            <label class="field-label label-gap" for="name">YOUR NAME</label>
+            <input class="field-input" id="name" name="name" type="text" value={values.name} autocomplete="name" required />
+            {errors.name && <div class="field-error">{errors.name}</div>}
+            <label class="field-label label-gap" for="username">YOUR USERNAME</label>
+            <input
+              class="field-input"
+              id="username"
+              name="username"
+              type="text"
+              placeholder="@"
+              value={values.username}
+              autocomplete="username"
+              autocapitalize="none"
+              required
+            />
+            {errors.username && <div class="field-error">{errors.username}</div>}
+            <label class="field-label label-gap" for="pin">PICK A PIN</label>
+            <input
+              class="field-input"
+              id="pin"
+              name="pin"
+              type="password"
+              inputmode="numeric"
+              autocomplete="new-password"
+              placeholder="4–8 digits"
+              required
+            />
+            {errors.pin && <div class="field-error">{errors.pin}</div>}
+            <label class="field-label label-gap" for="email">EMAIL</label>
+            <input class="field-input" id="email" name="email" type="email" value={values.email} autocomplete="email" required />
+            {errors.email && <div class="field-error">{errors.email}</div>}
+            <label class="field-label label-gap" for="phone">PHONE NUMBER</label>
+            <input class="field-input" id="phone" name="phone" type="tel" value={values.phone} autocomplete="tel" required />
+            {errors.phone && <div class="field-error">{errors.phone}</div>}
+            <div class="pii-note">Email and phone stay private — only your name goes on the plaque.</div>
+          </div>
+          <div class="actions-bottom">
+            <button class="btn btn-primary btn-put" type="submit">PUT MY NAME ON IT</button>
+          </div>
+        </form>
+      )
+    }
+  </div>
+</Screen>
+
+<style>
+  .back-link {
+    align-self: flex-start;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 800;
+    text-decoration: none;
+    padding: 8px 0;
+  }
+  .headline { font-size: 28px; font-weight: 900; line-height: 1.15; }
+  .subline { font-size: 15px; font-weight: 700; color: var(--surface-dark); }
+  .adopt-form { display: flex; flex-direction: column; gap: 18px; flex: 1; }
+  .form-card { display: flex; flex-direction: column; gap: 12px; }
+  .slots-row { display: flex; justify-content: space-between; align-items: baseline; }
+  .slots-label { font-size: 12px; font-weight: 800; letter-spacing: 0.14em; color: var(--muted); }
+  .slots-open { font-size: 12px; font-weight: 900; color: var(--action); }
+  .label-gap { margin-top: 4px; }
+  .pii-note { font-size: 12px; font-weight: 700; color: var(--muted); }
+  .full-note { font-size: 15px; font-weight: 700; color: var(--surface-dark); line-height: 1.5; }
+  .actions-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+  .btn-put { min-height: 62px; font-size: 17px; letter-spacing: 0; }
+</style>

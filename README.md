@@ -1,6 +1,27 @@
-# nfc-treebed-network
+# NFC Tree Bed Network
 
-NFC-tagged tree bed network for Trash Talk NYC.
+The tap screen ("plaque") for Trash Talk NYC's NFC tree bed network.
+Tap a tag on a tree guard, get that bed's plaque: its plate, who adopted it, its condition, and two actions — report litter, or claim an open adopter slot.
+
+## Run it
+
+Requires Node >= 22.
+
+```sh
+npm install
+npm run dev            # http://localhost:4321/b/BED-HRL-0847
+```
+
+```sh
+npm test               # server-side rule tests (vitest)
+npm run check          # astro type check
+npm run build && node dist/server/entry.mjs   # production server
+```
+
+Local state lives in `.data/store.json` (gitignored), seeded on first boot with the one demo bed `BED-HRL-0847` and adopter `marisol_r` (PIN `1234`).
+Delete `.data/` to reset.
+
+See `AGENTS.md` for architecture invariants, security decisions, and what is deliberately out of scope.
 
 ## Contributing
 

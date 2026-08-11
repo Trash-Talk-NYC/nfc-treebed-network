@@ -1,8 +1,58 @@
-# Project agent memory
+# NFC Tree Bed Network — agent notes
 
-This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
+The v1 tap screen ("plaque") for Trash Talk NYC's NFC tree bed network.
+A pedestrian taps a tag on a tree guard and lands on `/b/<plate>` — e.g. `/b/BED-HRL-0847`.
 
-- Add durable project-specific notes here as they are discovered through real work.
+Source-of-truth documents live in the firstmate repo under `data/plaque-mvp-n4/`:
+the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authoritative for visuals/copy/flow, and `spec.md` for product intent and rules.
+
+## Stack
+
+- Astro (server-rendered, `@astrojs/node` standalone adapter) + TypeScript strict.
+- Requires Node >= 22 (`~/.nvm/versions/node/v22.23.1` works; the default shell Node 18.10 does not).
+- `npm run dev` / `npm run build` / `npm run preview` / `npm test` (vitest) / `npm run check` (astro check).
+- The plaque ships zero client JavaScript except one inline script enhancing the severity slider.
+  Every form is a plain HTML POST and works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
+
+## Architecture invariants
+
+- **All persistence goes through the `Store` interface in `src/lib/store.ts`.**
+  The only implementation is `src/lib/store-local.ts` (one JSON file in `.data/`, gitignored).
+  Swapping to Supabase later means writing one new `Store` implementation and changing `getStore()` — nothing else.
+- **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
+  Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, escalate-to-dumping-once, PIN hashing.
+  Anything in the browser is editable in devtools (spec §7).
+- **`events` is append-only.** The store deliberately has no update/delete for events.
+- Anonymous visitors get an HMAC-signed `tg_visitor` cookie so the daily report limit has an identity to hang on.
+  Known MVP limitation: clearing cookies mints a new identity; the limit is best-effort for anonymous users.
+
+## Security decisions (read before touching auth)
+
+- **PIN auth is an MVP decision with a known weakness, not a considered long-term design.**
+  The captain chose username + numeric PIN for the street MVP (replacing spec §2's magic-link plan).
+  A 4–8 digit PIN is brute-forceable and there is no rate limiting on sign-in attempts yet.
+  Revisit before any real rollout.
+- PINs are bcrypt-hashed (`hashPin`/`verifyPin` in service.ts). Never store, log, or echo a plaintext PIN — the adopt form deliberately does not re-fill the PIN field on validation errors.
+- Email and phone are PII: stored on the user record, never rendered on any public screen, never included in any client-visible payload. Only name/username is engraved, and only while `displayNameHidden` is false.
+
+## Design tokens
+
+- The palette in `src/styles/global.css` is the **prototype's rendered palette**, which deliberately diverges from the production site's brand tokens.
+  The captain approved the prototype's look; firstmate has flagged the divergence upstream.
+  Each token's comment records the brand value it diverges from — a future snap to brand palette is that one file.
+- Fonts are self-hosted subsets (Nunito variable 700–900, Space Mono 400/700); provenance pinned in `public/fonts/README.md`.
+  No Google Fonts CDN. Bebas Neue is intentionally absent — the prototype doesn't use it despite spec §3a.
+- The bed screen's oversized action buttons are the captain's explicit override of the prototype's 66px buttons ("buttons taking close to as much of the screen as they can"). Don't shrink them back to match the prototype.
+
+## Scope deliberately left out (later tasks)
+
+- Supabase/Postgres/PostGIS, R2, any hosted service — the store swap is designed for this.
+- Photo storage (the report sheet's attach affordance records only `photoAttached`), points/streak earning rules, the 1-day grace period, 311 handoff, admin dashboard, NFC tag cryptographic verification, provisioning flow.
+- Streak/points on the adopter view render stored values only; nothing increments them yet.
+
+## Seed data
+
+One hand-seeded bed `BED-HRL-0847` (created on first boot by `store-local.ts`), with seeded adopter `marisol_r`, PIN `1234` — demo credentials for driving the sign-in flow locally.
 
 ## Branching model
 

@@ -1,0 +1,152 @@
+/* ── Design tokens ─────────────────────────────────────────────────────
+   These are the PROTOTYPE's rendered palette — what the captain reviewed
+   and approved — NOT the brand tokens from the production site's
+   colors.css. The divergence is known and flagged upstream; do not
+   "fix" it here. Each token notes the brand value it diverges from so a
+   future decision to snap to the brand palette is this file only.       */
+:root {
+  --paper: #f0ece4;        /* page background  (brand --off-white: #f7f4ed) */
+  --ink: #4a4850;          /* body ink         (brand --charcoal: #1c1c22)  */
+  --surface-dark: #4a4a5a; /* dark surface / secondary button (brand --charcoal: #1c1c22) */
+  --action: #f8623a;       /* primary action   (brand orange: #f35b04)      */
+  --muted: #8a867e;        /* muted label      (brand --gray: #7a7a8a)      */
+  --faint: #b0aca2;        /* placeholder text (brand --warm-gray: #b0aca2 ✓ matches) */
+  --border-soft: #d0ccc4;  /* card border      (brand --border-soft: #d0ccc4 ✓ matches) */
+  --success: #2a6b2a;      /* clear / success  (brand --green: #2a6b2a ✓ matches) */
+  --card: #ffffff;         /* plaque card surface (prototype renders a white
+                              card on warm grey — deliberately NOT spec §11's
+                              charcoal-on-off-white; the prototype wins)     */
+  --overlay: rgba(28, 28, 34, 0.45);
+}
+
+/* ── Fonts ─────────────────────────────────────────────────────────────
+   Self-hosted, subset woff2 (see public/fonts/README.md for provenance).
+   Nunito ships as one variable font covering weights 700–900.           */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: swap;
+  src: url('/fonts/nunito-vf-700-900.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/space-mono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/space-mono-700.woff2') format('woff2');
+}
+
+/* ── Base ──────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--paper); }
+body { font-family: 'Nunito', sans-serif; color: var(--ink); }
+a { color: var(--action); }
+button, input { font: inherit; }
+
+@keyframes ttPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* Prototype is authored at 390px; wider phones get it centered. */
+.frame { max-width: 390px; margin: 0 auto; min-height: 100dvh; background: var(--paper); }
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding: 18px 16px 20px;
+  gap: 16px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.kicker { font-size: 12px; font-weight: 800; letter-spacing: 0.14em; color: var(--surface-dark); }
+.mono { font-family: 'Space Mono', monospace; }
+
+/* ── Buttons ──────────────────────────────────────────────────────── */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-primary { background: var(--action); color: #fff; }
+.btn-primary:active { filter: brightness(0.92); }
+.btn-dark { background: var(--surface-dark); color: #fff; }
+.btn-dark:active { filter: brightness(1.15); }
+.btn-outline { background: var(--card); border: 2px solid var(--surface-dark); color: var(--surface-dark); }
+.btn-outline:active { background: var(--paper); }
+.btn-tertiary { background: var(--card); border: 2px solid var(--border-soft); color: var(--surface-dark); }
+.btn-tertiary:active { background: var(--paper); }
+.btn-ghost { background: transparent; color: var(--muted); font-size: 14px; font-weight: 800; min-height: 44px; letter-spacing: 0; }
+
+/* ── Forms ────────────────────────────────────────────────────────── */
+.field-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  display: block;
+}
+.field-input {
+  width: 100%;
+  border: 2px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+  background: var(--card);
+}
+.field-input:focus { border-color: var(--action); outline: none; }
+.field-input::placeholder { color: var(--faint); font-weight: 700; }
+.field-error { font-size: 13px; font-weight: 800; color: #b3261e; }
+
+/* ── Adopter slots ────────────────────────────────────────────────── */
+.slot-taken {
+  background: var(--paper);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--ink);
+}
+.slot-taken .since { font-size: 12px; font-weight: 700; color: var(--muted); }
+.slot-open {
+  border: 2px dashed var(--border-soft);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--faint);
+}
+
+/* ── Report band ──────────────────────────────────────────────────── */
+.band { border-radius: 10px; padding: 14px 16px; color: #fff; }
+.band-open { background: var(--action); }
+.band-clear { background: var(--success); }
+.band .band-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.band .band-title { font-size: 18px; font-weight: 900; line-height: 1.2; }
+.band .band-sub { font-family: 'Space Mono', monospace; font-size: 12px; margin-top: 4px; opacity: 0.9; }
+.pulse-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #fff; animation: ttPulse 2s infinite; }

@@ -1,0 +1,370 @@
+---
+// The plaque — what a tap lands on. One URL, three server-picked states:
+//   bed        clear bed, the default plaque
+//   adopted    an open report exists (someone else filed) → confirm / escalate
+//   ratelimit  the visitor already reported → severity raise only
+// State is decided here, server-side; the page ships no client JS beyond the
+// severity-picker enhancement script (spec §3/§3a).
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store-local';
+import { getBedView, hasReportedToday } from '../../../lib/service';
+import { getActorId } from '../../../lib/session';
+import { SEVERITIES, severityName } from '../../../lib/severity';
+import { nyCalendarDay, relativeAge, sinceLabel } from '../../../lib/format';
+import { randomUUID } from 'node:crypto';
+
+const { plate = '' } = Astro.params;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) return new Response('No bed with that plate.', { status: 404 });
+
+const actor = getActorId(Astro.cookies);
+const { bed, adopters, openSlots, openReport } = view;
+
+const url = Astro.url;
+const confirmedFlash = url.searchParams.has('confirmed');
+const raisedFlash = url.searchParams.has('raised');
+const limited = url.searchParams.has('limited');
+
+// Every plain tap is an append-only event (spec §4). Post-action redirects
+// carry query flags and are page reloads, not new taps — don't double count.
+if ([...url.searchParams.keys()].length === 0) {
+  await store.appendEvent({
+    id: `event-${randomUUID()}`,
+    bedPlate: plate,
+    eventType: 'tap',
+    severity: null,
+    actorId: actor,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+type Variant = 'bed' | 'adopted' | 'ratelimit';
+let variant: Variant = 'bed';
+let limitReport = null; // the visitor's own report shown on the ratelimit screen
+if (openReport && openReport.reporterId === actor) {
+  variant = 'ratelimit';
+  limitReport = openReport;
+} else if (openReport) {
+  variant = 'adopted';
+} else if (limited && (await hasReportedToday(store, plate, actor))) {
+  // Their report today was already closed; the bed is clear again, but the
+  // one-report-per-day rule still blocks a refile until tomorrow.
+  const today = nyCalendarDay(new Date());
+  limitReport =
+    (await store.getReports(plate)).find(
+      (r) => r.reporterId === actor && nyCalendarDay(new Date(r.openedAt)) === today,
+    ) ?? null;
+  if (limitReport) variant = 'ratelimit';
+}
+
+const canAdopt = openSlots > 0;
+const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slots still open`;
+const confirmedByMe = openReport?.confirmedBy.includes(actor) ?? false;
+const base = `/b/${bed.plate}`;
+---
+
+<Screen title={`${bed.plate} · Trash Talk NYC`}>
+  {
+    variant === 'bed' && (
+      <div class="screen screen-bed">
+        <a class="logo-link" href="https://trashtalknyc.org" target="_blank" rel="noopener">
+          <img src="/img/trash-talk-nyc-logo.png" alt="Trash Talk NYC" class="logo" width="137" height="144" />
+        </a>
+        <div class="card plate-card">
+          <div class="plate">{bed.plate}</div>
+          <div class="plate-ids mono">
+            <span>TREE ID: {bed.treeId}</span>
+            <span>TAG ID: {bed.tagUid}</span>
+          </div>
+          <div class="plate-rule" />
+          <div class="adopted-by">ADOPTED BY</div>
+          <div class="slots">
+            {adopters.map(({ adoption, user }) => (
+              <div class="slot-taken">{adoption.displayNameHidden ? 'A neighbor' : `@${user.username}`}</div>
+            ))}
+            {Array.from({ length: openSlots }).map(() => (
+              <div class="slot-open">Open slot</div>
+            ))}
+          </div>
+          {canAdopt && (
+            <div class="invite">
+              <div class="invite-voice">
+                This tree is asking — <strong>{slotsOpenLabel}</strong>.
+              </div>
+              <a class="btn btn-tertiary invite-btn" href={`${base}/adopt`}>
+                ADOPT THIS BED
+              </a>
+            </div>
+          )}
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary btn-huge" href="#report">THIS BED NEEDS CARE</a>
+          <a class="btn btn-dark btn-huge" href={`${base}/auth`}>I AM THIS BED'S TREE GUARDIAN</a>
+        </div>
+
+        {/* Severity sheet. Opens via :target so it works with JS disabled;
+            the inline script below only enhances (live tier copy, photo state). */}
+        <div class="sheet-wrap" id="report">
+          <a class="sheet-overlay" href="#" aria-label="Close"></a>
+          <div class="sheet" role="dialog" aria-label="How bad is it?">
+            <div class="sheet-head">
+              <span class="sheet-title">HOW BAD IS IT?</span>
+              <a class="sheet-close" href="#" aria-label="Close">✕</a>
+            </div>
+            <form method="POST" action={`${base}/report`} enctype="multipart/form-data">
+              <div class="sev-name" data-sev-name>{SEVERITIES[1]!.name}</div>
+              <div class="sev-def" data-sev-def>{SEVERITIES[1]!.def}</div>
+              <input
+                class="sev-range"
+                type="range"
+                name="severity"
+                min="0"
+                max="2"
+                step="1"
+                value="1"
+                aria-label="Severity"
+                list="sev-ticks"
+              />
+              <div class="sev-labels">
+                <span>LIGHT</span><span>HEAVY</span><span>DUMPING</span>
+              </div>
+              <label class="photo-attach" data-photo-label>
+                <input type="file" name="photo" accept="image/*" capture="environment" data-photo-input />
+                <span data-photo-text>＋ Add a photo (optional)</span>
+              </label>
+              <button class="btn btn-primary btn-file" type="submit">FILE REPORT</button>
+            </form>
+          </div>
+        </div>
+        <script is:inline>
+          // The severity picker's only client JS: live tier name/definition and
+          // the photo-attached state. Everything still submits without it.
+          (function () {
+            var SEV = [
+              { name: 'LIGHT', def: 'A few pieces. You could clear it bare-handed.' },
+              { name: 'HEAVY', def: "A full trash bag's worth. Gloves and a grabber." },
+              { name: 'DUMPING', def: 'Furniture, tires, or construction debris.' },
+            ];
+            var range = document.querySelector('.sev-range');
+            var name = document.querySelector('[data-sev-name]');
+            var def = document.querySelector('[data-sev-def]');
+            if (range && name && def)
+              range.addEventListener('input', function () {
+                var s = SEV[+range.value] || SEV[1];
+                name.textContent = s.name;
+                def.textContent = s.def;
+              });
+            var input = document.querySelector('[data-photo-input]');
+            var label = document.querySelector('[data-photo-label]');
+            var text = document.querySelector('[data-photo-text]');
+            if (input && label && text)
+              input.addEventListener('change', function () {
+                var attached = input.files && input.files.length > 0;
+                label.classList.toggle('attached', !!attached);
+                text.textContent = attached ? '✓ Photo attached' : '＋ Add a photo (optional)';
+              });
+          })();
+        </script>
+      </div>
+    )
+  }
+
+  {
+    variant === 'adopted' && openReport && (
+      <div class="screen">
+        <div class="kicker">TRASH TALK NYC · TREE GUARD NETWORK</div>
+        <div class="card">
+          <div class="plate-lg">{bed.plate}</div>
+          <div class="cross-streets">{bed.crossStreets}</div>
+          <div class="slots slots-spaced">
+            {adopters.map(({ adoption, user }) => (
+              <div class="slot-taken">
+                {adoption.displayNameHidden ? 'A neighbor' : user.name}{' '}
+                <span class="since">{sinceLabel(new Date(adoption.adoptedAt))}</span>
+              </div>
+            ))}
+            {openSlots > 0 && <div class="slot-open slot-open-sm">Open slot — {openSlots} of {bed.slots} left</div>}
+          </div>
+        </div>
+        <div class="band band-open">
+          <div class="band-row">
+            <span class="band-title">REPORTED · {severityName(openReport.severity)}</span>
+            <span class="pulse-dot" />
+          </div>
+          <div class="band-sub">
+            FILED {relativeAge(new Date(openReport.openedAt))} · {openReport.confirmedBy.length} NEIGHBORS CONFIRMED
+          </div>
+        </div>
+        <div class="body-copy">
+          A report is already open on this bed. Don't file a duplicate —{' '}
+          <span class="emph">add your weight to it.</span>
+        </div>
+        {raisedFlash && openReport.severity === 'dumping' && (
+          <div class="ok-line">✓ Severity raised to DUMPING. Bed moved up the queue.</div>
+        )}
+        {(confirmedFlash || confirmedByMe) && (
+          <div class="ok-line">✓ Confirmed. Crews see {openReport.confirmedBy.length} neighbors now.</div>
+        )}
+        <div class="actions-bottom">
+          <form method="POST" action={`${base}/confirm`}>
+            <button class="btn btn-outline btn-confirm" type="submit">STILL THERE — CONFIRM IT</button>
+          </form>
+          {openReport.severity !== 'dumping' && (
+            <form method="POST" action={`${base}/escalate`}>
+              <button class="btn btn-primary btn-escalate" type="submit">IT'S WORSE NOW → RAISE TO DUMPING</button>
+            </form>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  {
+    variant === 'ratelimit' && limitReport && (
+      <div class="screen">
+        <div class="kicker kicker-muted">{bed.plate}</div>
+        <div class="card card-roomy">
+          <div class="limit-title">You already reported this.</div>
+          <div class="limit-meta mono">
+            {limitReport.id} · FILED {relativeAge(new Date(limitReport.openedAt))} ·{' '}
+            {severityName(limitReport.severity)}
+          </div>
+        </div>
+        <div class="body-copy">
+          One report per bed per day keeps the queue honest. Crews rank beds by{' '}
+          <span class="emph-ink">how bad it is</span> — not by how many times one person taps the tag.
+        </div>
+        <div class="body-copy">Gotten worse since this morning? That, you can tell us.</div>
+        {limitReport.severity === 'dumping' && limitReport.escalatedFrom && (
+          <div class="raised-box">✓ Severity raised to DUMPING. Bed moved up the queue.</div>
+        )}
+        <div class="actions-bottom">
+          {limitReport.closedAt === null && limitReport.severity !== 'dumping' && (
+            <form method="POST" action={`${base}/escalate`}>
+              <button class="btn btn-primary btn-raise" type="submit">RAISE SEVERITY TO DUMPING</button>
+            </form>
+          )}
+          <a class="btn btn-ghost" href={`${base}/receipt/${limitReport.id}`}>Leave it — it's in the queue</a>
+        </div>
+      </div>
+    )
+  }
+</Screen>
+
+<style>
+  /* ── bed variant — the captain's layout override lives here: compact
+       plate banner up top, the two primary actions dominate the rest.    */
+  .screen-bed { padding: 12px 16px 16px; gap: 12px; }
+  .logo-link { align-self: center; line-height: 0; }
+  .logo { height: 44px; width: auto; display: block; }
+  .plate-card { padding: 14px 16px; }
+  .plate {
+    border: 3px solid var(--surface-dark);
+    border-radius: 8px;
+    padding: 12px 10px;
+    text-align: center;
+    font-size: 34px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.04em;
+  }
+  .plate-ids {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-top: 10px;
+  }
+  .plate-rule { border-top: 1px solid var(--paper); margin: 12px 0 10px; }
+  .adopted-by { font-size: 12px; font-weight: 800; letter-spacing: 0.14em; color: var(--muted); }
+  .slots { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .screen-bed .slot-taken { padding: 11px 14px; }
+  .screen-bed .slot-open { padding: 10px; }
+  .invite { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .invite-voice { font-size: 14px; font-weight: 700; color: var(--surface-dark); text-align: center; }
+  .invite-voice strong { color: var(--action); font-weight: 900; }
+  .invite-btn { min-height: 44px; font-size: 14px; }
+  .actions { flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .btn-huge { flex: 1; font-size: 22px; letter-spacing: 0.04em; padding: 12px; }
+  .btn-huge.btn-dark { font-size: 20px; letter-spacing: 0.02em; }
+
+  /* ── severity sheet ── */
+  .sheet-wrap { display: none; }
+  .sheet-wrap:target { display: block; }
+  .sheet-overlay { position: fixed; inset: 0; background: var(--overlay); z-index: 10; }
+  .sheet {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(100%, 390px);
+    background: var(--card);
+    border-radius: 16px 16px 0 0;
+    padding: 22px 20px 26px;
+    z-index: 11;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .sheet form { display: flex; flex-direction: column; gap: 16px; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; }
+  .sheet-title { font-size: 13px; font-weight: 800; letter-spacing: 0.1em; color: var(--muted); }
+  .sheet-close {
+    font-size: 18px; font-weight: 900; color: var(--muted);
+    text-decoration: none; padding: 4px 8px;
+  }
+  .sev-name { font-size: 26px; font-weight: 900; color: var(--action); }
+  .sev-def { font-size: 15px; font-weight: 700; color: var(--surface-dark); margin-top: 2px; min-height: 44px; }
+  .sev-name + .sev-def { margin-top: -14px; }
+  .sev-range { width: 100%; accent-color: var(--action); height: 32px; cursor: pointer; margin: 0; }
+  .sev-labels {
+    display: flex; justify-content: space-between;
+    font-size: 11px; font-weight: 800; letter-spacing: 0.08em; color: var(--faint);
+    margin-top: -8px;
+  }
+  .photo-attach {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 48px;
+    border: 2px dashed var(--border-soft);
+    border-radius: 10px;
+    color: var(--muted);
+    font-size: 14px; font-weight: 800;
+    cursor: pointer;
+    text-align: center;
+  }
+  .photo-attach input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .photo-attach.attached {
+    border-style: solid; border-color: var(--paper);
+    background: var(--paper); color: var(--success);
+  }
+  .btn-file { min-height: 58px; font-size: 17px; letter-spacing: 0; }
+
+  /* ── adopted + ratelimit variants ── */
+  .kicker-muted { color: var(--muted); }
+  .plate-lg { font-size: 32px; font-weight: 900; line-height: 1.05; }
+  .cross-streets { font-size: 15px; font-weight: 800; color: var(--surface-dark); margin-top: 4px; }
+  .slots-spaced { margin-top: 14px; }
+  .slot-open-sm { padding: 11px; font-size: 14px; }
+  .body-copy { font-size: 15px; font-weight: 700; color: var(--surface-dark); line-height: 1.55; }
+  .emph { color: var(--action); font-weight: 900; }
+  .emph-ink { color: var(--ink); font-weight: 900; }
+  .ok-line { font-size: 14px; font-weight: 800; color: var(--success); }
+  .actions-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+  .btn-confirm { min-height: 56px; font-size: 16px; letter-spacing: 0; }
+  .btn-escalate { min-height: 62px; font-size: 16px; letter-spacing: 0; }
+  .card-roomy { padding: 22px 20px; }
+  .limit-title { font-size: 30px; font-weight: 900; line-height: 1.15; }
+  .limit-meta { font-size: 13px; font-weight: 700; color: var(--action); margin-top: 12px; }
+  .raised-box {
+    background: var(--card);
+    border: 1px solid var(--success);
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 14px; font-weight: 800; color: var(--success);
+  }
+  .btn-raise { min-height: 62px; font-size: 17px; letter-spacing: 0; }
+</style>

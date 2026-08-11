@@ -1,0 +1,92 @@
+---
+// Sign in — username + PIN. The PIN never appears in any response or log;
+// verification happens server-side against the bcrypt hash only.
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store-local';
+import { RuleError, getBedView, signIn } from '../../../lib/service';
+import { getSessionUserId, setSessionUser } from '../../../lib/session';
+
+const { plate = '' } = Astro.params;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) return new Response('No bed with that plate.', { status: 404 });
+const base = `/b/${plate}`;
+
+// Already signed in → straight to the guardian view.
+if (Astro.request.method === 'GET' && getSessionUserId(Astro.cookies)) {
+  return Astro.redirect(`${base}/mine`, 303);
+}
+
+let error: string | null = null;
+let username = '';
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  username = String(form.get('username') ?? '');
+  const pin = String(form.get('pin') ?? '');
+  try {
+    const user = await signIn(store, { username, pin });
+    setSessionUser(Astro.cookies, user.id);
+    return Astro.redirect(`${base}/mine`, 303);
+  } catch (err) {
+    if (err instanceof RuleError && err.code === 'invalid-credentials') {
+      error = err.message;
+    } else {
+      throw err;
+    }
+  }
+}
+---
+
+<Screen title={`Sign in · ${plate}`}>
+  <div class="screen">
+    <a class="back-link" href={base}>← {plate}</a>
+    <div class="headline">Welcome back, guardian.</div>
+    <form method="POST" class="auth-form">
+      <div class="card form-card">
+        <label class="field-label" for="username">USERNAME</label>
+        <input
+          class="field-input"
+          id="username"
+          name="username"
+          type="text"
+          placeholder="@"
+          value={username}
+          autocomplete="username"
+          autocapitalize="none"
+          required
+        />
+        <label class="field-label label-gap" for="pin">PIN</label>
+        <input
+          class="field-input"
+          id="pin"
+          name="pin"
+          type="password"
+          inputmode="numeric"
+          autocomplete="current-password"
+          required
+        />
+        {error && <div class="field-error">{error}</div>}
+      </div>
+      <div class="actions-bottom">
+        <button class="btn btn-dark btn-signin" type="submit">SIGN IN</button>
+      </div>
+    </form>
+  </div>
+</Screen>
+
+<style>
+  .back-link {
+    align-self: flex-start;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 800;
+    text-decoration: none;
+    padding: 8px 0;
+  }
+  .headline { font-size: 28px; font-weight: 900; line-height: 1.15; }
+  .auth-form { display: flex; flex-direction: column; gap: 18px; flex: 1; }
+  .form-card { display: flex; flex-direction: column; gap: 12px; }
+  .label-gap { margin-top: 4px; }
+  .actions-bottom { margin-top: auto; }
+  .btn-signin { min-height: 62px; font-size: 17px; letter-spacing: 0; }
+</style>

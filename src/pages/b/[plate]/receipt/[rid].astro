@@ -1,0 +1,87 @@
+---
+// Report-filed receipt, then the adopt ask — which lands best right after
+// someone has proven they care (spec §6). Receipt-styled: Space Mono,
+// dashed rules. Contains no PII.
+import Screen from '../../../../layouts/Screen.astro';
+import { getStore } from '../../../../lib/store-local';
+import { getBedView } from '../../../../lib/service';
+import { severityName } from '../../../../lib/severity';
+import { receiptTime } from '../../../../lib/format';
+
+const { plate = '', rid = '' } = Astro.params;
+const store = getStore();
+const view = await getBedView(store, plate);
+const report = await store.getReport(rid);
+if (!view || !report || report.bedPlate !== plate) {
+  return new Response('No such report.', { status: 404 });
+}
+
+const { openSlots } = view;
+const canAdopt = openSlots > 0;
+const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slots still open`;
+const base = `/b/${plate}`;
+---
+
+<Screen title={`Report filed · ${plate}`}>
+  <div class="screen screen-receipt">
+    <div class="kicker kicker-center">TRASH TALK NYC</div>
+    <div class="card receipt mono">
+      <div class="receipt-title">Report filed ✓</div>
+      <div class="dashed-rule"></div>
+      <div class="receipt-row"><span>REPORT</span><span>{report.id}</span></div>
+      <div class="receipt-row"><span>BED</span><span>{report.bedPlate}</span></div>
+      <div class="receipt-row"><span>SEVERITY</span><span class="sev">{severityName(report.severity)}</span></div>
+      <div class="receipt-row"><span>FILED</span><span>{receiptTime(new Date(report.openedAt))}</span></div>
+      <div class="dashed-rule"></div>
+      <div class="receipt-note">Crews work this block Tue + Fri.<br />Severity decides who's first in line.</div>
+    </div>
+    <div class="actions-bottom">
+      {
+        canAdopt && (
+          <>
+            <div class="adopt-ask">
+              <div class="adopt-ask-slots">{slotsOpenLabel}</div>
+              <div class="adopt-ask-sub">You clearly care. Put your name on the plaque.</div>
+            </div>
+            <a class="btn btn-primary btn-adopt" href={`${base}/adopt`}>ADOPT THIS BED</a>
+          </>
+        )
+      }
+      <a class="btn btn-ghost" href={base}>Not today — just passing through</a>
+    </div>
+  </div>
+</Screen>
+
+<style>
+  .screen-receipt { padding: 18px 16px 20px; }
+  .kicker-center { text-align: center; margin-top: 4px; }
+  .receipt { padding: 22px 20px; }
+  .receipt-title {
+    font-family: 'Nunito', sans-serif;
+    font-size: 26px;
+    font-weight: 900;
+    text-align: center;
+    color: var(--success);
+  }
+  .dashed-rule { border-top: 2px dashed var(--border-soft); margin: 16px 0; }
+  .receipt-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 4px 0;
+  }
+  .receipt-row .sev { color: var(--action); }
+  .receipt-note {
+    font-family: 'Nunito', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+    color: var(--surface-dark);
+  }
+  .actions-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+  .adopt-ask { text-align: center; }
+  .adopt-ask-slots { font-size: 24px; font-weight: 900; }
+  .adopt-ask-sub { font-size: 15px; font-weight: 700; color: var(--muted); margin-top: 2px; }
+  .btn-adopt { min-height: 62px; font-size: 18px; }
+</style>
