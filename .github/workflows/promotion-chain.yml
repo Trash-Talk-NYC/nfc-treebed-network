@@ -1,0 +1,83 @@
+name: promotion-chain
+
+# Flags pull requests that break the promotion chain: dev -> qa -> stage -> prod
+# (main mirrors prod), plus sanctioned hotfix/* -> prod and the down-chain
+# back-merges that a hotfix requires.
+# This check is advisory only. Branch protection, rulesets, and required status
+# checks are all unavailable (free plan + private repo), so a failing run marks the
+# PR red but leaves the merge button enabled, and nothing here sees direct pushes.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+    # Deliberately unfiltered by base branch, and filtered in the script instead.
+    # A `branches:` filter here would skip the run entirely when a PR is retargeted
+    # off a guarded base (e.g. main -> dev), and because no new run reports on the
+    # unchanged head SHA, the old failed check would stay red on a PR that has since
+    # been corrected. Running on every PR keeps the check a live answer about the
+    # current base rather than a stale one.
+
+permissions: {}
+
+jobs:
+  check-promotion-source:
+    name: PR source matches promotion chain
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert head branch is a valid source for the base branch
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          # -f keeps the glob patterns in $valid_heads from being expanded against
+          # the working directory before they are used as case patterns.
+          set -euf -o pipefail
+
+          # Each guarded base accepts its forward predecessor and, where one exists,
+          # its immediate successor -- the direction a hotfix back-merge travels.
+          # Forward promotion still requires the exact predecessor, so nothing can
+          # skip a stage on the way up. hotfix/* -> prod is the one exception, and
+          # it is trusted by branch name alone.
+          case "$BASE" in
+            qa)
+              valid_heads="dev stage"
+              allowed="'dev' (promotion) or 'stage' (back-merge)"
+              ;;
+            stage)
+              valid_heads="qa prod"
+              allowed="'qa' (promotion) or 'prod' (back-merge)"
+              ;;
+            prod)
+              valid_heads="stage hotfix/?*"
+              allowed="'stage' (promotion) or a 'hotfix/*' branch"
+              ;;
+            main)
+              valid_heads="prod"
+              allowed="'prod' (mirror sync)"
+              ;;
+            *)
+              # Any other base is unguarded -- `dev` takes feature branches, whose
+              # names are arbitrary, so there is nothing to assert. Pass explicitly
+              # rather than erroring: this is the branch a corrected PR lands on.
+              echo "OK: '$BASE' is not a promotion-chain branch; head branch is unrestricted."
+              exit 0
+              ;;
+          esac
+
+          valid=false
+
+          # $candidate is deliberately unquoted: a case pattern, so exact names
+          # match themselves and hotfix/?* matches the prefix.
+          for candidate in $valid_heads; do
+            # shellcheck disable=SC2254
+            case "$HEAD" in
+              $candidate) valid=true ;;
+            esac
+          done
+
+          if [ "$valid" = true ]; then
+            echo "OK: PR into '$BASE' comes from '$HEAD', a valid source ($allowed)."
+          else
+            echo "::error::PR into '$BASE' must come from $allowed, not '$HEAD'. Promote through the chain: dev -> qa -> stage -> prod (main mirrors prod); hotfixes land on prod and are back-merged down. If '$HEAD' is feature work, retarget this PR to 'dev' -- the check re-runs on the new base and clears."
+            exit 1
+          fi
