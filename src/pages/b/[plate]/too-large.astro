@@ -1,0 +1,69 @@
+---
+// Where an oversized photo lands. Filing is the core action on the street, so
+// an optional attachment must never cost someone the report they already
+// filled in: the severity they picked is carried here and one tap files it
+// without the photo. Plain forms and links only — no client JS, like the
+// screens it sits between.
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store-local';
+import { getBedView } from '../../../lib/service';
+import { SEVERITIES, severityIndexFrom } from '../../../lib/severity';
+
+const { plate = '' } = Astro.params;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) return new Response('No bed with that plate.', { status: 404 });
+const base = `/b/${plate}`;
+
+// Null when the upload was refused before the severity field arrived — then
+// the only honest offer is the picker again, not a severity we guessed.
+const kept = severityIndexFrom(Astro.url.searchParams.get('severity'));
+const tier = kept === null ? null : SEVERITIES[kept]!;
+---
+
+<Screen title={`Photo too large · ${plate}`}>
+  <div class="screen">
+    <div class="kicker kicker-muted">{plate}</div>
+    <div class="card card-roomy">
+      <div class="too-large-title">That photo was too large.</div>
+      <div class="too-large-meta mono">NOTHING FILED YET · THE REPORT IS STILL YOURS TO SEND</div>
+    </div>
+    <div class="body-copy">
+      Photos over 12 MB don't make it through the tag. The photo is optional —{' '}
+      <span class="emph">the report is what the crews rank.</span>
+    </div>
+    <div class="actions-bottom">
+      {
+        tier ? (
+          <>
+            <div class="body-copy">
+              You picked <span class="emph">{tier.name}</span> — {tier.def}
+            </div>
+            <form method="POST" action={`${base}/report`}>
+              <input type="hidden" name="severity" value={kept} />
+              <button class="btn btn-primary btn-refile" type="submit">
+                FILE IT WITHOUT THE PHOTO
+              </button>
+            </form>
+          </>
+        ) : (
+          <a class="btn btn-primary btn-refile" href={`${base}#report`}>
+            PICK THE SEVERITY AGAIN
+          </a>
+        )
+      }
+      <a class="btn btn-ghost" href={base}>Back to the plaque</a>
+    </div>
+  </div>
+</Screen>
+
+<style>
+  .kicker-muted { color: var(--muted); }
+  .card-roomy { padding: 22px 20px; }
+  .too-large-title { font-size: 30px; font-weight: 900; line-height: 1.15; }
+  .too-large-meta { font-size: 13px; font-weight: 700; color: var(--action); margin-top: 12px; }
+  .body-copy { font-size: 15px; font-weight: 700; color: var(--surface-dark); line-height: 1.55; }
+  .emph { color: var(--action); font-weight: 900; }
+  .actions-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+  .btn-refile { min-height: 62px; font-size: 17px; letter-spacing: 0; }
+</style>

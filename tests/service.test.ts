@@ -14,6 +14,7 @@ import {
   hashPin,
   hasPhotoThisWeek,
   logPhoto,
+  logTap,
   signIn,
   validateAdoptInput,
   verifyPin,
@@ -21,9 +22,11 @@ import {
 
 const PLATE = 'BED-HRL-0847';
 
+let storeFile = '';
 function freshStore(): LocalStore {
   const dir = mkdtempSync(path.join(tmpdir(), 'treebed-test-'));
-  return new LocalStore(path.join(dir, 'store.json'));
+  storeFile = path.join(dir, 'store.json');
+  return new LocalStore(storeFile);
 }
 
 function adoptInput(overrides: Partial<Parameters<typeof validateAdoptInput>[0]> = {}) {
@@ -37,23 +40,34 @@ function adoptInput(overrides: Partial<Parameters<typeof validateAdoptInput>[0]>
   };
 }
 
+function tapEvent(id: string) {
+  return {
+    id,
+    bedPlate: PLATE,
+    eventType: 'tap' as const,
+    severity: null,
+    actorId: 'visitor-1',
+    createdAt: new Date().toISOString(),
+  };
+}
+
 let store: LocalStore;
 beforeEach(() => {
   store = freshStore();
 });
 
 describe('PIN hashing', () => {
-  it('round-trips a PIN and rejects a wrong one', () => {
-    const hash = hashPin('4321');
+  it('round-trips a PIN and rejects a wrong one', async () => {
+    const hash = await hashPin('4321');
     expect(hash).not.toContain('4321');
-    expect(verifyPin('4321', hash)).toBe(true);
-    expect(verifyPin('4322', hash)).toBe(false);
+    expect(await verifyPin('4321', hash)).toBe(true);
+    expect(await verifyPin('4322', hash)).toBe(false);
   });
 
   it('never stores a plaintext PIN on the user record', async () => {
     const user = await adoptBed(store, { plate: PLATE, input: adoptInput({ pin: '987654' }) });
     expect(JSON.stringify(user)).not.toContain('987654');
-    expect(verifyPin('987654', user.pinHash)).toBe(true);
+    expect(await verifyPin('987654', user.pinHash)).toBe(true);
   });
 });
 
@@ -220,21 +234,72 @@ describe('store contract', () => {
     expect(events).toEqual([]);
   });
 
+  it('keeps writes that land while the file is still being seeded', async () => {
+    // The seed is a disk write of its own. A write racing it used to rename
+    // the same temp file, and the loser's ENOENT took its write with it.
+    const fresh = freshStore();
+    const taps = Array.from({ length: 12 }, (_, i) =>
+      logTap(fresh, { plate: PLATE, actorId: `visitor-${i}` }),
+    );
+    await Promise.all(taps);
+    expect(await fresh.getEvents(PLATE, 'tap')).toHaveLength(12);
+    expect(await new LocalStore(storeFile).getEvents(PLATE, 'tap')).toHaveLength(12);
+  });
+
+  it('makes a write that arrives mid-transaction wait instead of joining it', async () => {
+    // The tap that lands while another request's transaction is in flight is
+    // somebody else's write: it must survive that transaction rolling back.
+    const elsewhere: Array<Promise<void>> = [];
+    const inside = store.transaction(async (tx) => {
+      await tx.appendEvent(tapEvent('event-inside'));
+      elsewhere.push(store.appendEvent(tapEvent('event-outside')));
+      // Real transactions yield here — the disk write is IO.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      throw new Error('boom');
+    });
+    await expect(inside).rejects.toThrow('boom');
+    await Promise.all(elsewhere);
+    expect((await store.getEvents(PLATE)).map((e) => e.id)).toEqual(['event-outside']);
+  });
+
+  it('serializes two transactions that overlap a disk write', async () => {
+    const order: string[] = [];
+    const slow = store.transaction(async (tx) => {
+      order.push('first-start');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await tx.appendEvent(tapEvent('event-first'));
+      order.push('first-end');
+    });
+    const quick = store.transaction(async (tx) => {
+      order.push('second-start');
+      await tx.appendEvent(tapEvent('event-second'));
+      order.push('second-end');
+    });
+    await Promise.all([slow, quick]);
+    expect(order).toEqual(['first-start', 'first-end', 'second-start', 'second-end']);
+    expect((await store.getEvents(PLATE)).map((e) => e.id).sort()).toEqual([
+      'event-first',
+      'event-second',
+    ]);
+  });
+
   it('rolls a failed transaction back instead of leaving half of it applied', async () => {
     await expect(
       store.transaction(async (tx) => {
-        await tx.appendEvent({
-          id: 'event-doomed',
-          bedPlate: PLATE,
-          eventType: 'tap',
-          severity: null,
-          actorId: 'visitor-1',
-          createdAt: new Date().toISOString(),
-        });
+        await tx.appendEvent(tapEvent('event-doomed'));
         throw new Error('boom');
       }),
     ).rejects.toThrow('boom');
     expect(await store.getEvents(PLATE)).toHaveLength(0);
+  });
+
+  it('commits a tap the same way as every other write', async () => {
+    await logTap(store, { plate: PLATE, actorId: 'visitor-7' });
+    const events = await store.getEvents(PLATE, 'tap');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.actorId).toBe('visitor-7');
+    const reread = new LocalStore(storeFile);
+    expect(await reread.getEvents(PLATE, 'tap')).toHaveLength(1);
   });
 });
 

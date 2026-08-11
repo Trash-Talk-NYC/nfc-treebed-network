@@ -22,9 +22,11 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
   Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, escalate-to-dumping-once, one photo per NY week, PIN hashing.
   Anything in the browser is editable in devtools (spec §7).
-- **A rule that checks state before writing it runs inside `store.transaction()`.**
+- **A rule that checks state before writing it runs inside `store.transaction()`, and reads and writes through the `tx` the callback is handed — never through the store it came from.**
   A bare sequence of store calls interleaves with concurrent requests, and two reports open on one bed is unrecoverable through the UI — `closeReport` only ever finds the first.
+  `tx` is a distinct object precisely so a call arriving from another request while the transaction waits on its disk write is still recognized as somebody else's and queued.
   Any new `Store` implementation must make the callback exclusive and commit or roll back its writes as a unit.
+  Every mutation goes this way, including the per-tap event — a write outside the committed path can be discarded by an unrelated rollback.
 - **Store reads return detached copies.** Mutating what a read handed you changes nothing; the only way to persist is an explicit write.
   This is what keeps the service layer honest against a backend that can't hand out live references.
 - **`events` is append-only.** The store deliberately has no update/delete for events.
@@ -50,6 +52,9 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - Fonts are self-hosted subsets (Nunito variable 700–900, Space Mono 400/700); provenance pinned in `public/fonts/README.md`.
   No Google Fonts CDN. Bebas Neue is intentionally absent — the prototype doesn't use it despite spec §3a.
 - The bed screen's oversized action buttons are the captain's explicit override of the prototype's 66px buttons ("buttons taking close to as much of the screen as they can"). Don't shrink them back to match the prototype.
+- `b/[plate]/too-large.astro` is the one screen with no prototype counterpart: where an over-cap photo upload lands.
+  Filing is the core street action, so an optional attachment must never cost someone the report they already filled in — the screen carries their chosen severity and offers to file it without the photo.
+  It is built from the same tokens as the rate-limited screen and, like every other screen, works with JavaScript disabled.
 
 ## Scope deliberately left out (later tasks)
 

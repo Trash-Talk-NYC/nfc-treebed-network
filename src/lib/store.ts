@@ -26,6 +26,11 @@ export interface Store {
    *
    * Rules that check state before writing it MUST run inside one of these —
    * a bare sequence of store calls can interleave with another request.
+   *
+   * `fn` MUST do all of its reading and writing through the `tx` it is handed,
+   * not through the store it came from: `tx` is what belongs to this
+   * transaction, and only calls made through it are covered by the exclusive
+   * access and the all-or-nothing commit.
    */
   transaction<T>(fn: (tx: Store) => Promise<T>): Promise<T>;
 

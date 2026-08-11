@@ -7,11 +7,10 @@
 // severity-picker enhancement script (spec §3/§3a).
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store-local';
-import { getBedView, hasReportedToday } from '../../../lib/service';
+import { getBedView, hasReportedToday, logTap } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
 import { SEVERITIES, severityName } from '../../../lib/severity';
 import { nyCalendarDay, relativeAge, sinceLabel } from '../../../lib/format';
-import { randomUUID } from 'node:crypto';
 
 const { plate = '' } = Astro.params;
 const store = getStore();
@@ -26,17 +25,10 @@ const confirmedFlash = url.searchParams.has('confirmed');
 const raisedFlash = url.searchParams.has('raised');
 const limited = url.searchParams.has('limited');
 
-// Every plain tap is an append-only event (spec §4). Post-action redirects
-// carry query flags and are page reloads, not new taps — don't double count.
+// Post-action redirects carry query flags and are page reloads, not new taps
+// — don't double count.
 if ([...url.searchParams.keys()].length === 0) {
-  await store.appendEvent({
-    id: `event-${randomUUID()}`,
-    bedPlate: plate,
-    eventType: 'tap',
-    severity: null,
-    actorId: actor,
-    createdAt: new Date().toISOString(),
-  });
+  await logTap(store, { plate, actorId: actor });
 }
 
 type Variant = 'bed' | 'adopted' | 'ratelimit';

@@ -16,3 +16,24 @@ export function severityName(value: Severity): string {
 export function severityFromIndex(index: number): Severity | null {
   return SEVERITIES[index]?.value ?? null;
 }
+
+/**
+ * The tier index a submitted value names, or null if it names none.
+ *
+ * Strict on purpose: `Number(null)` and `Number('')` are both 0, so a missing
+ * or empty field run through `Number` would quietly mean LIGHT — a severity
+ * nobody picked, on the one field the crews' queue is ordered by.
+ */
+export function severityIndexFrom(raw: unknown): number | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const index = Number(trimmed);
+  return severityFromIndex(index) === null ? null : index;
+}
+
+/** The tier a submitted value names, or null if it names none. */
+export function severityFrom(raw: unknown): Severity | null {
+  const index = severityIndexFrom(raw);
+  return index === null ? null : severityFromIndex(index);
+}

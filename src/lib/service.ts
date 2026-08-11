@@ -31,12 +31,15 @@ export class RuleError extends Error {
 
 const PIN_ROUNDS = 10;
 
-export function hashPin(pin: string): string {
-  return bcrypt.hashSync(pin, PIN_ROUNDS);
+// bcrypt costs ~100ms of CPU by design. The async variants yield between
+// rounds, so one adoption or sign-in can't pin the single-threaded server —
+// which matters most on sign-in, the one un-rate-limited path (AGENTS.md).
+export async function hashPin(pin: string): Promise<string> {
+  return bcrypt.hash(pin, PIN_ROUNDS);
 }
 
-export function verifyPin(pin: string, pinHash: string): boolean {
-  return bcrypt.compareSync(pin, pinHash);
+export async function verifyPin(pin: string, pinHash: string): Promise<boolean> {
+  return bcrypt.compare(pin, pinHash);
 }
 
 /** Everything the plaque screens need about one bed, in one read. */
@@ -62,6 +65,20 @@ export async function getBedView(store: Store, plate: string): Promise<BedView |
     openSlots: Math.max(0, bed.slots - adopters.length),
     openReport: (await store.getOpenReport(plate)) ?? null,
   };
+}
+
+/**
+ * Every plain tap on the tag is an append-only event (spec §4). It goes
+ * through the same committed path as every other write, so a tap is never
+ * left sitting in memory that some other request's rollback can discard.
+ */
+export async function logTap(
+  store: Store,
+  args: { plate: string; actorId: string; now?: Date },
+): Promise<void> {
+  await store.transaction(async (tx) => {
+    await appendEvent(tx, args.plate, 'tap', args.actorId, null, args.now);
+  });
 }
 
 /** Rule (spec §2): one report per person per bed per calendar day (America/New_York). */
@@ -213,6 +230,11 @@ export async function adoptBed(
     throw new RuleError('invalid-input', Object.values(errors).join(' '));
   }
 
+  // Hashed before the transaction opens: nothing about the hash depends on
+  // stored state, and holding the store's write queue for the duration of a
+  // bcrypt would stall every concurrent tap behind one adoption.
+  const pinHash = await hashPin(values.pin);
+
   // Exclusive: the slot count and the username check are only worth anything
   // if nobody can claim the last slot or the same handle in between.
   return store.transaction(async (tx) => {
@@ -231,7 +253,7 @@ export async function adoptBed(
       id: `user-${randomUUID()}`,
       name: values.name,
       username: values.username,
-      pinHash: hashPin(values.pin),
+      pinHash,
       email: values.email,
       phone: values.phone,
       points: 0,
@@ -252,14 +274,15 @@ export async function adoptBed(
   });
 }
 
-let unmatchableHash: string | null = null;
+let unmatchableHash: Promise<string> | null = null;
 
 /**
  * A hash of a value no submitted PIN can equal, so an unknown username costs
  * the same bcrypt compare as a known one. Built on first use rather than at
- * import so startup doesn't pay for it.
+ * import so startup doesn't pay for it; the promise is cached so simultaneous
+ * misses share the one hash.
  */
-function unmatchablePinHash(): string {
+function unmatchablePinHash(): Promise<string> {
   unmatchableHash ??= hashPin(`no-such-pin-${randomUUID()}`);
   return unmatchableHash;
 }
@@ -272,7 +295,7 @@ export async function signIn(
   // Same error AND the same timing for unknown user and wrong PIN — a short
   // circuit here would make username enumeration free, since sign-in attempts
   // are not yet rate limited (AGENTS.md).
-  const pinMatches = verifyPin(args.pin, user?.pinHash ?? unmatchablePinHash());
+  const pinMatches = await verifyPin(args.pin, user?.pinHash ?? (await unmatchablePinHash()));
   if (!user || !pinMatches) {
     throw new RuleError('invalid-credentials', 'Username and PIN don’t match.');
   }
