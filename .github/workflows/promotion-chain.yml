@@ -10,7 +10,12 @@ name: promotion-chain
 on:
   pull_request:
     types: [opened, reopened, synchronize, edited]
-    branches: [qa, stage, prod, main]
+    # Deliberately unfiltered by base branch, and filtered in the script instead.
+    # A `branches:` filter here would skip the run entirely when a PR is retargeted
+    # off a guarded base (e.g. main -> dev), and because no new run reports on the
+    # unchanged head SHA, the old failed check would stay red on a PR that has since
+    # been corrected. Running on every PR keeps the check a live answer about the
+    # current base rather than a stale one.
 
 permissions: {}
 
@@ -51,9 +56,11 @@ jobs:
               allowed="'prod' (mirror sync)"
               ;;
             *)
-              # Unreachable given the trigger filter, but fail loudly if it happens.
-              echo "::error::Unexpected PR base branch '$BASE'; this workflow only covers qa, stage, prod, and main."
-              exit 1
+              # Any other base is unguarded -- `dev` takes feature branches, whose
+              # names are arbitrary, so there is nothing to assert. Pass explicitly
+              # rather than erroring: this is the branch a corrected PR lands on.
+              echo "OK: '$BASE' is not a promotion-chain branch; head branch is unrestricted."
+              exit 0
               ;;
           esac
 

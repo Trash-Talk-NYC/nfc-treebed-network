@@ -35,6 +35,11 @@ Each of those PRs is an accepted source, so the sanctioned procedure never requi
 Valid sources per base: `qa` <- `dev` or `stage`; `stage` <- `qa` or `prod`; `prod` <- `stage` or `hotfix/*`; `main` <- `prod`.
 PRs into `dev` are deliberately unchecked because feature branch names are arbitrary.
 
+The trigger has **no `branches:` filter**; the base branch is filtered inside the script, which passes any base outside the chain.
+This is load-bearing rather than stylistic.
+With a `branches:` filter, retargeting a PR off a guarded base (the fix for an out-of-chain PR, e.g. `main` -> `dev`) matches no event, so no new run reports on the unchanged head SHA and the earlier failed check stays red on a PR that is now correct.
+Running on every PR keeps the check an answer about the current base.
+
 The check is **advisory only — it cannot prevent anything.**
 GitHub branch protection, rulesets, and required status checks all return `403 Upgrade to GitHub Pro or make this repository public` because the Trash-Talk-NYC org is on a free plan and this repo is private.
 That single limitation has three consequences:

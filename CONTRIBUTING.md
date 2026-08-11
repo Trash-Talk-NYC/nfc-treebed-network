@@ -29,6 +29,7 @@ Promotion always requires the exact predecessor, so nothing can skip a step on t
 The back-merge sources travel the other way, down the chain, and exist for the hotfix path below.
 
 CI (`promotion-chain.yml`) flags any PR into `qa`/`stage`/`prod`/`main` that comes from a branch outside that table, by failing a check on the PR.
+It runs on every pull request and passes immediately for any other base, so if you opened a PR against the wrong branch, retargeting it to `dev` re-runs the check and clears it.
 
 ## Hotfix
 
