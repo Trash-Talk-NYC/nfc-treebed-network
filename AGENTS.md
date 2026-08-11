@@ -20,8 +20,13 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   The only implementation is `src/lib/store-local.ts` (one JSON file in `.data/`, gitignored).
   Swapping to Supabase later means writing one new `Store` implementation and changing `getStore()` — nothing else.
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
-  Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, escalate-to-dumping-once, PIN hashing.
+  Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, escalate-to-dumping-once, one photo per NY week, PIN hashing.
   Anything in the browser is editable in devtools (spec §7).
+- **A rule that checks state before writing it runs inside `store.transaction()`.**
+  A bare sequence of store calls interleaves with concurrent requests, and two reports open on one bed is unrecoverable through the UI — `closeReport` only ever finds the first.
+  Any new `Store` implementation must make the callback exclusive and commit or roll back its writes as a unit.
+- **Store reads return detached copies.** Mutating what a read handed you changes nothing; the only way to persist is an explicit write.
+  This is what keeps the service layer honest against a backend that can't hand out live references.
 - **`events` is append-only.** The store deliberately has no update/delete for events.
 - Anonymous visitors get an HMAC-signed `tg_visitor` cookie so the daily report limit has an identity to hang on.
   Known MVP limitation: clearing cookies mints a new identity; the limit is best-effort for anonymous users.
@@ -33,6 +38,8 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   A 4–8 digit PIN is brute-forceable and there is no rate limiting on sign-in attempts yet.
   Revisit before any real rollout.
 - PINs are bcrypt-hashed (`hashPin`/`verifyPin` in service.ts). Never store, log, or echo a plaintext PIN — the adopt form deliberately does not re-fill the PIN field on validation errors.
+- `signIn` runs a bcrypt compare even when the username is unknown, so unknown-user and wrong-PIN cost the same. Don't "optimize" that short circuit back in — without rate limiting it is the only thing making username enumeration expensive.
+- `TREEBED_SESSION_SECRET` is required in production; the app refuses to sign cookies with a generated one. The `.data/session-secret` fallback is dev-only.
 - Email and phone are PII: stored on the user record, never rendered on any public screen, never included in any client-visible payload. Only name/username is engraved, and only while `displayNameHidden` is false.
 
 ## Design tokens

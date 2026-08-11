@@ -165,6 +165,79 @@ describe('confirm and escalate', () => {
   });
 });
 
+describe('concurrent taps', () => {
+  it('opens only one report when two people file at the same moment', async () => {
+    const results = await Promise.allSettled([
+      fileReport(store, { plate: PLATE, actorId: 'visitor-1', severity: 'light', photoAttached: false }),
+      fileReport(store, { plate: PLATE, actorId: 'visitor-2', severity: 'heavy', photoAttached: false }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((r) => r.status === 'rejected')?.reason).toMatchObject({
+      code: 'open-report-exists',
+    });
+    // A second open report would be unclosable: closeReport only ever finds the first.
+    expect(await store.getReports(PLATE)).toHaveLength(1);
+  });
+
+  it('holds the two-slot cap when two people adopt the last slot at once', async () => {
+    const results = await Promise.allSettled([
+      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'first_one', email: 'a@example.com' }) }),
+      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'second_one', email: 'b@example.com' }) }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect((await getBedView(store, PLATE))?.openSlots).toBe(0);
+  });
+
+  it('logs one photo per week even when the button is double-submitted', async () => {
+    await Promise.all([
+      logPhoto(store, { plate: PLATE, actorId: 'user-marisol' }),
+      logPhoto(store, { plate: PLATE, actorId: 'user-marisol' }),
+    ]);
+    expect(await store.getEvents(PLATE, 'photo')).toHaveLength(1);
+  });
+});
+
+describe('store contract', () => {
+  it('hands out detached copies, so mutating a read never reaches stored state', async () => {
+    await fileReport(store, { plate: PLATE, actorId: 'visitor-1', severity: 'light', photoAttached: false });
+    const read = await store.getOpenReport(PLATE);
+    read!.severity = 'dumping';
+    read!.confirmedBy.push('never-happened');
+    const stored = await store.getOpenReport(PLATE);
+    expect(stored?.severity).toBe('light');
+    expect(stored?.confirmedBy).toEqual([]);
+  });
+
+  it('survives simultaneous first reads, which used to seed the file twice', async () => {
+    const fresh = freshStore();
+    const [bed, reports, events] = await Promise.all([
+      fresh.getBed(PLATE),
+      fresh.getReports(PLATE),
+      fresh.getEvents(PLATE),
+    ]);
+    expect(bed?.plate).toBe(PLATE);
+    expect(reports).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it('rolls a failed transaction back instead of leaving half of it applied', async () => {
+    await expect(
+      store.transaction(async (tx) => {
+        await tx.appendEvent({
+          id: 'event-doomed',
+          bedPlate: PLATE,
+          eventType: 'tap',
+          severity: null,
+          actorId: 'visitor-1',
+          createdAt: new Date().toISOString(),
+        });
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    expect(await store.getEvents(PLATE)).toHaveLength(0);
+  });
+});
+
 describe('sign in', () => {
   it('accepts the seeded demo adopter and rejects a wrong PIN with one generic error', async () => {
     const user = await signIn(store, { username: '@marisol_r', pin: '1234' });

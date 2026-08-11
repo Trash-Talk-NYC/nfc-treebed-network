@@ -84,36 +84,40 @@ export async function fileReport(
 ): Promise<Report> {
   const { plate, actorId, severity, photoAttached } = args;
   const now = args.now ?? new Date();
-  const bed = await store.getBed(plate);
-  if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${plate}`);
+  // One exclusive sequence: two simultaneous tappers must not both pass the
+  // single-open-report check and leave a second report nobody can ever close.
+  return store.transaction(async (tx) => {
+    const bed = await tx.getBed(plate);
+    if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${plate}`);
 
-  // A bed carries at most one open report; later tappers confirm or escalate
-  // it instead of filing duplicates (spec §6, screen 4).
-  const open = await store.getOpenReport(plate);
-  if (open) throw new RuleError('open-report-exists', `Report ${open.id} is already open on ${plate}`);
+    // A bed carries at most one open report; later tappers confirm or escalate
+    // it instead of filing duplicates (spec §6, screen 4).
+    const open = await tx.getOpenReport(plate);
+    if (open) throw new RuleError('open-report-exists', `Report ${open.id} is already open on ${plate}`);
 
-  if (await hasReportedToday(store, plate, actorId, now)) {
-    throw new RuleError('already-reported-today', `${actorId} already reported ${plate} today`);
-  }
+    if (await hasReportedToday(tx, plate, actorId, now)) {
+      throw new RuleError('already-reported-today', `${actorId} already reported ${plate} today`);
+    }
 
-  const number = await store.nextReportNumber();
-  // Receipt id keys off the plate's numeric suffix, e.g. RPT-2217-0847.
-  const suffix = plate.split('-').at(-1) ?? '0000';
-  const report: Report = {
-    id: `RPT-${number}-${suffix}`,
-    bedPlate: plate,
-    reporterId: actorId,
-    severity,
-    openedAt: now.toISOString(),
-    closedAt: null,
-    closedBy: null,
-    escalatedFrom: null,
-    confirmedBy: [],
-    photoAttached,
-  };
-  await store.createReport(report);
-  await appendEvent(store, plate, 'report', actorId, severity, now);
-  return report;
+    const number = await tx.nextReportNumber();
+    // Receipt id keys off the plate's numeric suffix, e.g. RPT-2217-0847.
+    const suffix = plate.split('-').at(-1) ?? '0000';
+    const report: Report = {
+      id: `RPT-${number}-${suffix}`,
+      bedPlate: plate,
+      reporterId: actorId,
+      severity,
+      openedAt: now.toISOString(),
+      closedAt: null,
+      closedBy: null,
+      escalatedFrom: null,
+      confirmedBy: [],
+      photoAttached,
+    };
+    await tx.createReport(report);
+    await appendEvent(tx, plate, 'report', actorId, severity, now);
+    return report;
+  });
 }
 
 /** "STILL THERE — CONFIRM IT". Idempotent per person. */
@@ -121,14 +125,15 @@ export async function confirmReport(
   store: Store,
   args: { plate: string; actorId: string; now?: Date },
 ): Promise<Report> {
-  const open = await store.getOpenReport(args.plate);
-  if (!open) throw new RuleError('no-open-report', `No open report on ${args.plate}`);
-  if (!open.confirmedBy.includes(args.actorId)) {
-    open.confirmedBy = [...open.confirmedBy, args.actorId];
-    await store.updateReport(open);
-    await appendEvent(store, args.plate, 'confirm', args.actorId, null, args.now);
-  }
-  return open;
+  return store.transaction(async (tx) => {
+    const open = await tx.getOpenReport(args.plate);
+    if (!open) throw new RuleError('no-open-report', `No open report on ${args.plate}`);
+    if (open.confirmedBy.includes(args.actorId)) return open;
+    const confirmed: Report = { ...open, confirmedBy: [...open.confirmedBy, args.actorId] };
+    await tx.updateReport(confirmed);
+    await appendEvent(tx, args.plate, 'confirm', args.actorId, null, args.now);
+    return confirmed;
+  });
 }
 
 /** Raise the open report to dumping. Anyone may escalate; only upward, only once. */
@@ -136,16 +141,17 @@ export async function escalateReport(
   store: Store,
   args: { plate: string; actorId: string; now?: Date },
 ): Promise<Report> {
-  const open = await store.getOpenReport(args.plate);
-  if (!open) throw new RuleError('no-open-report', `No open report on ${args.plate}`);
-  if (open.severity === 'dumping') {
-    throw new RuleError('already-dumping', `Report ${open.id} is already at dumping`);
-  }
-  open.escalatedFrom = open.severity;
-  open.severity = 'dumping';
-  await store.updateReport(open);
-  await appendEvent(store, args.plate, 'escalate', args.actorId, 'dumping', args.now);
-  return open;
+  return store.transaction(async (tx) => {
+    const open = await tx.getOpenReport(args.plate);
+    if (!open) throw new RuleError('no-open-report', `No open report on ${args.plate}`);
+    if (open.severity === 'dumping') {
+      throw new RuleError('already-dumping', `Report ${open.id} is already at dumping`);
+    }
+    const raised: Report = { ...open, escalatedFrom: open.severity, severity: 'dumping' };
+    await tx.updateReport(raised);
+    await appendEvent(tx, args.plate, 'escalate', args.actorId, 'dumping', args.now);
+    return raised;
+  });
 }
 
 /** Anyone can mark clear, not just adopters (spec §2) — stale reports read as neglect. */
@@ -153,14 +159,15 @@ export async function closeReport(
   store: Store,
   args: { plate: string; actorId: string; now?: Date },
 ): Promise<Report> {
-  const open = await store.getOpenReport(args.plate);
-  if (!open) throw new RuleError('no-open-report', `No open report on ${args.plate}`);
   const now = args.now ?? new Date();
-  open.closedAt = now.toISOString();
-  open.closedBy = args.actorId;
-  await store.updateReport(open);
-  await appendEvent(store, args.plate, 'clear', args.actorId, null, now);
-  return open;
+  return store.transaction(async (tx) => {
+    const open = await tx.getOpenReport(args.plate);
+    if (!open) throw new RuleError('no-open-report', `No open report on ${args.plate}`);
+    const closed: Report = { ...open, closedAt: now.toISOString(), closedBy: args.actorId };
+    await tx.updateReport(closed);
+    await appendEvent(tx, args.plate, 'clear', args.actorId, null, now);
+    return closed;
+  });
 }
 
 const USERNAME_RE = /^[a-z0-9_]{2,24}$/i;
@@ -201,44 +208,60 @@ export async function adoptBed(
   args: { plate: string; input: AdoptInput; now?: Date },
 ): Promise<User> {
   const now = args.now ?? new Date();
-  const bed = await store.getBed(args.plate);
-  if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
-
   const { values, errors } = validateAdoptInput(args.input);
   if (Object.keys(errors).length > 0) {
     throw new RuleError('invalid-input', Object.values(errors).join(' '));
   }
 
-  const active = await store.getActiveAdoptions(args.plate);
-  if (active.length >= bed.slots) {
-    throw new RuleError('slots-full', `${args.plate} already has ${bed.slots} adopters`);
-  }
-  if (await store.getUserByUsername(values.username)) {
-    throw new RuleError('username-taken', `@${values.username} is taken`);
-  }
+  // Exclusive: the slot count and the username check are only worth anything
+  // if nobody can claim the last slot or the same handle in between.
+  return store.transaction(async (tx) => {
+    const bed = await tx.getBed(args.plate);
+    if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
 
-  const user: User = {
-    id: `user-${randomUUID()}`,
-    name: values.name,
-    username: values.username,
-    pinHash: hashPin(values.pin),
-    email: values.email,
-    phone: values.phone,
-    points: 0,
-    streakWeeks: 0,
-    createdAt: now.toISOString(),
-  };
-  await store.createUser(user);
-  await store.createAdoption({
-    id: `adoption-${randomUUID()}`,
-    bedPlate: args.plate,
-    userId: user.id,
-    adoptedAt: now.toISOString(),
-    displayNameHidden: false,
-    releasedAt: null,
+    const active = await tx.getActiveAdoptions(args.plate);
+    if (active.length >= bed.slots) {
+      throw new RuleError('slots-full', `${args.plate} already has ${bed.slots} adopters`);
+    }
+    if (await tx.getUserByUsername(values.username)) {
+      throw new RuleError('username-taken', `@${values.username} is taken`);
+    }
+
+    const user: User = {
+      id: `user-${randomUUID()}`,
+      name: values.name,
+      username: values.username,
+      pinHash: hashPin(values.pin),
+      email: values.email,
+      phone: values.phone,
+      points: 0,
+      streakWeeks: 0,
+      createdAt: now.toISOString(),
+    };
+    await tx.createUser(user);
+    await tx.createAdoption({
+      id: `adoption-${randomUUID()}`,
+      bedPlate: args.plate,
+      userId: user.id,
+      adoptedAt: now.toISOString(),
+      displayNameHidden: false,
+      releasedAt: null,
+    });
+    await appendEvent(tx, args.plate, 'adopt', user.id, null, now);
+    return user;
   });
-  await appendEvent(store, args.plate, 'adopt', user.id, null, now);
-  return user;
+}
+
+let unmatchableHash: string | null = null;
+
+/**
+ * A hash of a value no submitted PIN can equal, so an unknown username costs
+ * the same bcrypt compare as a known one. Built on first use rather than at
+ * import so startup doesn't pay for it.
+ */
+function unmatchablePinHash(): string {
+  unmatchableHash ??= hashPin(`no-such-pin-${randomUUID()}`);
+  return unmatchableHash;
 }
 
 export async function signIn(
@@ -246,19 +269,30 @@ export async function signIn(
   args: { username: string; pin: string },
 ): Promise<User> {
   const user = await store.getUserByUsername(args.username.trim().replace(/^@/, ''));
-  // Same error for unknown user and wrong PIN — don't leak which usernames exist.
-  if (!user || !verifyPin(args.pin, user.pinHash)) {
+  // Same error AND the same timing for unknown user and wrong PIN — a short
+  // circuit here would make username enumeration free, since sign-in attempts
+  // are not yet rate limited (AGENTS.md).
+  const pinMatches = verifyPin(args.pin, user?.pinHash ?? unmatchablePinHash());
+  if (!user || !pinMatches) {
     throw new RuleError('invalid-credentials', 'Username and PIN don’t match.');
   }
   return user;
 }
 
-/** Log this week's photo. Storage and point earning are out of MVP scope; only the event is kept. */
+/**
+ * Log this week's photo, at most once per NY week — the rule lives here, not
+ * in the route, so the check and the append can't be raced by a double tap.
+ * Storage and point earning are out of MVP scope; only the event is kept.
+ */
 export async function logPhoto(
   store: Store,
   args: { plate: string; actorId: string; now?: Date },
 ): Promise<void> {
-  await appendEvent(store, args.plate, 'photo', args.actorId, null, args.now);
+  const now = args.now ?? new Date();
+  await store.transaction(async (tx) => {
+    if (await hasPhotoThisWeek(tx, args.plate, args.actorId, now)) return;
+    await appendEvent(tx, args.plate, 'photo', args.actorId, null, now);
+  });
 }
 
 /** Has this user logged a photo for this bed in the current NY ISO week? */

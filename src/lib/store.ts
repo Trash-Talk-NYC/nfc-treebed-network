@@ -8,10 +8,27 @@
 //
 // The only local implementation is store-local.ts, backed by a JSON file on
 // disk. It is intentionally the single file that knows how data is persisted.
+//
+// Two contracts every implementation must honour:
+//  - Reads return detached copies. Callers may mutate what they get back
+//    without touching stored state; the only way to persist a change is an
+//    explicit write.
+//  - `transaction` gives a read-check-write sequence exclusive access, so the
+//    service layer's rules (single open report, two-slot cap) can't be raced
+//    by a concurrent request between the check and the write.
 
 import type { Adoption, Bed, BedEvent, Report, Severity, User } from './types';
 
 export interface Store {
+  /**
+   * Run `fn` with exclusive access to the store, committing all of its writes
+   * together. If `fn` throws, nothing it wrote is kept.
+   *
+   * Rules that check state before writing it MUST run inside one of these —
+   * a bare sequence of store calls can interleave with another request.
+   */
+  transaction<T>(fn: (tx: Store) => Promise<T>): Promise<T>;
+
   // -- beds ------------------------------------------------------------
   getBed(plate: string): Promise<Bed | null>;
 

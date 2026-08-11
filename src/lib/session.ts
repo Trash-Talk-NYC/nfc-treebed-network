@@ -20,11 +20,22 @@ const YEAR_SECONDS = 60 * 60 * 24 * 365;
 
 let secret: string | null = null;
 
+function isProduction(): boolean {
+  return import.meta.env.PROD === true || process.env.NODE_ENV === 'production';
+}
+
 function getSecret(): string {
   if (secret) return secret;
   if (process.env.TREEBED_SESSION_SECRET) {
     secret = process.env.TREEBED_SESSION_SECRET;
     return secret;
+  }
+  if (isProduction()) {
+    // Failing loudly beats the silent version: a generated secret means every
+    // restart signs out everyone, and two instances reject each other's cookies.
+    throw new Error(
+      'TREEBED_SESSION_SECRET must be set in production — refusing to sign cookies with a generated secret.',
+    );
   }
   // Local-dev fallback: generate once and keep next to the JSON store.
   const dir = process.env.TREEBED_DATA_DIR ?? path.resolve('.data');
@@ -58,8 +69,11 @@ const cookieOptions = {
   path: '/',
   httpOnly: true,
   sameSite: 'lax',
-  // `secure` intentionally follows the request scheme in dev; behind TLS in
-  // production the adapter sees https and this becomes a secure cookie.
+  // Astro forwards these options to cookie.serialize() verbatim — nothing
+  // derives `secure` from the request scheme, so a year-long identity cookie
+  // only stays off plaintext links if we set it here. Dev runs on http, where
+  // a Secure cookie would never come back.
+  secure: isProduction(),
   maxAge: YEAR_SECONDS,
 } as const;
 

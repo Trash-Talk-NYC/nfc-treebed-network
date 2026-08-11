@@ -3,16 +3,21 @@
 // (task brief) — only the fact of the photo is kept, once per NY week.
 import type { APIRoute } from 'astro';
 import { getStore } from '../../../lib/store-local';
-import { hasPhotoThisWeek, logPhoto } from '../../../lib/service';
+import { getBedView, logPhoto } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 
 export const POST: APIRoute = async ({ params, cookies, redirect }) => {
   const plate = params.plate ?? '';
   const userId = getSessionUserId(cookies);
   if (!userId) return redirect(`/b/${plate}/auth`, 303);
+
   const store = getStore();
-  if (!(await hasPhotoThisWeek(store, plate, userId))) {
-    await logPhoto(store, { plate, actorId: userId });
-  }
+  const view = await getBedView(store, plate);
+  if (!view) return new Response('No bed with that plate.', { status: 404 });
+  // Being signed in isn't enough: only this bed's guardians can write to its
+  // append-only history. Mirrors the gate on mine.astro.
+  if (!view.adopters.some((a) => a.user.id === userId)) return redirect(`/b/${plate}`, 303);
+
+  await logPhoto(store, { plate, actorId: userId });
   return redirect(`/b/${plate}/mine`, 303);
 };

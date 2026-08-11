@@ -127,7 +127,9 @@ const base = `/b/${bed.plate}`;
                 list="sev-ticks"
               />
               <div class="sev-labels">
-                <span>LIGHT</span><span>HEAVY</span><span>DUMPING</span>
+                {SEVERITIES.map((s) => (
+                  <span>{s.name}</span>
+                ))}
               </div>
               <label class="photo-attach" data-photo-label>
                 <input type="file" name="photo" accept="image/*" capture="environment" data-photo-input />
@@ -137,15 +139,12 @@ const base = `/b/${bed.plate}`;
             </form>
           </div>
         </div>
-        <script is:inline>
+        <script is:inline define:vars={{ SEV: SEVERITIES.map(({ name, def }) => ({ name, def })) }}>
           // The severity picker's only client JS: live tier name/definition and
           // the photo-attached state. Everything still submits without it.
+          // The copy comes from SEVERITIES via define:vars — one source for the
+          // slider, the report band, and the receipt.
           (function () {
-            var SEV = [
-              { name: 'LIGHT', def: 'A few pieces. You could clear it bare-handed.' },
-              { name: 'HEAVY', def: "A full trash bag's worth. Gloves and a grabber." },
-              { name: 'DUMPING', def: 'Furniture, tires, or construction debris.' },
-            ];
             var range = document.querySelector('.sev-range');
             var name = document.querySelector('[data-sev-name]');
             var def = document.querySelector('[data-sev-def]');
