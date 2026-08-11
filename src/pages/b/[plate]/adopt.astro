@@ -8,7 +8,7 @@ import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store-local';
 import { RuleError, adoptBed, getBedView, validateAdoptInput } from '../../../lib/service';
 import { setSessionUser } from '../../../lib/session';
-import { MAX_FORM_BYTES, readCappedForm } from '../../../lib/request-body';
+import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 
 const { plate = '' } = Astro.params;
 const store = getStore();
@@ -25,13 +25,10 @@ let values = { name: '', username: '', email: '', phone: '' };
 if (Astro.request.method === 'POST') {
   // Public and unauthenticated, like every POST here: five short text fields
   // never need more, and an unbounded body is free memory exhaustion.
-  const { form, refusal } = await readCappedForm(Astro.request, MAX_FORM_BYTES);
-  // A body that failed to arrive is not one that was too big: 413 would send
-  // somebody off to shorten a form that was never long.
-  if (refusal === 'over-limit') return new Response('That form was too large.', { status: 413 });
-  if (refusal === 'read-failed') {
-    return new Response("That form didn't come through. Please try again.", { status: 400 });
-  }
+  const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'form');
+  // Each reason gets its own answer: a 413 would send somebody off to shorten
+  // a form that was never long.
+  if (refused) return refused;
   const input = {
     name: String(form.get('name') ?? ''),
     username: String(form.get('username') ?? ''),

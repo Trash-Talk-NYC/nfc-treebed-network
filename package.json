@@ -14,7 +14,8 @@
     "prepreview": "node scripts/preflight.mjs",
     "preview": "astro preview",
     "check": "astro check",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
     "@astrojs/node": "^11.1.1",

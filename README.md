@@ -13,7 +13,8 @@ npm run dev            # http://localhost:4321/b/BED-HRL-0847
 ```
 
 ```sh
-npm test               # server-side rule tests (vitest)
+npm test               # fast suite: server-side rules and request handling (vitest)
+npm run test:e2e       # builds the app and posts real bodies at a real server
 npm run check          # astro type check
 npm run build
 TREEBED_SESSION_SECRET=<your secret> npm start   # production server

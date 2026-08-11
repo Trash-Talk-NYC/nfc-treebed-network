@@ -10,7 +10,8 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 
 - Astro (server-rendered, `@astrojs/node` standalone adapter) + TypeScript strict.
 - Requires Node >= 22 (`~/.nvm/versions/node/v22.23.1` works; the default shell Node 18.10 does not).
-- `npm run dev` / `npm run build` / `npm run preview` / `npm test` (vitest) / `npm run check` (astro check).
+- `npm run dev` / `npm run build` / `npm run preview` / `npm test` (vitest) / `npm run test:e2e` / `npm run check` (astro check).
+  `npm test` is the fast suite — rules and transport handling, no build — and `npm run test:e2e` builds the app, serves `dist/server/entry.mjs`, and posts real bodies at it (`vitest.e2e.config.ts`); CI runs both (`.github/workflows/tests.yml`).
   `npm run preview` and `npm start` both serve the production build, so both need `TREEBED_SESSION_SECRET` and both are gated by `scripts/preflight.mjs`.
 - The plaque ships zero client JavaScript except one inline script enhancing the severity slider.
   Every form is a plain HTML POST and works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
@@ -44,11 +45,20 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - `signIn` runs a bcrypt compare even when the username is unknown, so unknown-user and wrong-PIN cost the same. Don't "optimize" that short circuit back in — without rate limiting it is the only thing making username enumeration expensive.
 - `TREEBED_SESSION_SECRET` is required in production; the app refuses to sign cookies with a generated one. The `.data/session-secret` fallback is dev-only.
   The requirement is checked twice so a misconfigured deploy can't reach traffic: `scripts/preflight.mjs` runs as npm's `prestart` and `prepreview` and refuses to boot, and `src/middleware.ts` asserts at module load so a server started any other way fails on its first request of any route rather than on the first one that touches a cookie.
-- Every public POST reads its body through `readCappedBody`/`readCappedForm` (`src/lib/request-body.ts`), never `request.formData()` directly — the adapter's own default limit is 1GB of buffered memory.
-  A refused body is read to its end and discarded rather than cancelled: cancelling the reader destroys the socket, and a client still uploading gets a connection reset instead of the response.
+- **Every public POST reads its body through `src/lib/request-body.ts`, never `request.formData()` directly** — the adapter's own default limit is 1GB of buffered memory.
+  The comment block at the top of that file is the whole-surface sweep — size, time, concurrency, peak heap, and what the caller sees for every publicly reachable route — and a new route belongs in it.
+  Four bounds, because three rounds of review each found one of them missing somewhere: a byte cap per body, a time bound on *both* the accepted and the refused read, an in-flight byte budget across all reads at once, and the drain headroom below.
+- The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the severity and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
+  The photo is discarded either way (spec §12) — this only stops it being copied on the way to being discarded.
+  `readCappedForm` still buffers the text-only forms, where the whole body is 64KB and two copies of it are ~128KB.
+- A refused body is read to its end and discarded rather than cancelled: cancelling the reader destroys the socket, and a client still uploading gets a connection reset instead of the response.
   The drain budget is absolute, not a multiple of the cap — 24MB of headroom on the report route (covering the 12–30MB a real phone photo lands in), the cap itself on the text-only forms — and bounded in time as well: `DRAIN_IDLE_MS` for a sender that goes quiet, `DRAIN_TIMEOUT_MS` in all, both under Node's own 300s request timeout and both above what a slow phone upload needs.
-  Past a bound the drain stops reading and does *not* cancel: cancelling leaves the response unwritten and the socket idling until that 300s timeout, while walking away lets the route answer and lets Node close the connection behind a request body it never finished. Measured both ways — `tests/report-upload.e2e.test.ts` posts real bodies at a real server, because this is not a thing to reason about.
-  A read that *fails* is not an oversized body: `readCappedBody` reports `refusal: 'read-failed'` separately, logs it, and the routes answer 400 rather than telling somebody their photo was too large.
+  `READ_IDLE_MS`/`READ_TIMEOUT_MS` are the same bounds on a body nothing has refused — an 11.9MB trickle is under the cap and still may not hold a request open forever.
+  Past a bound the read stops and does *not* cancel: cancelling leaves the response unwritten and the socket idling until that 300s timeout, while walking away lets the route answer and lets Node close the connection behind a request body it never finished. Measured both ways — `tests/report-upload.e2e.test.ts` posts real bodies at a real server, because this is not a thing to reason about.
+- `MAX_INFLIGHT_BODY_BYTES` is what one request's cap can't bound: how many arrive at once.
+  Each read reserves what it may hold — the cap when buffering, `HEAD_BYTES` when head-only — so that number is the peak the request bodies of a whole spike can reach, and it caps concurrency in the unit that matters (thousands of head-only uploads fit; a buffering route gets a handful).
+- Each refusal is its own answer, and none of them is a dropped connection: `'over-limit'` and `'busy'` reach the too-large screen with the severity preserved (`?reason=busy` changes the words — a photo to shrink and a queue to retry ask for different things), `'read-failed'` logs and answers 400, `'timed-out'` answers 408.
+  A read that *fails* is not an oversized body, and an oversized body whose sender then hangs up is not a failed read — that one keeps `'over-limit'` and logs one quiet line, because a visitor closing the tab on a refused upload is not an incident.
 - Email and phone are PII: stored on the user record, never rendered on any public screen, never included in any client-visible payload. Only name/username is engraved, and only while `displayNameHidden` is false.
 
 ## Design tokens
@@ -59,8 +69,9 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - Fonts are self-hosted subsets (Nunito variable 700–900, Space Mono 400/700); provenance pinned in `public/fonts/README.md`.
   No Google Fonts CDN. Bebas Neue is intentionally absent — the prototype doesn't use it despite spec §3a.
 - The bed screen's oversized action buttons are the captain's explicit override of the prototype's 66px buttons ("buttons taking close to as much of the screen as they can"). Don't shrink them back to match the prototype.
-- `b/[plate]/too-large.astro` is the one screen with no prototype counterpart: where an over-cap photo upload lands.
+- `b/[plate]/too-large.astro` is the one screen with no prototype counterpart: where a refused upload lands.
   Filing is the core street action, so an optional attachment must never cost someone the report they already filled in — the screen carries their chosen severity and offers to file it without the photo.
+  `?reason=busy` is the same screen for the other refusal (the server was at capacity), with its own copy: nothing is gained by telling somebody to shrink a photo that was never the problem.
   It is built from the same tokens as the rate-limited screen and, like every other screen, works with JavaScript disabled.
 
 ## Scope deliberately left out (later tasks)

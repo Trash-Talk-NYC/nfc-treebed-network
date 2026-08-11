@@ -1,36 +1,86 @@
 // Reading a request body without trusting it.
 //
-// The report endpoint is public and unauthenticated, so an unbounded body is a
-// free way to exhaust the server's memory. This is transport-level handling,
-// not a rule — it knows nothing about beds, and the rules in service.ts know
-// nothing about it.
+// Every route here is public and unauthenticated — the plaque URL is printed
+// on a sidewalk tag — so an unbounded body, an unbounded read, or an unbounded
+// number of them at once is a free way to exhaust the server. This is
+// transport-level handling, not a rule: it knows nothing about beds, and the
+// rules in service.ts know nothing about it.
+//
+// What bounds every publicly reachable route. "Screen" below means a styled
+// page; no bound is ever enforced by dropping the connection on a visitor.
+//
+//   GET  /b/<plate>                    No body to read, so no size, time or
+//                                      concurrency bound applies. Peak heap is
+//                                      one render's reads, no per-request
+//                                      buffer. A failed tap write is logged and
+//                                      the plaque still renders.
+//   GET  .../receipt/<id>, too-large   Same: no body, no buffer.
+//   GET  .../mine                      Same, behind a session check.
+//   POST .../report  (multipart)       Size: 12MB, counted as bytes arrive
+//                                      (`readCappedHead`); nothing past the 8KB
+//                                      head is ever held, so a 12MB photo costs
+//                                      no copies of itself. Time: READ_* while
+//                                      the body may still be filed, DRAIN_* once
+//                                      it is refused. Concurrency: HEAD_BYTES
+//                                      reserved out of MAX_INFLIGHT_BODY_BYTES.
+//                                      Peak heap: ~8KB + the chunk in hand.
+//                                      Over the cap, or at capacity → the
+//                                      too-large screen, severity preserved.
+//   POST .../report  (refile, no file) Size: MAX_FORM_BYTES buffered. Time and
+//                                      concurrency as below. Peak heap ~128KB.
+//                                      Refused → a plain short answer: this
+//                                      body is one field, so only a broken
+//                                      connection ever gets there.
+//   POST .../auth, .../adopt           Size: MAX_FORM_BYTES buffered. Time:
+//                                      READ_*/DRAIN_*. Concurrency: that cap
+//                                      reserved out of MAX_INFLIGHT_BODY_BYTES.
+//                                      Peak heap: ~2× the cap (the chunks, then
+//                                      the parse). Refused → a plain short
+//                                      answer, the same shape these forms
+//                                      already give a rejected field.
+//   POST .../confirm, escalate, clear  One button each, so `discardBody` reads
+//                                      the body to its end under MAX_FORM_BYTES
+//                                      and keeps nothing: same time bounds,
+//                                      HEAD_BYTES reserved, ~8KB peak. Refused →
+//                                      a plain short answer. Leaving it unread
+//                                      would cost heap nothing and could cost
+//                                      the caller this route's redirect.
+//   POST .../photo                     The same, behind session and adopter
+//                                      checks.
 
 import { severityIndexFrom } from './severity';
 
 /**
- * Why a body was refused. A body that never arrived is not a body that was
- * too big: telling a visitor "that photo was too large" about a stream that
- * failed sends them to fix the wrong thing.
+ * Why a body was refused.
+ *
+ * Separate values because the remedies differ: a body that never arrived is
+ * not a body that was too big, and neither is one the server had no room for.
+ * Telling a visitor "that photo was too large" about a stream that failed
+ * sends them to fix the wrong thing.
  */
-export type Refusal = 'over-limit' | 'read-failed';
+export type Refusal = 'over-limit' | 'read-failed' | 'timed-out' | 'busy';
 
-/**
- * A body, or the reason there isn't one — never both, and never neither.
- * `head` is the leading bytes, kept even when the body is refused.
- */
+/** A body, or the reason there isn't one. `head` survives either way. */
 export type CappedBody =
   | { body: ArrayBuffer; head: Uint8Array; refusal: null }
-  | { body: null; head: Uint8Array; refusal: 'over-limit' }
-  | { body: null; head: Uint8Array; refusal: 'read-failed' };
+  | { body: null; head: Uint8Array; refusal: Refusal };
+
+/** A body's leading bytes, for a route that wants nothing else. */
+export interface CappedHead {
+  head: Uint8Array;
+  /** Bytes that arrived, however few were kept. */
+  bytes: number;
+  refusal: Refusal | null;
+}
 
 /**
  * How much of the head to keep. A browser sends a form's small text fields in
- * DOM order, ahead of the file part, so the head of an oversized upload still
- * carries the fields that came before it.
+ * DOM order, ahead of the file part, so the head of an upload carries the
+ * fields that came before it — which is all the report route wants.
  */
 export const HEAD_BYTES = 8 * 1024;
 
-/** Cap for the text-only forms (sign in, adopt): short fields, nothing else. */
+/** Cap for the text-only forms (sign in, adopt, refile): short fields only. */
 export const MAX_FORM_BYTES = 64 * 1024;
 
 /**
@@ -59,18 +109,54 @@ export const DRAIN_TIMEOUT_MS = 180_000;
  */
 export const DRAIN_IDLE_MS = 15_000;
 
-/** What a refused body may still cost before the connection is dropped. */
-export interface DrainBounds {
-  /** Extra bytes past the cap it may still stream. */
+/**
+ * How long reading a body the server would still accept may take in total.
+ * A refused body was already on a clock; an accepted one needs the same bound
+ * for the same reason — an 11.9MB upload trickling in holds a request open,
+ * and "under the cap" is not a licence to take forever. Under Node's own 300s
+ * request timeout so this is the bound that fires, and far over the ~100s a
+ * 12MB photo takes on a slow phone uplink.
+ */
+export const READ_TIMEOUT_MS = 240_000;
+
+/** How long such a body may go without sending anything. */
+export const READ_IDLE_MS = 30_000;
+
+/**
+ * How many bytes all in-flight reads together may be holding.
+ *
+ * A per-request cap bounds one request; nothing bounded how many arrive at
+ * once. Each read reserves what it can hold — the cap for a body being
+ * buffered, HEAD_BYTES for a head-only read — before it starts, and releases
+ * it when it finishes, so this number *is* the peak heap the request bodies of
+ * a whole traffic spike can reach. It caps concurrency in the unit that
+ * matters: thousands of head-only uploads fit, while a route that buffers
+ * megabytes gets only a handful.
+ *
+ * A read that doesn't fit is refused as 'busy' — read to its end and answered
+ * with a screen, never dropped.
+ */
+export const MAX_INFLIGHT_BODY_BYTES = 48 * 1024 * 1024;
+
+/** What a body may cost before the read gives up on it. */
+export interface ReadBounds {
+  /** Extra bytes past the cap a refused body may still stream. */
   drainHeadroom?: number;
-  /** How long that may take in total. */
+  /** How long draining a refused body may take in total. */
   drainTimeoutMs?: number;
-  /** How long it may go without sending anything. */
+  /** How long a refused body may go without sending anything. */
   drainIdleMs?: number;
+  /** How long reading a body still worth keeping may take in total. */
+  readTimeoutMs?: number;
+  /** How long such a body may go without sending anything. */
+  readIdleMs?: number;
 }
 
-/** The read stalled past the drain deadline. */
+/** The read stalled past a deadline. */
 const STALLED = Symbol('stalled');
+
+/** Bytes reserved by reads currently in flight. */
+let inflightBytes = 0;
 
 function concat(chunks: Uint8Array[], total: number): Uint8Array {
   const merged = new Uint8Array(total);
@@ -101,14 +187,25 @@ async function readWithin(
   }
 }
 
+function where(request: Request): string {
+  return `${request.method} ${new URL(request.url).pathname}`;
+}
+
+interface Consumed {
+  head: Uint8Array;
+  bytes: number;
+  /** Present only when the caller asked to keep the body and nothing refused it. */
+  body: ArrayBuffer | null;
+  refusal: Refusal | null;
+}
+
 /**
- * Buffer the request body, refusing anything over `limit`.
+ * Read a request body to its end, keeping at most what was asked for.
  *
  * Content-Length alone isn't enough — a chunked body doesn't send one, and a
  * declared length is only a claim — so the bytes are counted as they arrive.
- * Once the body is known to be too large, nothing past the head is kept: the
- * rest is read and discarded, so memory stays bounded at the head plus one
- * chunk.
+ * Once a body is refused, nothing past the head is kept: the rest is read and
+ * discarded, so memory stays at the head plus one chunk.
  *
  * Discarding rather than cancelling is the whole point. Cancelling the reader
  * destroys the underlying socket, and the client — still uploading — gets a
@@ -120,54 +217,71 @@ async function readWithin(
  * finished. Whatever is on the other end of that one is not a visitor waiting
  * for a screen.
  */
-export async function readCappedBody(
+async function consume(
   request: Request,
   limit: number,
+  keepBody: boolean,
   {
     drainHeadroom = DRAIN_HEADROOM_BYTES,
     drainTimeoutMs = DRAIN_TIMEOUT_MS,
     drainIdleMs = DRAIN_IDLE_MS,
-  }: DrainBounds = {},
-): Promise<CappedBody> {
+    readTimeoutMs = READ_TIMEOUT_MS,
+    readIdleMs = READ_IDLE_MS,
+  }: ReadBounds,
+): Promise<Consumed> {
   const declared = Number(request.headers.get('content-length'));
   let over = Number.isFinite(declared) && declared > limit;
   if (!request.body) {
     const head = new Uint8Array();
-    return over
-      ? { body: null, head, refusal: 'over-limit' }
-      : { body: new ArrayBuffer(0), head, refusal: null };
+    if (over) return { head, bytes: 0, body: null, refusal: 'over-limit' };
+    return { head, bytes: 0, body: keepBody ? new ArrayBuffer(0) : null, refusal: null };
   }
 
+  // Reserved up front, for the whole read: admitting a request and discovering
+  // afterwards that there was no room for it would be no bound at all.
+  const reservation = keepBody ? limit : HEAD_BYTES;
+  const busy = inflightBytes + reservation > MAX_INFLIGHT_BODY_BYTES;
+  // A refused body is still read to its end, and holding the head is what lets
+  // the answer keep the visitor's severity — that much fits regardless.
+  let keep = keepBody && !busy && !over;
+
+  // Taken last, so nothing between here and the `finally` below can leak a
+  // reservation — a reservation that is never released is a permanent one.
   const reader = request.body.getReader();
+  if (!busy) inflightBytes += reservation;
+
   const headChunks: Uint8Array[] = [];
   let headBytes = 0;
-  // Dropped the moment the body is refused — the refused bytes are never held.
-  let kept: Uint8Array[] | null = over ? null : [];
+  let kept: Uint8Array[] | null = keep ? [] : null;
   let total = 0;
   let failed = false;
-  // Starts when the body is refused: only the drain is on a clock, an
-  // accepted body is as slow as the network makes it.
-  let drainDeadline = over ? Date.now() + drainTimeoutMs : 0;
+  let stalled = false;
+  // Both clocks start now. Which one applies switches with `over`, so a body
+  // refused halfway through gets the drain's bounds for what remains.
+  const started = Date.now();
+  let drainDeadline = started + drainTimeoutMs;
+  const readDeadline = started + readTimeoutMs;
 
-  // Past a bound the drain simply stops here, without cancelling: cancelling
+  // Past a bound the read simply stops here, without cancelling: cancelling
   // leaves the response unwritten and the socket idling until Node's request
   // timeout, while walking away lets the route answer and lets Node close the
   // connection behind a response whose request body was never finished.
   try {
     for (;;) {
-      let result: ReadableStreamReadResult<Uint8Array>;
-      if (over) {
-        const remaining = drainDeadline - Date.now();
-        if (remaining <= 0) break;
-        // Whichever bound comes first: gone quiet, or out of total time.
-        const raced = await readWithin(reader, Math.min(remaining, drainIdleMs));
-        if (raced === STALLED) break;
-        result = raced;
-      } else {
-        result = await reader.read();
+      const refused = over || busy;
+      const remaining = (refused ? drainDeadline : readDeadline) - Date.now();
+      if (remaining <= 0) {
+        stalled = true;
+        break;
       }
-      if (result.done) break;
-      const value = result.value;
+      // Whichever bound comes first: gone quiet, or out of total time.
+      const raced = await readWithin(reader, Math.min(remaining, refused ? drainIdleMs : readIdleMs));
+      if (raced === STALLED) {
+        stalled = true;
+        break;
+      }
+      if (raced.done) break;
+      const value = raced.value;
       total += value.byteLength;
       if (headBytes < HEAD_BYTES) {
         // Copied, not sliced: a view would pin this whole chunk in memory.
@@ -177,9 +291,11 @@ export async function readCappedBody(
       }
       if (!over && total > limit) {
         over = true;
+        // The drain's budget is measured from the moment the body was refused.
         drainDeadline = Date.now() + drainTimeoutMs;
       }
-      if (over) {
+      if (over || !keep) {
+        keep = false;
         kept = null;
         if (total > limit + drainHeadroom) break;
         continue;
@@ -187,25 +303,74 @@ export async function readCappedBody(
       kept!.push(value);
     }
   } catch (err) {
-    // Not an oversized body: the platform's own limit tripping, a stream
-    // error, or a client that hung up mid-upload. It reaches nobody's screen,
-    // so the log is the only place it can be found.
-    console.error(
-      `[request-body] read failed for ${request.method} ${new URL(request.url).pathname}:`,
-      err,
-    );
-    failed = true;
+    keep = false;
     kept = null;
+    if (over || busy) {
+      // Ordinary, on a route whose whole job is receiving phone photos: the
+      // visitor closed the tab on an upload the server had already refused.
+      // Not an incident, and not a reclassification either — the body was
+      // provably over the cap, so that is still what we answer with.
+      console.warn(`[request-body] refused body ended early for ${where(request)}`);
+    } else {
+      // The platform's own limit tripping, a stream error, or a client that
+      // hung up. It reaches nobody's screen, so the log is where it is found.
+      console.error(`[request-body] read failed for ${where(request)}:`, err);
+      failed = true;
+    }
+  } finally {
+    if (!busy) inflightBytes -= reservation;
   }
 
   const head = concat(headChunks, headBytes);
-  if (failed) return { body: null, head, refusal: 'read-failed' };
-  if (over || !kept) return { body: null, head, refusal: 'over-limit' };
-  return { body: concat(kept, total).buffer as ArrayBuffer, head, refusal: null };
+  // Order matters: what the body did outranks what the server had room for,
+  // because the visitor can act on the first and only wait out the second.
+  const refusal: Refusal | null = over
+    ? 'over-limit'
+    : busy
+      ? 'busy'
+      : failed
+        ? 'read-failed'
+        : stalled
+          ? 'timed-out'
+          : null;
+  if (refusal !== null) return { head, bytes: total, body: null, refusal };
+  const body = kept ? (concat(kept, total).buffer as ArrayBuffer) : null;
+  return { head, bytes: total, body, refusal: null };
+}
+
+/** Buffer the request body, refusing anything over `limit`. */
+export async function readCappedBody(
+  request: Request,
+  limit: number,
+  bounds: ReadBounds = {},
+): Promise<CappedBody> {
+  const { head, body, refusal } = await consume(request, limit, true, bounds);
+  if (refusal !== null || body === null) {
+    return { body: null, head, refusal: refusal ?? 'read-failed' };
+  }
+  return { body, head, refusal: null };
+}
+
+/**
+ * Read the request body for its leading bytes alone, discarding the rest.
+ *
+ * For a route that wants a couple of short fields out of a body it was always
+ * going to throw away — the report route's optional photo is read and dropped
+ * (spec §12), so buffering it would cost megabytes of heap for a boolean. The
+ * cap still applies: a body over it is refused, so the visitor gets the screen
+ * that keeps their severity rather than a report filed off a truncated form.
+ */
+export async function readCappedHead(
+  request: Request,
+  limit: number,
+  bounds: ReadBounds = {},
+): Promise<CappedHead> {
+  const { head, bytes, refusal } = await consume(request, limit, false, bounds);
+  return { head, bytes, refusal };
 }
 
 /** Parse a body already read and accepted by `readCappedBody`. */
-export function formDataFrom(request: Request, body: ArrayBuffer): Promise<FormData> {
+function formDataFrom(request: Request, body: ArrayBuffer): Promise<FormData> {
   return new Request(request.url, {
     method: 'POST',
     headers: request.headers,
@@ -213,15 +378,10 @@ export function formDataFrom(request: Request, body: ArrayBuffer): Promise<FormD
   }).formData();
 }
 
-/**
- * One member per refusal rather than `refusal: Refusal`: a discriminant only
- * narrows a destructured result when each member gives it a single value, and
- * the routes read `form` right after checking `refusal`.
- */
+/** A body parsed as form fields, or the reason there isn't one. */
 export type CappedForm =
   | { form: FormData; refusal: null }
-  | { form: null; refusal: 'over-limit' }
-  | { form: null; refusal: 'read-failed' };
+  | { form: null; refusal: Refusal };
 
 /**
  * A capped body parsed as form fields, for the text-only forms — where an
@@ -230,21 +390,110 @@ export type CappedForm =
  * These carry a handful of short fields, so the drain budget is the cap
  * itself: no legitimate sign-in overshoots 64KB by megabytes, and the
  * photo-sized headroom the report route needs would only be an abuse budget
- * here.
+ * here. At this size the two copies a parse costs are ~128KB, which is why
+ * this path still buffers where the report route no longer does.
  */
 export async function readCappedForm(request: Request, limit: number): Promise<CappedForm> {
   const { body, refusal } = await readCappedBody(request, limit, { drainHeadroom: limit });
   if (body === null) return { form: null, refusal };
-  return { form: await formDataFrom(request, body), refusal: null };
+  try {
+    return { form: await formDataFrom(request, body), refusal: null };
+  } catch (err) {
+    // Not form fields at all — a content type the parser can't read. Nobody's
+    // browser sends this from these forms, so the log is where it's found.
+    console.warn(`[request-body] unparsable form body for ${where(request)}:`, err);
+    return { form: null, refusal: 'read-failed' };
+  }
+}
+
+/**
+ * The short plain answer a text-only form gives a body it refused.
+ *
+ * One place, so sign-in and adopt can't drift apart on it, and so each reason
+ * keeps its own status: a 413 sends somebody off to shorten a form that may
+ * never have been long.
+ */
+export function refusalResponse(refusal: Refusal, subject: string): Response {
+  switch (refusal) {
+    case 'over-limit':
+      return new Response(`That ${subject} was too large.`, { status: 413 });
+    case 'timed-out':
+      return new Response(`That ${subject} took too long to arrive. Please try again.`, {
+        status: 408,
+      });
+    case 'busy':
+      return new Response(`The tag is busy right now. Please try again.`, {
+        status: 503,
+        headers: { 'retry-after': '5' },
+      });
+    case 'read-failed':
+      return new Response(`That ${subject} didn't come through. Please try again.`, { status: 400 });
+  }
+}
+
+/**
+ * Read and drop the body of a form that carries no fields, and answer for it
+ * if it turns out to carry one after all.
+ *
+ * Confirm, escalate, clear and the weekly photo are a single button each, so
+ * there is nothing to parse — but a body left unread is not the same as no
+ * body: Node answers and then destroys the socket under a request it never
+ * finished reading, which can cost the caller the redirect this route just
+ * wrote. Reading it to its end under the smallest cap puts every public POST
+ * on the same bounds, with no route quietly exempt.
+ */
+export async function discardBody(request: Request, subject: string): Promise<Response | null> {
+  const { refusal } = await readCappedHead(request, MAX_FORM_BYTES, {
+    drainHeadroom: MAX_FORM_BYTES,
+  });
+  return refusal === null ? null : refusalResponse(refusal, subject);
+}
+
+/** A capped form, or the answer to send instead of reading one. */
+export type ReadForm =
+  | { form: FormData; refused: null }
+  | { form: null; refused: Response };
+
+/**
+ * `readCappedForm` with the refusal already turned into its answer, for the
+ * routes that have nothing screen-shaped to say about one. Two lines at the
+ * call site, and no route can forget a reason: adding one to `Refusal` makes
+ * `refusalResponse` fail to compile until it is handled here, once.
+ */
+export async function readFormOrRefuse(
+  request: Request,
+  limit: number,
+  subject: string,
+): Promise<ReadForm> {
+  const { form, refusal } = await readCappedForm(request, limit);
+  if (refusal !== null) return { form: null, refused: refusalResponse(refusal, subject) };
+  return { form, refused: null };
 }
 
 /**
  * The severity index out of a multipart body's head, or null if it isn't in
- * there. A truncated body can't go through formData(), so the one field worth
- * rescuing from a refused upload is read off the part that precedes the file.
+ * there. A truncated body can't go through formData(), and the report route
+ * deliberately never buffers one, so the fields it needs are read off the part
+ * that precedes the file.
  */
 export function severityIndexFromHead(head: Uint8Array): number | null {
-  const text = Buffer.from(head).toString('latin1');
-  const match = /name="severity"[^]*?\r?\n\r?\n([^\r\n]*)/.exec(text);
+  const match = /name="severity"[^]*?\r?\n\r?\n([^\r\n]*)/.exec(headText(head));
   return match ? severityIndexFrom(match[1]) : null;
+}
+
+/**
+ * Whether a photo was attached, from the same head.
+ *
+ * A browser sends the file part with `filename=""` when nobody picked
+ * anything, and a real filename when they did — which is the only thing the
+ * MVP records about the photo anyway (spec §12).
+ */
+export function photoAttachedFromHead(head: Uint8Array): boolean {
+  const match = /name="photo"[^]*?filename="([^"]*)"/.exec(headText(head));
+  return match !== null && match[1]!.length > 0;
+}
+
+/** latin1: the field names and values we look for are ASCII, and it never throws. */
+function headText(head: Uint8Array): string {
+  return Buffer.from(head).toString('latin1');
 }

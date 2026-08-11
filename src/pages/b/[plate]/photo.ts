@@ -5,9 +5,12 @@ import type { APIRoute } from 'astro';
 import { getStore } from '../../../lib/store-local';
 import { getBedView, logPhoto } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
+import { discardBody } from '../../../lib/request-body';
 
-export const POST: APIRoute = async ({ params, cookies, redirect }) => {
+export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   const plate = params.plate ?? '';
+  const refused = await discardBody(request, 'check-in');
+  if (refused) return refused;
   const userId = getSessionUserId(cookies);
   if (!userId) return redirect(`/b/${plate}/auth`, 303);
 

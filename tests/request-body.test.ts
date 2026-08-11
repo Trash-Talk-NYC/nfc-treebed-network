@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { readCappedBody, severityIndexFromHead } from '../src/lib/request-body';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  HEAD_BYTES,
+  MAX_INFLIGHT_BODY_BYTES,
+  photoAttachedFromHead,
+  readCappedBody,
+  readCappedHead,
+  severityIndexFromHead,
+} from '../src/lib/request-body';
 
 const BOUNDARY = '----treebedtest';
 
@@ -166,6 +173,38 @@ describe('capped request bodies', () => {
     expect(deliveredBytes()).toBeLessThan(8 * 1024 * 1024);
   });
 
+  it('gives up on a body under the cap that stops arriving', async () => {
+    // Nothing refused this one — it just never finished. Only the accepted
+    // path's own clock catches it, or it holds a request open until Node's.
+    const { req, wasCancelled } = streamedRequest(
+      reportBody('1', 1024 * 1024),
+      16 * 1024,
+      32 * 1024,
+    );
+    const capped = await readCappedBody(req, 4 * 1024 * 1024, {
+      readIdleMs: 50,
+      readTimeoutMs: 60_000,
+    });
+    // Not 'over-limit' and not 'read-failed': it was neither too big nor broken.
+    expect(capped.refusal).toBe('timed-out');
+    expect(wasCancelled()).toBe(false);
+  });
+
+  it('gives up on a body under the cap that outlasts the total read budget', async () => {
+    const { req, deliveredBytes } = streamedRequest(
+      reportBody('1', 8 * 1024 * 1024),
+      8 * 1024,
+      Infinity,
+      5,
+    );
+    const capped = await readCappedBody(req, 16 * 1024 * 1024, {
+      readTimeoutMs: 100,
+      readIdleMs: 60_000,
+    });
+    expect(capped.refusal).toBe('timed-out');
+    expect(deliveredBytes()).toBeLessThan(8 * 1024 * 1024);
+  });
+
   it('tells a failed read apart from an oversized one', async () => {
     const failing = new ReadableStream<Uint8Array>({
       pull(controller) {
@@ -187,6 +226,43 @@ describe('capped request bodies', () => {
     expect(capped.refusal).toBe('read-failed');
   });
 
+  it('answers an aborted upload it had already refused with the cap, not an error', async () => {
+    // A visitor closing the tab on an upload the server refused ten megabytes
+    // ago: ordinary, and the body was provably too large, so that is still the
+    // answer — a 400 would cost them the screen that keeps their severity.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const body = reportBody('2', 512 * 1024);
+      let sent = 0;
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (sent >= 256 * 1024) return controller.error(new Error('client hung up'));
+          const chunk = new Uint8Array(body.subarray(sent, sent + 32 * 1024));
+          sent += chunk.byteLength;
+          controller.enqueue(chunk);
+        },
+      });
+      const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+        method: 'POST',
+        headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+        body: stream,
+        // @ts-expect-error — undici requires duplex for a streamed body; it is
+        // absent from the DOM lib types.
+        duplex: 'half',
+      });
+      const capped = await readCappedBody(req, 64 * 1024);
+      expect(capped.refusal).toBe('over-limit');
+      expect(severityIndexFromHead(capped.head)).toBe(2);
+      // A cancelled upload is not an incident: one quiet line, no stack.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   it('reports no severity rather than guessing one', async () => {
     expect(severityIndexFromHead(new Uint8Array())).toBeNull();
     const noField = Buffer.from(
@@ -195,5 +271,112 @@ describe('capped request bodies', () => {
     expect(severityIndexFromHead(new Uint8Array(noField))).toBeNull();
     const outOfRange = reportBody('9', 16);
     expect(severityIndexFromHead(new Uint8Array(outOfRange))).toBeNull();
+  });
+});
+
+describe('head-only reads', () => {
+  it('takes the report route’s two fields off the head and keeps no photo', async () => {
+    const body = reportBody('2', 4 * 1024 * 1024);
+    const { req, wasCancelled, deliveredBytes } = streamedRequest(body, 64 * 1024);
+    const capped = await readCappedHead(req, 12 * 1024 * 1024);
+
+    expect(capped.refusal).toBeNull();
+    expect(severityIndexFromHead(capped.head)).toBe(2);
+    expect(photoAttachedFromHead(capped.head)).toBe(true);
+    // The whole body arrived and was counted; only the head was ever held.
+    expect(capped.bytes).toBe(body.byteLength);
+    expect(capped.head.byteLength).toBe(HEAD_BYTES);
+    expect(capped.head.buffer.byteLength).toBe(HEAD_BYTES);
+    expect(wasCancelled()).toBe(false);
+    expect(deliveredBytes()).toBe(body.byteLength);
+  });
+
+  it('refuses one over the cap, with the severity still readable', async () => {
+    const { req, wasCancelled } = streamedRequest(reportBody('0', 512 * 1024), 64 * 1024);
+    const capped = await readCappedHead(req, 64 * 1024);
+    expect(capped.refusal).toBe('over-limit');
+    expect(severityIndexFromHead(capped.head)).toBe(0);
+    expect(wasCancelled()).toBe(false);
+  });
+
+  it('reads no photo where nobody picked one', () => {
+    const empty = Buffer.from(
+      `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="severity"\r\n\r\n1\r\n' +
+        `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="photo"; filename=""\r\n' +
+        'Content-Type: application/octet-stream\r\n\r\n' +
+        `\r\n--${BOUNDARY}--\r\n`,
+    );
+    expect(photoAttachedFromHead(new Uint8Array(empty))).toBe(false);
+    expect(photoAttachedFromHead(new Uint8Array())).toBe(false);
+    expect(photoAttachedFromHead(new Uint8Array(reportBody('1', 16)))).toBe(true);
+  });
+});
+
+describe('the in-flight budget', () => {
+  /** A body that arrives in one chunk and then waits to be let go. */
+  function gatedRequest(body: Buffer) {
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sent = false;
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (sent) {
+          await gate;
+          return controller.close();
+        }
+        sent = true;
+        controller.enqueue(new Uint8Array(body));
+      },
+    });
+    const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+      method: 'POST',
+      headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+      body: stream,
+      // @ts-expect-error — undici requires duplex for a streamed body; it is
+      // absent from the DOM lib types.
+      duplex: 'half',
+    });
+    return { req, release: () => release() };
+  }
+
+  it('refuses a read there is no room for, and admits it once there is', async () => {
+    const holding = gatedRequest(reportBody('1', 1024));
+    // Reserves the whole budget for as long as its body is still arriving.
+    const held = readCappedBody(holding.req, MAX_INFLIGHT_BODY_BYTES);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const crowded = await readCappedBody(request(reportBody('2', 1024)), MAX_INFLIGHT_BODY_BYTES);
+    // Not 'over-limit': this body was small. The server had no room for it,
+    // and it was read to its end so the answer reaches whoever sent it.
+    expect(crowded.refusal).toBe('busy');
+    expect(crowded.body).toBeNull();
+    // Enough was kept to carry their severity to the screen that offers a retry.
+    expect(severityIndexFromHead(crowded.head)).toBe(2);
+
+    holding.release();
+    expect((await held).refusal).toBeNull();
+
+    // The reservation is released with the read, not leaked past it.
+    const after = await readCappedBody(request(reportBody('0', 1024)), MAX_INFLIGHT_BODY_BYTES);
+    expect(after.refusal).toBeNull();
+  });
+
+  it('costs a head-only read only its head, so uploads keep being admitted', async () => {
+    const holding = gatedRequest(reportBody('1', 1024));
+    const held = readCappedHead(holding.req, MAX_INFLIGHT_BODY_BYTES);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Same cap the buffered read above had no room to share — a head-only read
+    // reserves HEAD_BYTES instead, which is what keeps the report route open
+    // to thousands of concurrent phone uploads.
+    const alongside = await readCappedHead(request(reportBody('2', 1024)), MAX_INFLIGHT_BODY_BYTES);
+    expect(alongside.refusal).toBeNull();
+
+    holding.release();
+    expect((await held).refusal).toBeNull();
   });
 });

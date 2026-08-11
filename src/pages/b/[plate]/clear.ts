@@ -4,9 +4,12 @@ import type { APIRoute } from 'astro';
 import { getStore } from '../../../lib/store-local';
 import { RuleError, closeReport } from '../../../lib/service';
 import { getActorId, getSessionUserId } from '../../../lib/session';
+import { discardBody } from '../../../lib/request-body';
 
-export const POST: APIRoute = async ({ params, cookies, redirect }) => {
+export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   const plate = params.plate ?? '';
+  const refused = await discardBody(request, 'update');
+  if (refused) return refused;
   const signedIn = getSessionUserId(cookies) !== null;
   const back = signedIn ? `/b/${plate}/mine` : `/b/${plate}`;
   try {

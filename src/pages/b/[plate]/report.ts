@@ -5,42 +5,56 @@ import type { APIRoute } from 'astro';
 import { getStore } from '../../../lib/store-local';
 import { RuleError, fileReport } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
-import { severityFrom } from '../../../lib/severity';
-import { formDataFrom, readCappedBody, severityIndexFromHead } from '../../../lib/request-body';
+import { severityFrom, severityFromIndex } from '../../../lib/severity';
+import {
+  MAX_FORM_BYTES,
+  photoAttachedFromHead,
+  readCappedHead,
+  readFormOrRefuse,
+  refusalResponse,
+  severityIndexFromHead,
+} from '../../../lib/request-body';
+import type { Severity } from '../../../lib/types';
 
 // A phone photo is a few MB; nothing here is stored, so the cap only has to
 // leave real reports room.
-const MAX_BODY_BYTES = 12 * 1024 * 1024;
+const MAX_PHOTO_BODY_BYTES = 12 * 1024 * 1024;
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   const plate = params.plate ?? '';
   const base = `/b/${plate}`;
   const actor = getActorId(cookies);
 
-  // Enforced server-side only: the form must keep working with JavaScript
-  // disabled. An oversized photo never costs the visitor the report they
-  // already filled in — the severity they picked rides the redirect to a
-  // screen that offers to file it without the attachment.
-  const { body, head, refusal } = await readCappedBody(request, MAX_BODY_BYTES);
-  if (refusal === 'read-failed') {
+  const contentType = request.headers.get('content-type')?.toLowerCase() ?? '';
+  let severity: Severity | null = null;
+  let photoAttached = false;
+
+  if (contentType.startsWith('multipart/form-data')) {
+    // The photo is read and discarded either way (spec §12), so it is never
+    // buffered: the two fields that matter are taken off the head instead,
+    // which keeps a 12MB upload at kilobytes of heap. Safe because the sheet's
+    // markup puts the severity input ahead of the file input and browsers send
+    // parts in DOM order — keep it that way if the sheet ever gains a field.
+    // Enforced server-side only — the form must keep working with JavaScript
+    // disabled — and an oversized photo never costs the visitor the report
+    // they already filled in: the severity they picked rides the redirect to a
+    // screen that offers to file it without the attachment.
+    const { head, refusal } = await readCappedHead(request, MAX_PHOTO_BODY_BYTES);
+    if (refusal === 'over-limit' || refusal === 'busy') return redirect(tooLarge(base, head, refusal), 303);
     // The body never finished arriving. The too-large screen would blame a
     // photo that may well have been under the cap.
-    return new Response("That report didn't come through. Please try again.", { status: 400 });
-  }
-  if (!body) {
-    const kept = severityIndexFromHead(head);
-    const query = kept === null ? '' : `?severity=${kept}`;
-    return redirect(`${base}/too-large${query}`, 303);
+    if (refusal !== null) return refusalResponse(refusal, 'report');
+    const index = severityIndexFromHead(head);
+    severity = index === null ? null : severityFromIndex(index);
+    photoAttached = photoAttachedFromHead(head);
+  } else {
+    // The too-large screen's one-tap refile: the same report, no attachment.
+    const { form, refused } = await readFormOrRefuse(request, MAX_FORM_BYTES, 'report');
+    if (refused) return refused;
+    severity = severityFrom(form.get('severity'));
   }
 
-  const form = await formDataFrom(request, body);
-  const severity = severityFrom(form.get('severity'));
   if (!severity) return new Response('Severity must be 0, 1, or 2.', { status: 400 });
-
-  // The optional photo: only the fact of attachment is recorded. Storing the
-  // image is out of MVP scope (spec §12) — bytes are read and discarded here.
-  const photo = form.get('photo');
-  const photoAttached = photo instanceof File && photo.size > 0;
 
   try {
     const report = await fileReport(getStore(), { plate, actorId: actor, severity, photoAttached });
@@ -56,3 +70,18 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
     throw err;
   }
 };
+
+/**
+ * Where a refused upload lands. The severity is carried across when the head
+ * got far enough to hold it, so the screen can offer the report back — and the
+ * reason is carried too, because "too large" and "too busy" ask for different
+ * things from the person holding the phone.
+ */
+function tooLarge(base: string, head: Uint8Array, refusal: 'over-limit' | 'busy'): string {
+  const kept = severityIndexFromHead(head);
+  const params = new URLSearchParams();
+  if (kept !== null) params.set('severity', String(kept));
+  if (refusal === 'busy') params.set('reason', 'busy');
+  const query = params.toString();
+  return `${base}/too-large${query ? `?${query}` : ''}`;
+}
