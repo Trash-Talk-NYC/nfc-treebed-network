@@ -20,11 +20,16 @@ feature branch -> dev -> qa -> stage -> prod
 - `main` is kept as a **mirror of `prod`** (the conventional default name pointing at what is live).
   It is never a merge target for feature work; the only valid PR into `main` comes from `prod`.
 
+Promotion moves **up** the chain and always requires the exact predecessor, so nothing reaches `prod` without passing through `qa` and `stage`.
+Merges **down** the chain are valid by design: `prod` -> `stage` and `stage` -> `qa` are back-merges, and the check accepts them alongside each base's forward source.
+
 Hotfix path: cut `hotfix/*` from `prod`, PR it into `prod`, then back-merge `prod` down through `stage`, `qa`, and `dev` — skipping the back-merge means the next normal promotion silently reverts the fix.
+Each of those back-merge PRs is an accepted source, so the sanctioned procedure never requires merging past a failing check.
 
 ### What CI actually does, and what it cannot do
 
 `.github/workflows/promotion-chain.yml` **flags** a pull request into `qa`, `stage`, `prod`, or `main` whose head branch is not a valid source: it surfaces the violation as a failed check on the PR.
+Valid sources per base: `qa` <- `dev` or `stage`; `stage` <- `qa` or `prod`; `prod` <- `stage` or `hotfix/*`; `main` <- `prod`.
 PRs into `dev` are deliberately unchecked because feature branch names are arbitrary.
 
 The check is **advisory only — it cannot prevent anything.**

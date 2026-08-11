@@ -20,12 +20,15 @@ Promote one step at a time, each via a pull request:
 
 | Open a PR into | From |
 |---|---|
-| `qa` | `dev` |
-| `stage` | `qa` |
-| `prod` | `stage`, or a `hotfix/*` branch |
+| `qa` | `dev` (promotion), or `stage` (back-merge) |
+| `stage` | `qa` (promotion), or `prod` (back-merge) |
+| `prod` | `stage` (promotion), or a `hotfix/*` branch |
 | `main` | `prod` (mirror sync) |
 
-CI (`promotion-chain.yml`) flags any PR into `qa`/`stage`/`prod`/`main` that comes from the wrong branch, by failing a check on the PR.
+Promotion always requires the exact predecessor, so nothing can skip a step on the way up.
+The back-merge sources travel the other way, down the chain, and exist for the hotfix path below.
+
+CI (`promotion-chain.yml`) flags any PR into `qa`/`stage`/`prod`/`main` that comes from a branch outside that table, by failing a check on the PR.
 
 ## Hotfix
 
@@ -35,6 +38,7 @@ An urgent production fix is the one sanctioned exception to the chain:
 2. Open the pull request against `prod`.
 3. **Back-merge `prod` down through `stage`, `qa`, and `dev`**, one PR each, immediately after the hotfix lands.
 
+Every PR in step 3 is a supported source, so all three pass the promotion-chain check — you should never have to merge a hotfix past a red check.
 Do not skip step 3.
 If the fix only exists on `prod`, the next normal `stage` -> `prod` promotion silently reverts it.
 

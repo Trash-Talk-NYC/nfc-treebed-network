@@ -1,7 +1,8 @@
 name: promotion-chain
 
 # Flags pull requests that break the promotion chain: dev -> qa -> stage -> prod
-# (main mirrors prod), plus sanctioned hotfix/* -> prod.
+# (main mirrors prod), plus sanctioned hotfix/* -> prod and the down-chain
+# back-merges that a hotfix requires.
 # This check is advisory only. Branch protection, rulesets, and required status
 # checks are all unavailable (free plan + private repo), so a failing run marks the
 # PR red but leaves the merge button enabled, and nothing here sees direct pushes.
@@ -25,11 +26,29 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Each guarded base accepts its forward predecessor and, where one exists,
+          # its immediate successor -- the direction a hotfix back-merge travels.
+          # Forward promotion still requires the exact predecessor, so nothing can
+          # skip a stage on the way up.
+          hotfix_allowed=false
           case "$BASE" in
-            qa)    expected="dev" ;;
-            stage) expected="qa" ;;
-            prod)  expected="stage" ;;
-            main)  expected="prod" ;;
+            qa)
+              valid_heads="dev stage"
+              allowed="'dev' (promotion) or 'stage' (back-merge)"
+              ;;
+            stage)
+              valid_heads="qa prod"
+              allowed="'qa' (promotion) or 'prod' (back-merge)"
+              ;;
+            prod)
+              valid_heads="stage"
+              hotfix_allowed=true
+              allowed="'stage' (promotion) or a 'hotfix/*' branch"
+              ;;
+            main)
+              valid_heads="prod"
+              allowed="'prod' (mirror sync)"
+              ;;
             *)
               # Unreachable given the trigger filter, but fail loudly if it happens.
               echo "::error::Unexpected PR base branch '$BASE'; this workflow only covers qa, stage, prod, and main."
@@ -37,17 +56,17 @@ jobs:
               ;;
           esac
 
-          allowed="'$expected'"
           valid=false
 
-          if [ "$HEAD" = "$expected" ]; then
-            valid=true
-          fi
+          for candidate in $valid_heads; do
+            if [ "$HEAD" = "$candidate" ]; then
+              valid=true
+            fi
+          done
 
           # Hotfixes are the one sanctioned exception to the chain: they skip
           # dev/qa/stage and land straight on prod, then get back-merged down.
-          if [ "$BASE" = "prod" ]; then
-            allowed="'$expected' or a 'hotfix/*' branch"
+          if [ "$hotfix_allowed" = true ]; then
             case "$HEAD" in
               hotfix/?*) valid=true ;;
             esac
@@ -56,6 +75,6 @@ jobs:
           if [ "$valid" = true ]; then
             echo "OK: PR into '$BASE' comes from '$HEAD', a valid source ($allowed)."
           else
-            echo "::error::PR into '$BASE' must come from $allowed, not '$HEAD'. Promote through the chain: dev -> qa -> stage -> prod (main mirrors prod)."
+            echo "::error::PR into '$BASE' must come from $allowed, not '$HEAD'. Promote through the chain: dev -> qa -> stage -> prod (main mirrors prod); hotfixes land on prod and are back-merged down."
             exit 1
           fi
