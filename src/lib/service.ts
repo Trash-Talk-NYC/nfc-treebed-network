@@ -6,6 +6,7 @@
 
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import { boundFromEnv } from './bounds';
 import type { Store } from './store';
 import type { Adoption, Bed, BedEvent, Report, Severity, User } from './types';
 import { nyCalendarDay } from './format';
@@ -22,7 +23,8 @@ export class RuleError extends Error {
       | 'slots-full'
       | 'username-taken'
       | 'invalid-credentials'
-      | 'invalid-input',
+      | 'invalid-input'
+      | 'busy',
     message: string,
   ) {
     super(message);
@@ -40,6 +42,48 @@ export async function hashPin(pin: string): Promise<string> {
 
 export async function verifyPin(pin: string, pinHash: string): Promise<boolean> {
   return bcrypt.compare(pin, pinHash);
+}
+
+/**
+ * How many PIN hashes may be running at once.
+ *
+ * `request-body.ts` bounds the bytes, the time and the concurrency of every
+ * public POST, but a body it admits costs nothing to serve until a rule turns
+ * it into work — and a bcrypt is ~150–300ms of the one thread that also serves
+ * every tap. `/auth` and `/adopt` are both public and unauthenticated, and a
+ * read's share of `MAX_INFLIGHT_BODY_BYTES` is released before either rule
+ * runs, so without this nothing at all queues the hashing: a few dozen POSTs a
+ * second to `/auth` saturate the loop and every tap, report and confirm stalls
+ * behind them.
+ *
+ * It sheds rather than queues, the same way an over-budget body does: waiting
+ * in line for a saturated CPU is the stall, not the cure. A handful of real
+ * neighbours signing in never collide on a one-bed street test, so what this
+ * costs the product is nothing and what it bounds is the whole CPU an
+ * anonymous caller can command.
+ *
+ * This is not brute-force protection: per-PIN rate limiting is still absent
+ * and still owed before any real rollout (AGENTS.md). It bounds the cost of
+ * attempts, not their number.
+ *
+ * `TREEBED_MAX_INFLIGHT_PIN_HASHES` exists so the end-to-end suite can watch a
+ * real client be shed without racing a bcrypt; it is a test seam, like the two
+ * in request-body.ts, not a deployment knob.
+ */
+export const MAX_INFLIGHT_PIN_HASHES = boundFromEnv('TREEBED_MAX_INFLIGHT_PIN_HASHES', 4);
+
+let inflightPinHashes = 0;
+
+async function withPinHashSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (inflightPinHashes >= MAX_INFLIGHT_PIN_HASHES) {
+    throw new RuleError('busy', `More than ${MAX_INFLIGHT_PIN_HASHES} PIN hashes already running`);
+  }
+  inflightPinHashes += 1;
+  try {
+    return await work();
+  } finally {
+    inflightPinHashes -= 1;
+  }
 }
 
 /** Everything the plaque screens need about one bed, in one read. */
@@ -241,6 +285,32 @@ export function validateAdoptInput(raw: AdoptInput): { values: AdoptInput; error
   return { values, errors };
 }
 
+/**
+ * The three things about stored state an adoption needs to be true, in the
+ * order whose error the caller sees first: a bed that exists, a slot free on
+ * it, a handle nobody has taken.
+ *
+ * Stated once and read twice — through `store` as a pre-filter, through `tx`
+ * as the rule — so the two can't drift into telling one caller a different
+ * story than the other depending on which copy fired.
+ */
+async function checkAdoptPreconditions(
+  store: Store,
+  plate: string,
+  username: string,
+): Promise<void> {
+  const bed = await store.getBed(plate);
+  if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${plate}`);
+
+  const active = await store.getActiveAdoptions(plate);
+  if (active.length >= bed.slots) {
+    throw new RuleError('slots-full', `${plate} already has ${bed.slots} adopters`);
+  }
+  if (await store.getUserByUsername(username)) {
+    throw new RuleError('username-taken', `@${username} is taken`);
+  }
+}
+
 /** Two-slot cap (spec §7) enforced here, server-side. */
 export async function adoptBed(
   store: Store,
@@ -254,37 +324,21 @@ export async function adoptBed(
 
   // Cheap reads first: /adopt is public, and a bcrypt is ~150–300ms of the one
   // thread that also serves every tap. A POST that cannot possibly store
-  // anything — full bed, taken handle — must not buy that CPU. These are a
-  // pre-filter, not the rule: the authoritative checks are inside the
-  // transaction below, in the same order, so the race is unchanged.
-  const preBed = await store.getBed(args.plate);
-  if (!preBed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
-  const preActive = await store.getActiveAdoptions(args.plate);
-  if (preActive.length >= preBed.slots) {
-    throw new RuleError('slots-full', `${args.plate} already has ${preBed.slots} adopters`);
-  }
-  if (await store.getUserByUsername(values.username)) {
-    throw new RuleError('username-taken', `@${values.username} is taken`);
-  }
+  // anything — full bed, taken handle — must not buy that CPU. This is a
+  // pre-filter, not the rule: the authoritative pass is inside the transaction
+  // below, the same checks in the same order, so the race is unchanged.
+  await checkAdoptPreconditions(store, args.plate, values.username);
 
   // Hashed before the transaction opens: nothing about the hash depends on
   // stored state, and holding the store's write queue for the duration of a
-  // bcrypt would stall every concurrent tap behind one adoption.
-  const pinHash = await hashPin(values.pin);
+  // bcrypt would stall every concurrent tap behind one adoption. Bounded for
+  // the same reason the pre-filter exists — the CPU is the scarce thing here.
+  const pinHash = await withPinHashSlot(() => hashPin(values.pin));
 
   // Exclusive: the slot count and the username check are only worth anything
   // if nobody can claim the last slot or the same handle in between.
   return store.transaction(async (tx) => {
-    const bed = await tx.getBed(args.plate);
-    if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
-
-    const active = await tx.getActiveAdoptions(args.plate);
-    if (active.length >= bed.slots) {
-      throw new RuleError('slots-full', `${args.plate} already has ${bed.slots} adopters`);
-    }
-    if (await tx.getUserByUsername(values.username)) {
-      throw new RuleError('username-taken', `@${values.username} is taken`);
-    }
+    await checkAdoptPreconditions(tx, args.plate, values.username);
 
     const user: User = {
       id: `user-${randomUUID()}`,
@@ -328,15 +382,20 @@ export async function signIn(
   store: Store,
   args: { username: string; pin: string },
 ): Promise<User> {
-  const user = await store.getUserByUsername(args.username.trim().replace(/^@/, ''));
-  // Same error AND the same timing for unknown user and wrong PIN — a short
-  // circuit here would make username enumeration free, since sign-in attempts
-  // are not yet rate limited (AGENTS.md).
-  const pinMatches = await verifyPin(args.pin, user?.pinHash ?? (await unmatchablePinHash()));
-  if (!user || !pinMatches) {
-    throw new RuleError('invalid-credentials', 'Username and PIN don’t match.');
-  }
-  return user;
+  // Admission is taken before the lookup, not around the compare: whether a
+  // request is shed must not depend on whether the username exists, or the
+  // constant-time compare below would leak through the refusal instead.
+  return withPinHashSlot(async () => {
+    const user = await store.getUserByUsername(args.username.trim().replace(/^@/, ''));
+    // Same error AND the same timing for unknown user and wrong PIN — a short
+    // circuit here would make username enumeration free, since sign-in attempts
+    // are not yet rate limited (AGENTS.md).
+    const pinMatches = await verifyPin(args.pin, user?.pinHash ?? (await unmatchablePinHash()));
+    if (!user || !pinMatches) {
+      throw new RuleError('invalid-credentials', 'Username and PIN don’t match.');
+    }
+    return user;
+  });
 }
 
 /**

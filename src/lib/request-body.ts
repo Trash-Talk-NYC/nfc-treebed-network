@@ -90,6 +90,12 @@
 // the body untouched instead does not avoid the cost: Node dumps the body of
 // any request whose response finished unread, which reads the whole thing.
 
+// What this sweep does NOT bound is CPU. A body admitted here is free to serve
+// until a rule turns it into work, and on /auth and /adopt that work is a
+// bcrypt — bounded separately by MAX_INFLIGHT_PIN_HASHES in service.ts, where
+// the rule that spends it lives.
+
+import { boundFromEnv } from './bounds';
 import { severityIndexFrom } from './severity';
 
 /**
@@ -224,22 +230,6 @@ export const HEAD_READ_TIMEOUT_MS = FORM_READ_TIMEOUT_MS;
 
 /** And how long a body may go without sending anything before its head is in. */
 export const HEAD_READ_IDLE_MS = FORM_READ_IDLE_MS;
-
-/**
- * A bound the end-to-end suite can lower, so the paths that only open at
- * capacity can be driven with two sockets instead of several hundred. Not a
- * deployment knob: the shipped values are the defaults below, and a bad one is
- * a boot failure rather than a bound that silently isn't there.
- */
-function boundFromEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative number, got ${JSON.stringify(raw)}`);
-  }
-  return value;
-}
 
 /**
  * How many bytes all in-flight reads together may be holding.

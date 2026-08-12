@@ -5,6 +5,7 @@ import path from 'node:path';
 import { LocalStore } from '../src/lib/store-local';
 import {
   MAX_CONFIRMATIONS,
+  MAX_INFLIGHT_PIN_HASHES,
   RuleError,
   adoptBed,
   closeReport,
@@ -327,6 +328,43 @@ describe('sign in', () => {
     await expect(signIn(store, { username: 'ghost', pin: '1234' })).rejects.toMatchObject({
       code: 'invalid-credentials',
     });
+  });
+
+  it('sheds the attempts past MAX_INFLIGHT_PIN_HASHES instead of queueing their CPU', async () => {
+    const attempts = Array.from({ length: MAX_INFLIGHT_PIN_HASHES + 3 }, () =>
+      signIn(store, { username: 'marisol_r', pin: '1234' }).catch((err: unknown) => err),
+    );
+    const outcomes = await Promise.all(attempts);
+    const shed = outcomes.filter((o) => o instanceof RuleError && o.code === 'busy');
+    expect(shed).toHaveLength(3);
+    // Whatever was admitted still got its real answer, and the shed ones freed
+    // their slots again — the bound is on concurrency, not on attempts.
+    expect(outcomes.filter((o) => !(o instanceof Error))).toHaveLength(MAX_INFLIGHT_PIN_HASHES);
+    await expect(signIn(store, { username: 'marisol_r', pin: '1234' })).resolves.toMatchObject({
+      username: 'marisol_r',
+    });
+  });
+
+  it('sheds an unknown username exactly like a known one, so the refusal leaks nothing', async () => {
+    const attempts = [
+      ...Array.from({ length: MAX_INFLIGHT_PIN_HASHES }, () =>
+        signIn(store, { username: 'marisol_r', pin: '1234' }).catch((err: unknown) => err),
+      ),
+      signIn(store, { username: 'ghost', pin: '1234' }).catch((err: unknown) => err),
+    ];
+    const outcomes = await Promise.all(attempts);
+    expect(outcomes.at(-1)).toMatchObject({ code: 'busy' });
+  });
+
+  it('sheds an adoption whose PIN hash finds no slot, without touching the store', async () => {
+    const held = Array.from({ length: MAX_INFLIGHT_PIN_HASHES }, () =>
+      signIn(store, { username: 'marisol_r', pin: '1234' }).catch(() => null),
+    );
+    await expect(
+      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'shed_out' }) }),
+    ).rejects.toMatchObject({ code: 'busy' });
+    await Promise.all(held);
+    expect(await store.getUserByUsername('shed_out')).toBeNull();
   });
 });
 

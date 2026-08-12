@@ -52,6 +52,13 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   A 4–8 digit PIN is brute-forceable and there is no rate limiting on sign-in attempts yet.
   Revisit before any real rollout.
 - PINs are bcrypt-hashed (`hashPin`/`verifyPin` in service.ts). Never store, log, or echo a plaintext PIN — the adopt form deliberately does not re-fill the PIN field on validation errors.
+- **`MAX_INFLIGHT_PIN_HASHES` (service.ts, 4) bounds what the PIN costs the server, not how many PINs may be tried.**
+  `request-body.ts` bounds bytes, time and concurrency for every public POST, but it releases a read's share of `MAX_INFLIGHT_BODY_BYTES` before any rule runs, and a bcrypt is ~150–300ms of the one thread that also serves every tap.
+  So `/auth` and `/adopt` were the one place an anonymous caller could still command unbounded CPU: a few dozen POSTs a second saturate the loop and every tap, report and confirm stalls behind them.
+  Past the bound the request is shed rather than queued — waiting in line for a saturated CPU is the stall, not the cure — and `signIn` takes its slot *before* the username lookup, so being shed can't reveal what the constant-time compare below is there to hide.
+  Both screens answer it themselves: the sign-in form and the adopt form come back with a 503, `retry-after`, and everything the visitor typed except the PIN.
+  How many hashes overlap depends on how fast the box is, so the end-to-end proof of what a shed visitor receives runs against a server started with `TREEBED_MAX_INFLIGHT_PIN_HASHES=0` — a test seam like the two in `request-body.ts`, not a deployment knob.
+  Per-PIN and per-account rate limiting are still absent and still owed before any real rollout; this bounds the cost of attempts, not their number.
 - `signIn` runs a bcrypt compare even when the username is unknown, so unknown-user and wrong-PIN cost the same. Don't "optimize" that short circuit back in — without rate limiting it is the only thing making username enumeration expensive.
 - `TREEBED_SESSION_SECRET` is required in production; the app refuses to sign cookies with a generated one. The `.data/session-secret` fallback is dev-only.
   The requirement is checked twice so a misconfigured deploy can't reach traffic: `scripts/preflight.mjs` runs as npm's `prestart` and `prepreview` and refuses to boot, and `src/middleware.ts` asserts at module load so a server started any other way fails on its first request of any route rather than on the first one that touches a cookie.

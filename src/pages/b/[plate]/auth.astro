@@ -37,6 +37,14 @@ if (Astro.request.method === 'POST') {
   } catch (err) {
     if (err instanceof RuleError && err.code === 'invalid-credentials') {
       error = err.message;
+    } else if (err instanceof RuleError && err.code === 'busy') {
+      // Shed because too many PIN hashes are already running. Same screen with
+      // the username still in it, not a bare 503: this is a retry, and the
+      // visitor should have to retype nothing but the PIN — which this form
+      // never re-fills anyway.
+      error = 'Too many people are signing in at once. Give it a moment and try again.';
+      Astro.response.status = 503;
+      Astro.response.headers.set('retry-after', '5');
     } else {
       throw err;
     }

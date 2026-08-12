@@ -64,7 +64,12 @@ export interface Report {
   severity: Severity;
   openedAt: string;
   closedAt: string | null;
-  /** Anyone can mark clear, not just adopters (spec §2). */
+  /**
+   * Who closed it. `closeReport` is actor-agnostic, as spec §2 asks, so this
+   * can hold any actor id — but `/clear` currently admits only a signed-in
+   * adopter of the bed, so in the shipped build it only ever holds a user id,
+   * never an anonymous `visitor-<uuid>`. See clear.ts's header and AGENTS.md.
+   */
   closedBy: string | null;
   /** Severity before escalation to dumping, null if never escalated. */
   escalatedFrom: Severity | null;

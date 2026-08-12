@@ -56,6 +56,13 @@ if (Astro.request.method === 'POST') {
         openSlots = 0;
       } else if (err instanceof RuleError && err.code === 'username-taken') {
         errors.username = 'That username is taken.';
+      } else if (err instanceof RuleError && err.code === 'busy') {
+        // Shed because too many PIN hashes are already running. The form comes
+        // back filled in — everything but the PIN, which is never echoed — so a
+        // retry costs one tap rather than the whole field set.
+        formError = 'Too many people are signing up at once. Give it a moment and try again.';
+        Astro.response.status = 503;
+        Astro.response.headers.set('retry-after', '5');
       } else {
         throw err;
       }
@@ -90,6 +97,7 @@ const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slo
               <span class="slots-label">SLOTS</span>
               <span class="slots-open">{slotsOpenLabel}</span>
             </div>
+            {formError && <div class="field-error">{formError}</div>}
             <label class="field-label label-gap" for="name">YOUR NAME</label>
             <input class="field-input" id="name" name="name" type="text" value={values.name} autocomplete="name" required />
             {errors.name && <div class="field-error">{errors.name}</div>}

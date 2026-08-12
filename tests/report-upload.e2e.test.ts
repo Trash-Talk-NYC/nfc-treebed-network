@@ -639,6 +639,69 @@ describe('oversized report uploads, end to end', () => {
   });
 });
 
+describe('a sign-in that arrives past the PIN-hash bound', () => {
+  // What bounds /auth and /adopt is the CPU a bcrypt costs, so the shed path
+  // opens only when hashes overlap — and how many overlap depends on how fast
+  // the box is, which is no basis for an assertion. Driven instead with a
+  // server whose bound is zero, the way the shed-read paths above are: the
+  // question worth measuring is what the visitor actually receives, and that
+  // is the same answer at any bound.
+  let full: Served;
+
+  beforeAll(async () => {
+    full = await startServer({ TREEBED_MAX_INFLIGHT_PIN_HASHES: '0' });
+  }, 60_000);
+
+  afterAll(async () => {
+    full?.process.kill();
+    if (full?.dataDir) await rm(full.dataDir, { recursive: true, force: true });
+  });
+
+  it('hands the sign-in form back with the username in it, not a bare error', async () => {
+    withServerLog(() => full.log());
+    const posted = await fetch(`${full.origin}/b/${PLATE}/auth`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
+      body: 'username=marisol_r&pin=1234',
+      redirect: 'manual',
+    });
+
+    expect(posted.status).toBe(503);
+    expect(posted.headers.get('retry-after')).toBe('5');
+    const html = await posted.text();
+    expect(html).toContain('signing in at once');
+    // The screen, with everything typed still in it except the PIN — which no
+    // response ever carries back.
+    expect(html).toContain('value="marisol_r"');
+    expect(html).toContain('SIGN IN');
+    expect(html).not.toContain('1234');
+  }, 60_000);
+
+  it('hands the adopt form back filled in, so a slot is never lost to a busy server', async () => {
+    withServerLog(() => full.log());
+    const posted = await fetch(`${full.origin}/b/${PLATE}/adopt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
+      body: 'name=R.+Okafor&username=r_okafor&pin=4321&email=r.okafor%40example.com&phone=%2B1+555+010+1234',
+      redirect: 'manual',
+    });
+
+    expect(posted.status).toBe(503);
+    expect(posted.headers.get('retry-after')).toBe('5');
+    const html = await posted.text();
+    expect(html).toContain('signing up at once');
+    expect(html).toContain('value="R. Okafor"');
+    expect(html).toContain('value="r_okafor"');
+    expect(html).toContain('value="r.okafor@example.com"');
+    expect(html).not.toContain('4321');
+    // Shed before the hash, so nothing was stored and the slot is still there.
+    const data = JSON.parse(await readFile(path.join(full.dataDir, 'store.json'), 'utf8')) as {
+      users: Record<string, { username: string }>;
+    };
+    expect(Object.values(data.users).map((u) => u.username)).toEqual(['marisol_r']);
+  }, 60_000);
+});
+
 describe('an upload that arrives past the shed count', () => {
   // The deepest branch in request-body.ts: no room in the byte budget and no
   // shed slot left either, where the read keeps nothing at all. Driven with a
