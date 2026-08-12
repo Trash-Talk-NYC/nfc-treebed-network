@@ -5,6 +5,7 @@ import {
   discardBody,
   FORM_READ_IDLE_MS,
   HEAD_BYTES,
+  HEAD_READ_IDLE_MS,
   MAX_FORM_BYTES,
   MAX_INFLIGHT_BODY_BYTES,
   MAX_SHED_READS,
@@ -593,6 +594,74 @@ describe('the in-flight budget', () => {
       // Walked away from, not cancelled: the route still has a socket to answer on.
       expect(single.wasCancelled()).toBe(false);
       expect(typed.wasCancelled()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives even the photo route only seconds to send its head', async () => {
+    // The one route that genuinely needs minutes, and until the head is in
+    // there is nothing to spend them on: a report with no photo is a few
+    // hundred bytes in total, and a phone puts the first chunk of a 20MB upload
+    // on the wire in well under a second. On the long clocks this was the
+    // cheapest reservation on the whole surface — a byte every 29s from a few
+    // hundred cookie-less sockets holds the in-flight budget shut for minutes.
+    vi.useFakeTimers();
+    try {
+      const { req, wasCancelled } = streamedRequest(
+        reportBody('1', 4 * 1024 * 1024),
+        4 * 1024,
+        4 * 1024,
+      );
+      let settled = false;
+      const reading = readCappedHead(req, 12 * 1024 * 1024).then((capped) => {
+        settled = true;
+        return capped;
+      });
+
+      // Short of the head's own idle bound, still reading — so it is that bound
+      // being measured and not something else finishing early.
+      await vi.advanceTimersByTimeAsync(HEAD_READ_IDLE_MS - 1);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(2);
+      expect(settled).toBe(true);
+      expect(HEAD_READ_IDLE_MS).toBeLessThan(READ_IDLE_MS);
+
+      const capped = await reading;
+      expect(capped.refusal).toBe('timed-out');
+      // Walked away from, not cancelled: the route still has a socket to answer
+      // on, so this reaches the screen that keeps the report.
+      expect(wasCancelled()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives the photo route its minutes once a photo is actually arriving', async () => {
+    // The other half of the same bound: a real upload pausing longer than the
+    // head clock is exactly the slow-uplink case the graceful screen exists
+    // for, and it must keep the long clocks it was sized with.
+    vi.useFakeTimers();
+    try {
+      const { req } = streamedRequest(reportBody('2', 4 * 1024 * 1024), 16 * 1024, 16 * 1024);
+      let settled = false;
+      const reading = readCappedHead(req, 12 * 1024 * 1024).then((capped) => {
+        settled = true;
+        return capped;
+      });
+
+      // The first chunk carries the whole head, so the short clock is done with.
+      await vi.advanceTimersByTimeAsync(10);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(HEAD_READ_IDLE_MS);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(READ_IDLE_MS);
+      expect(settled).toBe(true);
+      const capped = await reading;
+      expect(capped.refusal).toBe('timed-out');
+      expect(severityIndexFromHead(capped.head)).toBe(2);
     } finally {
       vi.useRealTimers();
     }

@@ -19,11 +19,12 @@
 //   POST .../report  (multipart)       Size: 12MB, counted as bytes arrive
 //                                      (`readCappedHead`); nothing past the 8KB
 //                                      head is ever held, so a 12MB photo costs
-//                                      no copies of itself. Time: READ_* while
-//                                      the body may still be filed, DRAIN_* once
-//                                      it is refused, and never past
-//                                      READ_TIMEOUT_MS from the start either
-//                                      way. Concurrency: HEAD_BYTES +
+//                                      no copies of itself. Time: HEAD_READ_*
+//                                      until the head is in, READ_* after that
+//                                      while the body may still be filed,
+//                                      DRAIN_* once it is refused, and never
+//                                      past READ_TIMEOUT_MS from the start any
+//                                      of those ways. Concurrency: HEAD_BYTES +
 //                                      CHUNK_ALLOWANCE_BYTES reserved out of
 //                                      MAX_INFLIGHT_BODY_BYTES, or one of
 //                                      MAX_SHED_READS slots if there is no room.
@@ -53,7 +54,7 @@
 //                                      copy, the chunk in hand). Refused → a
 //                                      plain short answer, the same shape these
 //                                      forms already give a rejected field.
-//   POST .../confirm, escalate, clear  One button each, so `discardBody` reads
+//   POST .../confirm, .../escalate     One button each, so `discardBody` reads
 //                                      the body to its end under MAX_FORM_BYTES
 //                                      and keeps nothing: the same short time
 //                                      bounds, the head-only reservation, same
@@ -61,15 +62,22 @@
 //                                      Leaving it unread would cost heap nothing
 //                                      and could cost the caller this route's
 //                                      redirect.
-//   POST .../photo                     The same, behind session and adopter
-//                                      checks.
+//   POST .../clear, .../photo          The same, behind session and adopter
+//                                      checks — the body is read on the same
+//                                      bounds before either is consulted, so an
+//                                      unauthenticated POST is bounded by the
+//                                      row above and writes nothing.
 //
-// The time bounds split in two because the reservation is only released when
-// one of them fires, so the slowest body a route can receive is what decides
-// how long its share of MAX_INFLIGHT_BODY_BYTES can be held: minutes on the
-// report route, which really does receive 12MB over a bad uplink, and seconds
+// The time bounds split because the reservation is only released when one of
+// them fires, so the slowest body a route can receive is what decides how long
+// its share of MAX_INFLIGHT_BODY_BYTES can be held: minutes on the report
+// route, which really does receive 12MB over a bad uplink, and seconds
 // everywhere else, where a body that takes minutes is a trickle holding a slot
-// rather than anything a person sent.
+// rather than anything a person sent. The report route earns its minutes only
+// once it has shown a photo: every read, that one included, is on the short
+// HEAD_READ_* clocks until the first HEAD_BYTES are in — a phone puts those on
+// the wire in well under a second, and until they arrive nothing distinguishes
+// a 12MB upload from a socket dribbling a byte at a time to hold a slot.
 //
 // Two counters carry the concurrency column: MAX_INFLIGHT_BODY_BYTES for reads
 // that were admitted, MAX_SHED_READS for the ones being turned away, which hold
@@ -196,6 +204,28 @@ export const FORM_READ_TIMEOUT_MS = 10_000;
 export const FORM_READ_IDLE_MS = 5_000;
 
 /**
+ * The same two bounds again, for the part of *any* body that precedes the
+ * first `HEAD_BYTES` — the phase every read starts in.
+ *
+ * The photo clocks belong to a photo, and until the head is full nothing has
+ * arrived that could be one: a report with no attachment is a few hundred
+ * bytes in total, and a real phone puts the first chunk of a 20MB upload on the
+ * wire in well under a second even on a bad sidewalk uplink. Giving that phase
+ * four minutes made `/report` the cheapest way to hold a reservation inside
+ * `MAX_INFLIGHT_BODY_BYTES` — one byte every 29s from a few hundred cookie-less
+ * sockets, ~30 bytes/sec in all, and every public POST answers `busy` until
+ * they time out. It is the same denial the short form clocks above closed,
+ * which is why the head gets the same answer wherever it is being read.
+ *
+ * Past the head the long clocks take over, because from there the body really
+ * may be 12MB arriving slowly, and that case must stay graceful.
+ */
+export const HEAD_READ_TIMEOUT_MS = FORM_READ_TIMEOUT_MS;
+
+/** And how long a body may go without sending anything before its head is in. */
+export const HEAD_READ_IDLE_MS = FORM_READ_IDLE_MS;
+
+/**
  * A bound the end-to-end suite can lower, so the paths that only open at
  * capacity can be driven with two sockets instead of several hundred. Not a
  * deployment knob: the shipped values are the defaults below, and a bad one is
@@ -302,6 +332,10 @@ export interface ReadBounds {
   readTimeoutMs?: number;
   /** How long such a body may go without sending anything. */
   readIdleMs?: number;
+  /** How long the first `HEAD_BYTES` of any body may take in total. */
+  headTimeoutMs?: number;
+  /** How long a body may go quiet for before its head is in. */
+  headIdleMs?: number;
 }
 
 /** The read stalled past a deadline. */
@@ -383,6 +417,8 @@ async function consume(
     drainIdleMs = DRAIN_IDLE_MS,
     readTimeoutMs = READ_TIMEOUT_MS,
     readIdleMs = READ_IDLE_MS,
+    headTimeoutMs = HEAD_READ_TIMEOUT_MS,
+    headIdleMs = HEAD_READ_IDLE_MS,
   }: ReadBounds,
 ): Promise<Consumed> {
   const declared = Number(request.headers.get('content-length'));
@@ -448,6 +484,11 @@ async function consume(
   const started = Date.now();
   const readDeadline = started + readTimeoutMs;
   let drainDeadline = Math.min(started + drain.budgetMs, readDeadline);
+  // The phase every read begins in, on both clocks below: until `HEAD_BYTES`
+  // have arrived, nothing has shown itself to be the slow photo the long bounds
+  // exist for, and a reservation held on those bounds for a body that never
+  // becomes one is the cheapest denial on the whole surface.
+  const headDeadline = started + headTimeoutMs;
 
   // Past a bound the read simply stops here, without cancelling: cancelling
   // leaves the response unwritten and the socket idling until Node's request
@@ -456,7 +497,12 @@ async function consume(
   try {
     for (;;) {
       const refused = over || busy;
-      const remaining = (refused ? drainDeadline : readDeadline) - Date.now();
+      // A shed read keeps no head, so it never leaves this phase — and it is on
+      // the tightest bounds in the file already.
+      const inHead = !shedding && headBytes < HEAD_BYTES;
+      const deadline = refused ? drainDeadline : readDeadline;
+      const idle = refused ? drain.idleMs : readIdleMs;
+      const remaining = (inHead ? Math.min(headDeadline, deadline) : deadline) - Date.now();
       if (remaining <= 0) {
         stalled = true;
         break;
@@ -464,7 +510,7 @@ async function consume(
       // Whichever bound comes first: gone quiet, or out of total time.
       const raced = await readWithin(
         reader,
-        Math.min(remaining, refused ? drain.idleMs : readIdleMs),
+        Math.min(remaining, inHead ? Math.min(headIdleMs, idle) : idle),
       );
       if (raced === STALLED) {
         stalled = true;

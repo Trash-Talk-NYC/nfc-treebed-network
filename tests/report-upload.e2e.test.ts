@@ -132,6 +132,32 @@ async function visitorCookie(): Promise<string> {
   return set.split(';')[0]!;
 }
 
+/**
+ * The guardian's identity. `/clear` is gated on a signed-in adopter of this
+ * bed, so closing a report goes through the sign-in the only clear button in
+ * the build already sits behind. Uses the seeded adopter, and taps nothing.
+ */
+async function adopterCookie(): Promise<string> {
+  const posted = await fetch(`${origin}/b/${PLATE}/auth`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+    body: 'username=marisol_r&pin=1234',
+    redirect: 'manual',
+  });
+  const set = posted.headers.getSetCookie().find((cookie) => cookie.startsWith('tg_session='));
+  if (!set) throw new Error(`sign-in handed out no session cookie (${posted.status})`);
+  return set.split(';')[0]!;
+}
+
+/** Close whatever report is open, the way the guardian view's button does. */
+async function clearAsAdopter(): Promise<Response> {
+  return fetch(`${origin}/b/${PLATE}/clear`, {
+    method: 'POST',
+    headers: { origin, cookie: await adopterCookie() },
+    redirect: 'manual',
+  });
+}
+
 /** Tap events the server has actually written, out of its own store file. */
 async function storedTaps(): Promise<number> {
   const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
@@ -421,15 +447,11 @@ describe('oversized report uploads, end to end', () => {
 
   it('files the too-large screen refile, which carries no photo at all', async () => {
     withServerLog();
-    // The bed already has the report the previous case filed; anyone may clear
-    // it (spec §2), and this is what the next passer-by's refile then does —
-    // a passer-by being somebody who tapped the tag, and so has its cookie.
-    const cleared = await fetch(`${origin}/b/${PLATE}/clear`, {
-      method: 'POST',
-      headers: { origin, cookie: await visitorCookie() },
-      redirect: 'manual',
-    });
+    // The bed already has the report the previous case filed; its guardian
+    // closes it, and this is what the next passer-by's refile then does.
+    const cleared = await clearAsAdopter();
     expect(cleared.status).toBe(303);
+    expect(cleared.headers.get('location')).toBe(`/b/${PLATE}/mine`);
 
     const refiled = await fetch(`${origin}/b/${PLATE}/report`, {
       method: 'POST',
@@ -467,17 +489,20 @@ describe('oversized report uploads, end to end', () => {
 
   it('counts one tap per visit, and none for its own redirects', async () => {
     withServerLog();
-    // The bed still has the report the refile case filed; closing it is one of
-    // the redirects that used to land on the bare plaque and be counted twice.
-    // With the identity a neighbour standing at the tag would have — a
-    // cookie-less clear writes nothing, which the next test is about.
-    const cleared = await fetch(`${origin}/b/${PLATE}/clear`, {
+    // The bed still has the report the refile case filed; its guardian closes
+    // it, which lands on the guardian view and logs no tap either way.
+    expect((await clearAsAdopter()).status).toBe(303);
+
+    // A redirect of ours that does land on the plaque: a cookie-less confirm
+    // writes nothing and sends the caller back — one of the redirects that
+    // used to land on the bare plaque and be counted as a second visit.
+    const noop = await fetch(`${origin}/b/${PLATE}/confirm`, {
       method: 'POST',
-      headers: { origin, cookie: await visitorCookie() },
+      headers: { origin },
       redirect: 'manual',
     });
-    expect(cleared.status).toBe(303);
-    const back = cleared.headers.get('location');
+    expect(noop.status).toBe(303);
+    const back = noop.headers.get('location');
     expect(back).toBe(`/b/${PLATE}?tg_action=1`);
 
     const before = await storedTaps();
@@ -536,18 +561,19 @@ describe('oversized report uploads, end to end', () => {
     expect(await storedConfirmations(id)).toHaveLength(1);
   });
 
-  it('writes nothing for a cookie-less escalate or clear, and still answers', async () => {
+  it('writes nothing for an unauthenticated escalate or clear, and still answers', async () => {
     withServerLog();
     // The report the confirm case filed is still open, and /clear is what lets
     // the next one be filed: report → clear → report is a loop, and every lap
-    // used to append a report and two events to a history nothing prunes.
+    // used to append a report and two events to a history nothing prunes. One
+    // GET buys the visitor cookie, so only the adopter gate ends it.
     const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
       reports: Array<{ id: string; closedAt: string | null }>;
-      events: unknown[];
+      events: Array<{ eventType: string }>;
     };
     const open = data.reports.find((report) => report.closedAt === null)!;
     expect(open).toBeDefined();
-    const eventsBefore = data.events.length;
+    const clearsBefore = data.events.filter((event) => event.eventType === 'clear').length;
 
     for (const route of ['escalate', 'clear']) {
       for (let i = 0; i < 3; i += 1) {
@@ -561,20 +587,28 @@ describe('oversized report uploads, end to end', () => {
         expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
       }
     }
-    // Six POSTs, and the store is exactly where it was.
+
+    // And the cookie one plaque GET hands out is not a guardian either, which
+    // is the half a cookie gate alone missed: one GET, and the loop ran on.
+    for (let i = 0; i < 3; i += 1) {
+      const posted = await fetch(`${origin}/b/${PLATE}/clear`, {
+        method: 'POST',
+        headers: { origin, cookie: await visitorCookie() },
+        redirect: 'manual',
+      });
+      expect(posted.status).toBe(303);
+      expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
+    }
     expect(await reportIsOpen(open.id)).toBe(true);
     const after = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
-      events: unknown[];
+      events: Array<{ eventType: string }>;
     };
-    expect(after.events.length).toBe(eventsBefore);
+    // Nine POSTs, and not one of them wrote the event that would let the next
+    // report be filed — which is the lap of the loop that had to stop.
+    expect(after.events.filter((event) => event.eventType === 'clear').length).toBe(clearsBefore);
 
-    // The neighbour who tapped the tag still closes it in one press.
-    const cookie = await visitorCookie();
-    const cleared = await fetch(`${origin}/b/${PLATE}/clear`, {
-      method: 'POST',
-      headers: { origin, cookie },
-      redirect: 'manual',
-    });
+    // The bed's guardian still closes it in one press.
+    const cleared = await clearAsAdopter();
     expect(cleared.status).toBe(303);
     expect(await reportIsOpen(open.id)).toBe(false);
   });

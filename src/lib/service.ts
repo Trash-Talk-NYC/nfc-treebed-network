@@ -186,7 +186,14 @@ export async function escalateReport(
   });
 }
 
-/** Anyone can mark clear, not just adopters (spec §2) — stale reports read as neglect. */
+/**
+ * Closes whoever's report is open. Actor-agnostic, as spec §2 asks — anyone can
+ * mark clear, and stale reports otherwise read as adopter neglect.
+ *
+ * Who may reach it is the route's business, and `/clear` currently admits only
+ * a signed-in adopter of the bed; see AGENTS.md for why, and for what re-opening
+ * it to everyone needs first.
+ */
 export async function closeReport(
   store: Store,
   args: { plate: string; actorId: string; now?: Date },

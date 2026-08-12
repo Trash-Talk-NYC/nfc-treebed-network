@@ -1,9 +1,18 @@
-// POST: "I CLEANED IT — CLOSE THE REPORT". Anyone can mark clear, not just
-// adopters (spec §2) — otherwise stale reports read as adopter neglect.
+// POST: "I CLEANED IT — CLOSE THE REPORT". The guardian view's button, and
+// only that: the route is gated on a signed-in adopter of this bed.
+//
+// Spec §2 says anyone can mark clear, and `closeReport` still can — the rule
+// is untouched, the gate is here. Closing a report is what lets the next one be
+// filed, so an ungated `/clear` completes `report → clear → report`, a loop
+// with no UI behind it that appends a `Report` and two `BedEvent`s per lap to a
+// history nothing prunes, each written by re-serializing the whole file. A
+// cookie gate only priced that at one GET. Re-opening anonymous clear needs a
+// storage bound first (a per-bed daily cap on anonymous clears is the shape) —
+// see AGENTS.md; it is not a matter of deleting these two checks.
 import type { APIRoute } from 'astro';
 import { getStore } from '../../../lib/store-local';
-import { RuleError, closeReport } from '../../../lib/service';
-import { getExistingActorId, getSessionUserId } from '../../../lib/session';
+import { RuleError, closeReport, getBedView } from '../../../lib/service';
+import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 
@@ -11,19 +20,20 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   const plate = params.plate ?? '';
   const refused = await discardBody(request, 'update');
   if (refused) return refused;
-  const signedIn = getSessionUserId(cookies) !== null;
-  // The guardian's own view logs no tap; the plaque does, so the anonymous way
-  // back carries the flag that says this render is our redirect, not a visit.
-  const back = signedIn ? `/b/${plate}/mine` : ourPlaqueLink(`/b/${plate}`);
-  // Closing a report is what lets the next one be filed, so a caller that
-  // sends no cookie can run report → clear → report forever, and every lap
-  // appends a report and two events to a history nothing prunes. Minting an
-  // identity here is what would make that free; a real neighbour always has
-  // the cookie, because the plaque GET they pressed this button on set it.
-  const actorId = getExistingActorId(cookies);
-  if (!actorId) return redirect(back, 303);
+  const userId = getSessionUserId(cookies);
+  // The guardian's own view logs no tap; the plaque does, so the way back for
+  // anyone else carries the flag that says this render is our redirect.
+  const plaque = ourPlaqueLink(`/b/${plate}`);
+  if (!userId) return redirect(plaque, 303);
+
+  const store = getStore();
+  const view = await getBedView(store, plate);
+  if (!view) return new Response('No bed with that plate.', { status: 404 });
+  if (!view.adopters.some((a) => a.user.id === userId)) return redirect(plaque, 303);
+
+  const back = `/b/${plate}/mine`;
   try {
-    await closeReport(getStore(), { plate, actorId });
+    await closeReport(store, { plate, actorId: userId });
     return redirect(back, 303);
   } catch (err) {
     if (err instanceof RuleError && err.code === 'no-open-report') return redirect(back, 303);
