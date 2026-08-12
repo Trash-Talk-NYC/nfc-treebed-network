@@ -366,6 +366,30 @@ describe('sign in', () => {
     await Promise.all(held);
     expect(await store.getUserByUsername('shed_out')).toBeNull();
   });
+
+  it('answers a taken username only past the hash, so probing one still costs a bcrypt', async () => {
+    const held = Array.from({ length: MAX_INFLIGHT_PIN_HASHES }, () =>
+      signIn(store, { username: 'marisol_r', pin: '1234' }).catch(() => null),
+    );
+    // marisol_r is taken and a slot is still free: a pre-filter that read the
+    // username would answer 'username-taken' from three cheap reads, which is
+    // the free enumeration oracle signIn's constant-time compare exists to deny.
+    await expect(
+      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'marisol_r' }) }),
+    ).rejects.toMatchObject({ code: 'busy' });
+    await Promise.all(held);
+  });
+
+  it('refuses a full bed before the hash, which is what sheds a flood', async () => {
+    await adoptBed(store, { plate: PLATE, input: adoptInput() });
+    const held = Array.from({ length: MAX_INFLIGHT_PIN_HASHES }, () =>
+      signIn(store, { username: 'marisol_r', pin: '1234' }).catch(() => null),
+    );
+    await expect(
+      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'third_wheel' }) }),
+    ).rejects.toMatchObject({ code: 'slots-full' });
+    await Promise.all(held);
+  });
 });
 
 describe('weekly photo log', () => {

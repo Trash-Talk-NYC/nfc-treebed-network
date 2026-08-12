@@ -82,11 +82,21 @@ export async function verifyPin(pin: string, pinHash: string): Promise<boolean> 
  * real client be shed without racing a bcrypt; it is a test seam, like the two
  * in request-body.ts, not a deployment knob. Zero is legal because that is the
  * value the suite drives the shed path with, and it disables sign-in and
- * adoption outright — which is why any process that starts with it says so.
+ * adoption outright — which is why it is announced twice, by
+ * `scripts/preflight.mjs` and by `warnIfPinHashingDisabled` below.
  */
 export const MAX_INFLIGHT_PIN_HASHES = boundFromEnv('TREEBED_MAX_INFLIGHT_PIN_HASHES', 4);
 
-if (MAX_INFLIGHT_PIN_HASHES < 1) {
+/**
+ * Called from `src/middleware.ts`, so a bound that disables auth is said on the
+ * first request of any route rather than on the first one that happens to load
+ * a chunk importing this file — which at module scope here could be several
+ * screens into a session. `scripts/preflight.mjs` says it before the port is
+ * bound; the adapter imports both this file and the middleware lazily, so
+ * nothing in the app itself can speak at process start.
+ */
+export function warnIfPinHashingDisabled(): void {
+  if (MAX_INFLIGHT_PIN_HASHES >= 1) return;
   console.warn(
     `[service] TREEBED_MAX_INFLIGHT_PIN_HASHES=${MAX_INFLIGHT_PIN_HASHES}: sign-in and adoption are disabled, every attempt answers busy`,
   );
@@ -94,11 +104,32 @@ if (MAX_INFLIGHT_PIN_HASHES < 1) {
 
 let inflightPinHashes = 0;
 
+/** At most one shed line per window, so the flood can't write the log. */
+const SHED_LOG_INTERVAL_MS = 60_000;
+let shedSinceLastLog = 0;
+let lastShedLogAt = 0;
+
+/**
+ * The only server-side trace of a CPU flood: the node adapter writes no access
+ * log, so without this the 503s are invisible from the box. One line per
+ * minute carrying the count, never one per request — an anonymous caller must
+ * not decide how much stderr the shed path costs, on the path whose whole
+ * point is being the cheap answer.
+ */
+function noteShedPinHash(): void {
+  shedSinceLastLog += 1;
+  const now = Date.now();
+  if (lastShedLogAt !== 0 && now - lastShedLogAt < SHED_LOG_INTERVAL_MS) return;
+  console.warn(
+    `[service] PIN hash shed at the ${MAX_INFLIGHT_PIN_HASHES}-hash bound (${shedSinceLastLog} since the last line)`,
+  );
+  lastShedLogAt = now;
+  shedSinceLastLog = 0;
+}
+
 async function withPinHashSlot<T>(work: () => Promise<T>): Promise<T> {
   if (inflightPinHashes >= MAX_INFLIGHT_PIN_HASHES) {
-    // The only server-side trace of a CPU flood: the node adapter writes no
-    // access log, so without this the 503s are invisible from the box.
-    console.warn(`[service] PIN hash shed at the ${MAX_INFLIGHT_PIN_HASHES}-hash bound`);
+    noteShedPinHash();
     throw new RuleError('busy', `More than ${MAX_INFLIGHT_PIN_HASHES} PIN hashes already running`);
   }
   inflightPinHashes += 1;
@@ -316,11 +347,19 @@ export function validateAdoptInput(raw: AdoptInput): { values: AdoptInput; error
  * Stated once and read twice — through `store` as a pre-filter, through `tx`
  * as the rule — so the two can't drift into telling one caller a different
  * story than the other depending on which copy fired.
+ *
+ * The username leg runs only when `username` is given, and the pre-filter
+ * gives it none: answering "that username is taken" from three cheap reads is
+ * a free enumeration oracle on a public route, where the constant-time compare
+ * in `signIn` is what makes the same probe cost a bcrypt. It sheds nothing
+ * either — a flood sends handles nobody holds, and those pass. What sheds a
+ * flood is the bed and the slots: once both slots are taken, every further
+ * POST refuses before any hash.
  */
 async function checkAdoptPreconditions(
   store: Store,
   plate: string,
-  username: string,
+  username: string | null,
 ): Promise<void> {
   const bed = await store.getBed(plate);
   if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${plate}`);
@@ -329,7 +368,7 @@ async function checkAdoptPreconditions(
   if (active.length >= bed.slots) {
     throw new RuleError('slots-full', `${plate} already has ${bed.slots} adopters`);
   }
-  if (await store.getUserByUsername(username)) {
+  if (username !== null && (await store.getUserByUsername(username))) {
     throw new RuleError('username-taken', `@${username} is taken`);
   }
 }
@@ -346,11 +385,12 @@ export async function adoptBed(
   }
 
   // Cheap reads first: /adopt is public, and a bcrypt is ~150–300ms of the one
-  // thread that also serves every tap. A POST that cannot possibly store
-  // anything — full bed, taken handle — must not buy that CPU. This is a
-  // pre-filter, not the rule: the authoritative pass is inside the transaction
-  // below, the same checks in the same order, so the race is unchanged.
-  await checkAdoptPreconditions(store, args.plate, values.username);
+  // thread that also serves every tap. A POST no slot can receive must not buy
+  // that CPU. Bed and slots only — the handle stays priced at a bcrypt, for the
+  // reason on `checkAdoptPreconditions`. This is a pre-filter, not the rule:
+  // the authoritative pass is inside the transaction below, so the race is
+  // unchanged and `slots-full` is still what a full bed hears.
+  await checkAdoptPreconditions(store, args.plate, null);
 
   // Hashed before the transaction opens: nothing about the hash depends on
   // stored state, and holding the store's write queue for the duration of a

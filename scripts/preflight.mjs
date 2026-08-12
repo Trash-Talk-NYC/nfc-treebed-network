@@ -13,3 +13,14 @@ if (!process.env.TREEBED_SESSION_SECRET) {
   );
   process.exit(1);
 }
+
+// The one bound whose test-seam value turns a feature off rather than down.
+// Said here because this is the only code that runs before the port is bound:
+// the adapter imports every page chunk *and* the middleware lazily, so the
+// warning in src/middleware.ts is the first request of any route, not boot.
+const pinHashes = process.env.TREEBED_MAX_INFLIGHT_PIN_HASHES;
+if (pinHashes !== undefined && pinHashes !== '' && Number(pinHashes) < 1) {
+  console.warn(
+    `TREEBED_MAX_INFLIGHT_PIN_HASHES=${pinHashes}: sign-in and adoption are disabled, every attempt answers busy.`,
+  );
+}
