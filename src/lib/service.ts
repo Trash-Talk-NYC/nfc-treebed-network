@@ -252,6 +252,21 @@ export async function adoptBed(
     throw new RuleError('invalid-input', Object.values(errors).join(' '));
   }
 
+  // Cheap reads first: /adopt is public, and a bcrypt is ~150–300ms of the one
+  // thread that also serves every tap. A POST that cannot possibly store
+  // anything — full bed, taken handle — must not buy that CPU. These are a
+  // pre-filter, not the rule: the authoritative checks are inside the
+  // transaction below, in the same order, so the race is unchanged.
+  const preBed = await store.getBed(args.plate);
+  if (!preBed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
+  const preActive = await store.getActiveAdoptions(args.plate);
+  if (preActive.length >= preBed.slots) {
+    throw new RuleError('slots-full', `${args.plate} already has ${preBed.slots} adopters`);
+  }
+  if (await store.getUserByUsername(values.username)) {
+    throw new RuleError('username-taken', `@${values.username} is taken`);
+  }
+
   // Hashed before the transaction opens: nothing about the hash depends on
   // stored state, and holding the store's write queue for the duration of a
   // bcrypt would stall every concurrent tap behind one adoption.

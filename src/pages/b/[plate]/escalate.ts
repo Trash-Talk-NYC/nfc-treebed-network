@@ -11,9 +11,11 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   const plate = params.plate ?? '';
   const refused = await discardBody(request, 'update');
   if (refused) return refused;
-  // Same gate as /confirm and /clear: a write a cookie-less caller can repeat
-  // is a write that costs an event apiece and bounds nothing. The escalation
-  // itself only happens once per report, but the event beside it does not.
+  // Same gate as /confirm: a write a cookie-less caller can repeat is a write
+  // that costs an event apiece and bounds nothing. The escalation itself only
+  // happens once per report, but the event beside it does not. /clear is
+  // stricter than both — see its own header comment for why a cookie is not
+  // enough there.
   const actorId = getExistingActorId(cookies);
   if (!actorId) return redirect(ourPlaqueLink(`/b/${plate}`), 303);
   try {
