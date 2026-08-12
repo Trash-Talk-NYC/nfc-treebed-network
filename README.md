@@ -27,6 +27,7 @@ Dev needs nothing — it falls back to `.data/session-secret`.
 
 Local state lives in `.data/store.json` (gitignored), seeded on first boot with the one demo bed `BED-HRL-0847` and adopter `marisol_r` (PIN `1234`).
 Delete `.data/` to reset.
+`TREEBED_DATA_DIR` puts that directory — the store and the dev session secret both — somewhere else; the end-to-end suite uses it to give every server it spawns a fresh one.
 
 See `AGENTS.md` for architecture invariants, security decisions, and what is deliberately out of scope.
 

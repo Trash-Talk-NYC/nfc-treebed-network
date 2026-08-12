@@ -33,6 +33,10 @@ interface Data {
   reportCounter: number;
 }
 
+// `.data/` beside the repo, unless TREEBED_DATA_DIR moves it — session.ts keeps
+// the dev session secret in the same directory. The end-to-end suite sets it so
+// every server it spawns starts on a store of its own, rather than on whatever
+// the developer's own runs have left behind.
 const DATA_DIR = process.env.TREEBED_DATA_DIR ?? path.resolve('.data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 

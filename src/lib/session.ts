@@ -51,9 +51,11 @@ function getSecret(): string {
 }
 
 /**
- * Force the secret to resolve now, so a missing one is a startup failure
- * rather than a surprise on the first request that happens to touch a cookie.
- * Called from the middleware, which the adapter loads ahead of any route.
+ * Force the secret to resolve now, so a missing one fails the first request of
+ * any route rather than waiting for the first one that happens to touch a
+ * cookie. Called from the middleware, which the adapter imports lazily — so
+ * this is not a boot check either; `scripts/preflight.mjs` is the only thing
+ * that runs before the port is bound.
  */
 export function assertSessionSecret(): void {
   getSecret();
