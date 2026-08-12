@@ -1,0 +1,777 @@
+// The oversized-upload path, proven against a real server over a real socket.
+//
+// Unit tests can show that the read drains instead of cancelling, but not that
+// the visitor gets the screen — and that is exactly where an earlier version
+// of this fix broke: it read correctly and the client still got a connection
+// reset. So this builds the app, starts `dist/server/entry.mjs`, and uploads at
+// it slowly, the way a phone on the sidewalk does. Speed is the whole point of
+// the slow writes: a client that has already handed its whole body to the
+// kernel gets the response either way, so a fast loopback POST cannot tell a
+// drained body from a destroyed socket.
+//
+// Slow by nature (a build plus a server), which is why `npm test` excludes it
+// and `npm run test:e2e` runs it.
+
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
+import net from 'node:net';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+const PLATE = 'BED-HRL-0847';
+const BOUNDARY = '----treebede2e';
+const MEGABYTE = 1024 * 1024;
+
+/** The cap in report.ts plus the drain headroom in request-body.ts. */
+const DRAIN_CEILING_BYTES = 12 * MEGABYTE + 24 * MEGABYTE;
+
+let server: ChildProcessWithoutNullStreams;
+let origin = '';
+let port = 0;
+let dataDir = '';
+/** Everything the shared server has said on stderr, so far. */
+let serverLog: () => string = () => '';
+
+/**
+ * Show the server's own account of a failure — including the
+ * `[request-body]` lines that exist for exactly this. The stderr pipe is read
+ * as it arrives either way, which a full one would otherwise block the server
+ * on.
+ */
+function withServerLog(log: () => string = serverLog): void {
+  onTestFailed(() => {
+    const said = log();
+    if (said) console.error(`--- server stderr ---\n${said}--- end ---`);
+  });
+}
+
+interface Served {
+  process: ChildProcessWithoutNullStreams;
+  origin: string;
+  port: number;
+  dataDir: string;
+  log: () => string;
+}
+
+/**
+ * Start the built server on a port of its own, with a store of its own.
+ *
+ * `env` is how a test reaches a path that only opens under load: the in-flight
+ * budget and the shed count are readable from the environment so the paths at
+ * capacity can be driven with two sockets rather than several hundred.
+ */
+async function startServer(env: Record<string, string> = {}): Promise<Served> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'treebed-e2e-'));
+  const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
+    env: {
+      ...process.env,
+      TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
+      TREEBED_DATA_DIR: dir,
+      HOST: '127.0.0.1',
+      PORT: '0',
+      ...env,
+    },
+  }) as ChildProcessWithoutNullStreams;
+
+  let log = '';
+  child.stderr.on('data', (buf: Buffer) => {
+    log += String(buf);
+  });
+
+  const [url, listening] = await new Promise<[string, number]>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('server never reported a port')), 30_000);
+    child.stdout.on('data', (buf: Buffer) => {
+      const found = /(http:\/\/127\.0\.0\.1:(\d+))/.exec(String(buf));
+      if (found) {
+        clearTimeout(timer);
+        resolve([found[1]!, Number(found[2])]);
+      }
+    });
+    child.on('exit', (code) => reject(new Error(`server exited early (${code})\n${log}`)));
+  });
+
+  return { process: child, origin: url, port: listening, dataDir: dir, log: () => log };
+}
+
+/** What the server actually wrote for a report, out of its own store file. */
+async function storedReport(id: string): Promise<{ severity: string; photoAttached: boolean }> {
+  const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+    reports: Array<{ id: string; severity: string; photoAttached: boolean }>;
+  };
+  const found = data.reports.find((report) => report.id === id);
+  if (!found) throw new Error(`no report ${id} in the store`);
+  return found;
+}
+
+/** Who the server recorded as confirming a report, out of its own store file. */
+async function storedConfirmations(id: string): Promise<string[]> {
+  const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+    reports: Array<{ id: string; confirmedBy: string[] }>;
+  };
+  return data.reports.find((report) => report.id === id)?.confirmedBy ?? [];
+}
+
+/** Whether a report is still open, out of the server's own store file. */
+async function reportIsOpen(id: string): Promise<boolean> {
+  const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+    reports: Array<{ id: string; closedAt: string | null }>;
+  };
+  return data.reports.find((report) => report.id === id)?.closedAt === null;
+}
+
+/**
+ * The identity a neighbour standing at the tag has: the plaque GET mints it,
+ * which is what the routes that decline to write for a cookie-less POST rely
+ * on. Costs one tap, so take it before counting them.
+ */
+async function visitorCookie(): Promise<string> {
+  const plaque = await fetch(`${origin}/b/${PLATE}`);
+  const set = plaque.headers.getSetCookie().find((cookie) => cookie.startsWith('tg_visitor='));
+  if (!set) throw new Error('the plaque handed out no visitor cookie');
+  return set.split(';')[0]!;
+}
+
+/**
+ * The guardian's identity. `/clear` is gated on a signed-in adopter of this
+ * bed, so closing a report goes through the sign-in the only clear button in
+ * the build already sits behind. Uses the seeded adopter, and taps nothing.
+ */
+async function adopterCookie(): Promise<string> {
+  const posted = await fetch(`${origin}/b/${PLATE}/auth`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+    body: 'username=marisol_r&pin=1234',
+    redirect: 'manual',
+  });
+  const set = posted.headers.getSetCookie().find((cookie) => cookie.startsWith('tg_session='));
+  if (!set) throw new Error(`sign-in handed out no session cookie (${posted.status})`);
+  return set.split(';')[0]!;
+}
+
+/** Close whatever report is open, the way the guardian view's button does. */
+async function clearAsAdopter(): Promise<Response> {
+  return fetch(`${origin}/b/${PLATE}/clear`, {
+    method: 'POST',
+    headers: { origin, cookie: await adopterCookie() },
+    redirect: 'manual',
+  });
+}
+
+/** Tap events the server has actually written, out of its own store file. */
+async function storedTaps(): Promise<number> {
+  const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+    events: Array<{ eventType: string }>;
+  };
+  return data.events.filter((event) => event.eventType === 'tap').length;
+}
+
+/** The multipart preamble the severity sheet sends: severity, then the file. */
+function preamble(severityIndex: string): Buffer {
+  return Buffer.from(
+    `--${BOUNDARY}\r\n` +
+      'Content-Disposition: form-data; name="severity"\r\n\r\n' +
+      `${severityIndex}\r\n` +
+      `--${BOUNDARY}\r\n` +
+      'Content-Disposition: form-data; name="photo"; filename="tree.jpg"\r\n' +
+      'Content-Type: image/jpeg\r\n\r\n',
+  );
+}
+
+const TRAILER = Buffer.from(`\r\n--${BOUNDARY}--\r\n`);
+
+interface Upload {
+  /** Bytes of photo the socket accepted before the client was cut off. */
+  written: number;
+  /** Set when the server dropped the connection mid-upload. */
+  dropped: string | null;
+  status: number | null;
+  location: string | null;
+}
+
+/**
+ * Write and wait for the socket to be ready for more.
+ *
+ * Ignoring `write()`'s return value would buffer megabytes in userland no
+ * matter what the server reads, which makes `written` a measure of this
+ * process's memory rather than of the server's ingress — and any assertion on
+ * it a race against the event loop.
+ */
+function writeBackpressured(socket: net.Socket, chunk: Buffer, waitMs = Infinity): Promise<boolean> {
+  if (socket.write(chunk)) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    // A server that stops reading without closing leaves the socket full and
+    // quiet: no drain, no error, no close. Waiting forever on that would hang
+    // the run instead of failing it.
+    const timer = Number.isFinite(waitMs) ? setTimeout(() => done(false), waitMs) : undefined;
+    function done(drained: boolean): void {
+      clearTimeout(timer);
+      socket.off('drain', onDrain);
+      socket.off('error', onEnd);
+      socket.off('close', onEnd);
+      resolve(drained);
+    }
+    const onDrain = (): void => done(true);
+    const onEnd = (): void => done(false);
+    socket.on('drain', onDrain);
+    socket.on('error', onEnd);
+    socket.on('close', onEnd);
+  });
+}
+
+/** Which server to upload at, and how a real browser's connection differs. */
+interface UploadTo {
+  port?: number;
+  /**
+   * Send the request the way a browser does, with the connection left open.
+   * `Connection: close` is a header Node itself acts on — it closes the socket
+   * once the response is written, which would bound the ingress on its own and
+   * hide whether the server bounds it.
+   */
+  keepAlive?: boolean;
+  /** Stop writing after this long, so a server that never reads can't hang the test. */
+  budgetMs?: number;
+}
+
+/**
+ * Upload a photo in paced chunks over a raw socket, so the client is still
+ * writing when the server answers.
+ */
+async function slowUpload(
+  severity: string,
+  photoBytes: number,
+  chunkBytes: number,
+  pauseMs: number,
+  { port: target = port, keepAlive = false, budgetMs = Infinity }: UploadTo = {},
+): Promise<Upload> {
+  const head = preamble(severity);
+  const length = head.byteLength + photoBytes + TRAILER.byteLength;
+  const socket = net.connect(target, '127.0.0.1');
+  let response = '';
+  let dropped: string | null = null;
+  let written = 0;
+
+  socket.on('data', (data: Buffer) => {
+    response += data.toString('latin1');
+  });
+  socket.on('error', (err: NodeJS.ErrnoException) => {
+    dropped ??= err.code ?? err.message;
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+  });
+
+  socket.write(
+    `POST /b/${PLATE}/report HTTP/1.1\r\n` +
+      `Host: 127.0.0.1:${target}\r\n` +
+      // Astro rejects cross-site form POSTs; a browser on the plaque sends this.
+      `Origin: http://127.0.0.1:${target}\r\n` +
+      `Content-Type: multipart/form-data; boundary=${BOUNDARY}\r\n` +
+      `Content-Length: ${length}\r\n` +
+      (keepAlive ? '\r\n' : 'Connection: close\r\n\r\n'),
+  );
+  socket.write(head);
+
+  const chunk = Buffer.alloc(chunkBytes, 0x7f);
+  const until = Date.now() + budgetMs;
+  while (written < photoBytes && !dropped && Date.now() < until) {
+    if (socket.destroyed) {
+      dropped ??= 'socket destroyed';
+      break;
+    }
+    const size = Math.min(chunkBytes, photoBytes - written);
+    const drained = await writeBackpressured(socket, chunk.subarray(0, size), budgetMs);
+    written += size;
+    if (!drained) {
+      // The socket took this chunk and then went nowhere: the server has
+      // stopped reading, which for a refused upload is the whole point.
+      dropped ??= socket.destroyed ? 'socket destroyed' : 'server stopped reading';
+      break;
+    }
+    if (dropped || socket.destroyed) break;
+    await new Promise((resolve) => setTimeout(resolve, pauseMs));
+  }
+  if (!dropped && !socket.destroyed && written >= photoBytes) socket.write(TRAILER);
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  socket.destroy();
+
+  return {
+    written,
+    dropped,
+    status: Number(/^HTTP\/1\.1 (\d{3})/.exec(response)?.[1]) || null,
+    location: /location: (\S+)/i.exec(response)?.[1] ?? null,
+  };
+}
+
+/**
+ * Start an upload the server would accept, then go quiet — a phone that walked
+ * out of signal halfway through. Nothing declares this body oversized; only
+ * the accepted path's own idle bound ends it.
+ */
+async function stalledUpload(severity: string, sentBytes: number, waitMs: number): Promise<Upload> {
+  const head = preamble(severity);
+  // Under the 12MB cap, so this is never an oversized body — just an unfinished one.
+  const length = head.byteLength + 4 * MEGABYTE + TRAILER.byteLength;
+  const socket = net.connect(port, '127.0.0.1');
+  let response = '';
+  let dropped: string | null = null;
+
+  socket.on('data', (data: Buffer) => {
+    response += data.toString('latin1');
+  });
+  socket.on('error', (err: NodeJS.ErrnoException) => {
+    dropped ??= err.code ?? err.message;
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+  });
+
+  socket.write(
+    `POST /b/${PLATE}/report HTTP/1.1\r\n` +
+      `Host: 127.0.0.1:${port}\r\n` +
+      `Origin: http://127.0.0.1:${port}\r\n` +
+      `Content-Type: multipart/form-data; boundary=${BOUNDARY}\r\n` +
+      `Content-Length: ${length}\r\n` +
+      'Connection: close\r\n\r\n',
+  );
+  socket.write(head);
+  await writeBackpressured(socket, Buffer.alloc(sentBytes, 0x7f));
+
+  // …and then nothing at all, until the server gives up on the rest.
+  await new Promise((resolve) => setTimeout(resolve, waitMs));
+  socket.destroy();
+
+  return {
+    written: sentBytes,
+    dropped,
+    status: Number(/^HTTP\/1\.1 (\d{3})/.exec(response)?.[1]) || null,
+    location: /location: (\S+)/i.exec(response)?.[1] ?? null,
+  };
+}
+
+beforeAll(async () => {
+  const built = spawnSync('npm', ['run', 'build'], {
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  });
+  if (built.status !== 0) throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
+
+  const started = await startServer();
+  server = started.process;
+  origin = started.origin;
+  port = started.port;
+  dataDir = started.dataDir;
+  serverLog = started.log;
+}, 180_000);
+
+afterAll(async () => {
+  server?.kill();
+  if (dataDir) await rm(dataDir, { recursive: true, force: true });
+});
+
+describe('oversized report uploads, end to end', () => {
+  it('lets a 20MB photo finish and answers with the too-large screen', async () => {
+    withServerLog();
+    const upload = await slowUpload('2', 20 * MEGABYTE, MEGABYTE, 20);
+
+    // The refused body is drained, so the socket is still there to answer on.
+    expect(upload.dropped).toBeNull();
+    expect(upload.written).toBe(20 * MEGABYTE);
+    expect(upload.status).toBe(303);
+    expect(upload.location).toBe(`/b/${PLATE}/too-large?severity=2`);
+
+    const screen = await fetch(`${origin}${upload.location}`);
+    expect(screen.status).toBe(200);
+    const html = await screen.text();
+    expect(html).toContain('That photo was too large.');
+    // The severity they picked rode along, and one tap files without the photo.
+    expect(html).toContain('DUMPING');
+    expect(html).toContain('FILE IT WITHOUT THE PHOTO');
+  });
+
+  it('drops a body that keeps streaming past the drain ceiling', async () => {
+    withServerLog();
+    const upload = await slowUpload('2', 200 * MEGABYTE, 4 * MEGABYTE, 10);
+
+    expect(upload.dropped).not.toBeNull();
+    // Loose on purpose: what matters is that 200MB of ingress was never on
+    // offer for one refused POST, not the exact byte the read stopped at.
+    // The client honours backpressure, so this counts bytes the socket took,
+    // but the kernel's own buffers still sit past the server's last read.
+    expect(upload.written).toBeLessThan(DRAIN_CEILING_BYTES + 24 * MEGABYTE);
+  });
+
+  it('keeps the report of an upload that stalled under the cap', async () => {
+    withServerLog();
+    // Slow by construction: the server waits READ_IDLE_MS (30s) before calling
+    // a quiet sender finished, and shortening that would test a bound nobody
+    // ships. A body under the cap that never all arrives is the likelier
+    // failure on a sidewalk than exceeding 12MB, and the standing ruling is
+    // that neither one costs somebody the report they already filled in.
+    const upload = await stalledUpload('1', 256 * 1024, 45_000);
+
+    expect(upload.status).toBe(303);
+    expect(upload.location).toBe(`/b/${PLATE}/too-large?severity=1&reason=incomplete`);
+
+    const screen = await fetch(`${origin}${upload.location}`);
+    expect(screen.status).toBe(200);
+    const html = await screen.text();
+    expect(html).toContain('That upload didn&#39;t finish.');
+    // Never blamed on the photo: this one may well have been under the cap.
+    expect(html).not.toContain('That photo was too large.');
+    expect(html).toContain('HEAVY');
+    expect(html).toContain('FILE IT WITHOUT THE PHOTO');
+  }, 120_000);
+
+  it('still files a report a photo fits in, and records the attachment', async () => {
+    withServerLog();
+    const body = Buffer.concat([preamble('1'), Buffer.alloc(64 * 1024, 0x7f), TRAILER]);
+    const posted = await fetch(`${origin}/b/${PLATE}/report`, {
+      method: 'POST',
+      headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}`, origin },
+      body: new Uint8Array(body),
+      redirect: 'manual',
+    });
+    expect(posted.status).toBe(303);
+    const location = posted.headers.get('location');
+    expect(location).toMatch(new RegExp(`^/b/${PLATE}/receipt/`));
+
+    // The fields come off the head now, never out of a buffered body — so the
+    // severity and the attachment have to survive that, not just the redirect.
+    const filed = await storedReport(location!.split('/').at(-1)!);
+    expect(filed.severity).toBe('heavy');
+    expect(filed.photoAttached).toBe(true);
+  });
+
+  it('files the too-large screen refile, which carries no photo at all', async () => {
+    withServerLog();
+    // The bed already has the report the previous case filed; its guardian
+    // closes it, and this is what the next passer-by's refile then does.
+    const cleared = await clearAsAdopter();
+    expect(cleared.status).toBe(303);
+    expect(cleared.headers.get('location')).toBe(`/b/${PLATE}/mine`);
+
+    const refiled = await fetch(`${origin}/b/${PLATE}/report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: 'severity=2',
+      redirect: 'manual',
+    });
+    expect(refiled.status).toBe(303);
+    const location = refiled.headers.get('location');
+    expect(location).toMatch(new RegExp(`^/b/${PLATE}/receipt/`));
+
+    const filed = await storedReport(location!.split('/').at(-1)!);
+    expect(filed.severity).toBe('dumping');
+    expect(filed.photoAttached).toBe(false);
+  });
+
+  it('has a screen for an upload refused because the server was full', async () => {
+    withServerLog();
+    // Where `refusal: 'busy'` sends a visitor: the same offer, never the same
+    // words as a photo they were told to shrink.
+    const screen = await fetch(`${origin}/b/${PLATE}/too-large?severity=1&reason=busy`);
+    expect(screen.status).toBe(200);
+    const html = await screen.text();
+    expect(html).toContain('The tag is busy right now.');
+    expect(html).toContain('HEAVY');
+    expect(html).toContain('SEND IT AGAIN');
+    expect(html).not.toContain('That photo was too large.');
+
+    // Past MAX_SHED_READS the body is never read, so there is no severity to
+    // carry — the deepest a spike goes, and still a screen rather than a reset.
+    const bare = await fetch(`${origin}/b/${PLATE}/too-large?reason=busy`);
+    expect(bare.status).toBe(200);
+    expect(await bare.text()).toContain('The tag is busy right now.');
+  });
+
+  it('counts one tap per visit, and none for its own redirects', async () => {
+    withServerLog();
+    // The bed still has the report the refile case filed; its guardian closes
+    // it, which lands on the guardian view and logs no tap either way.
+    expect((await clearAsAdopter()).status).toBe(303);
+
+    // A redirect of ours that does land on the plaque: a cookie-less confirm
+    // writes nothing and sends the caller back — one of the redirects that
+    // used to land on the bare plaque and be counted as a second visit.
+    const noop = await fetch(`${origin}/b/${PLATE}/confirm`, {
+      method: 'POST',
+      headers: { origin },
+      redirect: 'manual',
+    });
+    expect(noop.status).toBe(303);
+    const back = noop.headers.get('location');
+    expect(back).toBe(`/b/${PLATE}?tg_action=1`);
+
+    const before = await storedTaps();
+    const landed = await fetch(`${origin}${back}`);
+    expect(landed.status).toBe(200);
+    expect(await storedTaps()).toBe(before);
+
+    // A decorated tag URL is still somebody at the tree bed.
+    const tapped = await fetch(`${origin}/b/${PLATE}?utm_source=popl&utm_medium=nfc`);
+    expect(tapped.status).toBe(200);
+    expect(await storedTaps()).toBe(before + 1);
+  });
+
+  it('counts a confirm only from a caller that already had an identity', async () => {
+    withServerLog();
+    const filed = await fetch(`${origin}/b/${PLATE}/report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: 'severity=1',
+      redirect: 'manual',
+    });
+    expect(filed.status).toBe(303);
+    const id = filed.headers.get('location')!.split('/').at(-1)!;
+
+    // No cookie, so the server has nothing to hang "once per person" on: it
+    // used to mint a fresh identity per request, which let a loop like this
+    // one drive the public count as high as it liked.
+    for (let i = 0; i < 3; i += 1) {
+      const posted = await fetch(`${origin}/b/${PLATE}/confirm`, {
+        method: 'POST',
+        headers: { origin },
+        redirect: 'manual',
+      });
+      expect(posted.status).toBe(303);
+      expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
+    }
+    expect(await storedConfirmations(id)).toHaveLength(0);
+
+    // A neighbour who tapped the tag has one — the plaque GET set it — and
+    // pressing the button twice still counts them once.
+    const plaque = await fetch(`${origin}/b/${PLATE}`);
+    const visitor = plaque.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith('tg_visitor='))!;
+    expect(visitor).toBeDefined();
+    const cookie = visitor.split(';')[0]!;
+    for (let i = 0; i < 2; i += 1) {
+      const posted = await fetch(`${origin}/b/${PLATE}/confirm`, {
+        method: 'POST',
+        headers: { origin, cookie },
+        redirect: 'manual',
+      });
+      expect(posted.status).toBe(303);
+      expect(posted.headers.get('location')).toBe(`/b/${PLATE}?confirmed=1`);
+    }
+    expect(await storedConfirmations(id)).toHaveLength(1);
+  });
+
+  it('writes nothing for an unauthenticated escalate or clear, and still answers', async () => {
+    withServerLog();
+    // The report the confirm case filed is still open, and /clear is what lets
+    // the next one be filed: report → clear → report is a loop, and every lap
+    // used to append a report and two events to a history nothing prunes. One
+    // GET buys the visitor cookie, so only the adopter gate ends it.
+    const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+      reports: Array<{ id: string; closedAt: string | null }>;
+      events: Array<{ eventType: string }>;
+    };
+    const open = data.reports.find((report) => report.closedAt === null)!;
+    expect(open).toBeDefined();
+    const clearsBefore = data.events.filter((event) => event.eventType === 'clear').length;
+
+    for (const route of ['escalate', 'clear']) {
+      for (let i = 0; i < 3; i += 1) {
+        const posted = await fetch(`${origin}/b/${PLATE}/${route}`, {
+          method: 'POST',
+          headers: { origin },
+          redirect: 'manual',
+        });
+        // Answered like any other no-op action — no reset, no error screen.
+        expect(posted.status).toBe(303);
+        expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
+      }
+    }
+
+    // And the cookie one plaque GET hands out is not a guardian either, which
+    // is the half a cookie gate alone missed: one GET, and the loop ran on.
+    for (let i = 0; i < 3; i += 1) {
+      const posted = await fetch(`${origin}/b/${PLATE}/clear`, {
+        method: 'POST',
+        headers: { origin, cookie: await visitorCookie() },
+        redirect: 'manual',
+      });
+      expect(posted.status).toBe(303);
+      expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
+    }
+    expect(await reportIsOpen(open.id)).toBe(true);
+    const after = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+      events: Array<{ eventType: string }>;
+    };
+    // Nine POSTs, and not one of them wrote the event that would let the next
+    // report be filed — which is the lap of the loop that had to stop.
+    expect(after.events.filter((event) => event.eventType === 'clear').length).toBe(clearsBefore);
+
+    // The bed's guardian still closes it in one press.
+    const cleared = await clearAsAdopter();
+    expect(cleared.status).toBe(303);
+    expect(await reportIsOpen(open.id)).toBe(false);
+  });
+
+  it('does not count a monitor polling the site root as a tap', async () => {
+    withServerLog();
+    // Nothing on a sidewalk tag sends anyone to `/`, so what does is an uptime
+    // check or a crawler — once a minute would be 1,440 taps a day.
+    const before = await storedTaps();
+    const root = await fetch(`${origin}/`, { redirect: 'manual' });
+    expect(root.status).toBe(302);
+    const landed = root.headers.get('location')!;
+    expect(landed).toBe(`/b/${PLATE}?tg_action=1`);
+    expect((await fetch(`${origin}${landed}`)).status).toBe(200);
+    expect(await storedTaps()).toBe(before);
+  });
+
+  it('refuses an oversized sign-in body without reading a megabyte of it', async () => {
+    withServerLog();
+    const posted = await fetch(`${origin}/b/${PLATE}/auth`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: `username=${'a'.repeat(200 * 1024)}&pin=1234`,
+      redirect: 'manual',
+    });
+    expect(posted.status).toBe(413);
+    expect(await posted.text()).toContain('too large');
+  });
+});
+
+describe('a sign-in that arrives past the PIN-hash bound', () => {
+  // What bounds /auth and /adopt is the CPU a bcrypt costs, so the shed path
+  // opens only when hashes overlap — and how many overlap depends on how fast
+  // the box is, which is no basis for an assertion. Driven instead with a
+  // server whose bound is zero, the way the shed-read paths above are: the
+  // question worth measuring is what the visitor actually receives, and that
+  // is the same answer at any bound.
+  let full: Served;
+
+  beforeAll(async () => {
+    full = await startServer({ TREEBED_MAX_INFLIGHT_PIN_HASHES: '0' });
+  }, 60_000);
+
+  afterAll(async () => {
+    full?.process.kill();
+    if (full?.dataDir) await rm(full.dataDir, { recursive: true, force: true });
+  });
+
+  it('hands the sign-in form back with the username in it, not a bare error', async () => {
+    withServerLog(() => full.log());
+    const posted = await fetch(`${full.origin}/b/${PLATE}/auth`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
+      body: 'username=marisol_r&pin=1234',
+      redirect: 'manual',
+    });
+
+    expect(posted.status).toBe(503);
+    expect(posted.headers.get('retry-after')).toBe('5');
+    const html = await posted.text();
+    expect(html).toContain('signing in at once');
+    // The screen, with everything typed still in it except the PIN — which no
+    // response ever carries back.
+    expect(html).toContain('value="marisol_r"');
+    expect(html).toContain('SIGN IN');
+    expect(html).not.toContain('1234');
+  }, 60_000);
+
+  it('hands the adopt form back filled in, so a slot is never lost to a busy server', async () => {
+    withServerLog(() => full.log());
+    const posted = await fetch(`${full.origin}/b/${PLATE}/adopt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
+      body: 'name=R.+Okafor&username=r_okafor&pin=4321&email=r.okafor%40example.com&phone=%2B1+555+010+1234',
+      redirect: 'manual',
+    });
+
+    expect(posted.status).toBe(503);
+    expect(posted.headers.get('retry-after')).toBe('5');
+    const html = await posted.text();
+    expect(html).toContain('signing up at once');
+    expect(html).toContain('value="R. Okafor"');
+    expect(html).toContain('value="r_okafor"');
+    expect(html).toContain('value="r.okafor@example.com"');
+    expect(html).not.toContain('4321');
+    // Shed before the hash, so nothing was stored and the slot is still there.
+    const data = JSON.parse(await readFile(path.join(full.dataDir, 'store.json'), 'utf8')) as {
+      users: Record<string, { username: string }>;
+    };
+    expect(Object.values(data.users).map((u) => u.username)).toEqual(['marisol_r']);
+  }, 60_000);
+});
+
+describe('an upload that arrives past the shed count', () => {
+  // The deepest branch in request-body.ts: no room in the byte budget and no
+  // shed slot left either, where the read keeps nothing at all. Driven with a
+  // server whose two bounds are set to zero, because reaching it honestly takes
+  // several hundred concurrent uploads and proves nothing extra.
+  //
+  // Worth a real socket rather than a unit test twice over. A body the app
+  // never reads is not a body the server never receives: Node dumps it, which
+  // measured at the full 200MB — bounded by nothing but its own 300s timeout —
+  // and no synthetic ReadableStream can show that, because the dump lives in
+  // Node's HTTP server, not in the stream. And the answer still has to reach
+  // the visitor over a socket that is still there, which is the exact thing an
+  // earlier version of this file got wrong.
+  let shed: Served;
+
+  beforeAll(async () => {
+    shed = await startServer({
+      TREEBED_MAX_INFLIGHT_BODY_BYTES: '0',
+      TREEBED_MAX_SHED_READS: '0',
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    shed?.process.kill();
+    if (shed?.dataDir) await rm(shed.dataDir, { recursive: true, force: true });
+  });
+
+  it('answers a 200MB body after taking kilobytes of it', async () => {
+    withServerLog(() => shed.log());
+    // Keep-alive, like a browser: `Connection: close` would have Node end the
+    // socket for us and prove nothing about what this code bounds.
+    const upload = await slowUpload('2', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+      port: shed.port,
+      keepAlive: true,
+      budgetMs: 20_000,
+    });
+
+    // The screen, on a live socket — never a reset in place of an answer.
+    expect(upload.status).toBe(303);
+    // Declared over the cap as well as unroomed, and the size is what it is
+    // told: "the tag is busy" would send it to retry the same photo forever.
+    // No head was kept at this depth, so no severity rides along.
+    expect(upload.location).toBe(`/b/${PLATE}/too-large`);
+    // And the ingress stopped where we say it does, not where the sender does.
+    // Left untouched instead, this body is one Node reads to its end for us.
+    expect(upload.written).toBeLessThan(16 * MEGABYTE);
+
+    const screen = await fetch(`${shed.origin}${upload.location}`);
+    expect(screen.status).toBe(200);
+    const html = await screen.text();
+    expect(html).toContain('That photo was too large.');
+    expect(html).toContain('PICK THE SEVERITY AGAIN');
+  }, 60_000);
+
+  it('says the tag is busy when the body itself was never the problem', async () => {
+    withServerLog(() => shed.log());
+    const body = Buffer.concat([preamble('1'), Buffer.alloc(16 * 1024, 0x7f), TRAILER]);
+    const posted = await fetch(`${shed.origin}/b/${PLATE}/report`, {
+      method: 'POST',
+      headers: {
+        'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
+        origin: shed.origin,
+      },
+      body: new Uint8Array(body),
+      redirect: 'manual',
+    });
+
+    expect(posted.status).toBe(303);
+    expect(posted.headers.get('location')).toBe(`/b/${PLATE}/too-large?reason=busy`);
+    const screen = await fetch(`${shed.origin}/b/${PLATE}/too-large?reason=busy`);
+    expect(await screen.text()).toContain('The tag is busy right now.');
+  }, 60_000);
+});

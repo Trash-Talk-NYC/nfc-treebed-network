@@ -1,0 +1,686 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  BUSY_DRAIN_BYTES,
+  CHUNK_ALLOWANCE_BYTES,
+  discardBody,
+  FORM_READ_IDLE_MS,
+  HEAD_BYTES,
+  HEAD_READ_IDLE_MS,
+  MAX_FORM_BYTES,
+  MAX_INFLIGHT_BODY_BYTES,
+  MAX_SHED_READS,
+  photoAttachedFromHead,
+  READ_IDLE_MS,
+  readCappedBody,
+  readCappedForm,
+  readCappedHead,
+  SHED_DRAIN_BYTES,
+  severityIndexFromHead,
+} from '../src/lib/request-body';
+
+const BOUNDARY = '----treebedtest';
+
+/** A multipart body shaped like the severity sheet's: severity, then the photo. */
+function reportBody(severityIndex: string, photoBytes: number): Buffer {
+  const fields =
+    `--${BOUNDARY}\r\n` +
+    'Content-Disposition: form-data; name="severity"\r\n\r\n' +
+    `${severityIndex}\r\n` +
+    `--${BOUNDARY}\r\n` +
+    'Content-Disposition: form-data; name="photo"; filename="tree.jpg"\r\n' +
+    'Content-Type: image/jpeg\r\n\r\n';
+  return Buffer.concat([
+    Buffer.from(fields),
+    Buffer.alloc(photoBytes, 0x7f),
+    Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
+  ]);
+}
+
+function request(body: Buffer): Request {
+  return new Request('http://localhost/b/BED-HRL-0847/report', {
+    method: 'POST',
+    headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+    body: new Uint8Array(body),
+  });
+}
+
+/**
+ * A streamed request, so cancelling vs. draining the body is observable.
+ * After `stallAfter` bytes it stops sending without closing — a sender that
+ * goes quiet, holding the read open.
+ */
+function streamedRequest(body: Buffer, chunkBytes: number, stallAfter = Infinity, pauseMs = 0) {
+  let cancelled = false;
+  let delivered = 0;
+  let offset = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (delivered >= stallAfter) return new Promise<void>(() => {});
+      if (pauseMs) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+      if (offset >= body.byteLength) return controller.close();
+      const chunk = new Uint8Array(body.subarray(offset, offset + chunkBytes));
+      offset += chunk.byteLength;
+      delivered += chunk.byteLength;
+      controller.enqueue(chunk);
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+    method: 'POST',
+    headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+    body: stream,
+    // @ts-expect-error — undici requires duplex for a streamed body; it is
+    // absent from the DOM lib types.
+    duplex: 'half',
+  });
+  return { req, wasCancelled: () => cancelled, deliveredBytes: () => delivered };
+}
+
+/**
+ * A short form body that sends one field and then goes quiet — the trickle a
+ * single-button POST or a sign-in can be held open by.
+ */
+function stalledFormRequest() {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('severity=1'));
+    },
+    pull() {
+      return new Promise<void>(() => {});
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const req = new Request('http://localhost/b/BED-HRL-0847/confirm', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: stream,
+    // @ts-expect-error — undici requires duplex for a streamed body; it is
+    // absent from the DOM lib types.
+    duplex: 'half',
+  });
+  return { req, wasCancelled: () => cancelled };
+}
+
+describe('capped request bodies', () => {
+  it('passes a body under the cap through whole', async () => {
+    const body = reportBody('2', 1024);
+    const capped = await readCappedBody(request(body), 64 * 1024);
+    expect(capped.body).not.toBeNull();
+    expect(Buffer.from(capped.body!).equals(body)).toBe(true);
+  });
+
+  it('refuses a body over the cap and keeps the fields that came first', async () => {
+    const capped = await readCappedBody(request(reportBody('2', 256 * 1024)), 64 * 1024);
+    expect(capped.body).toBeNull();
+    expect(capped.refusal).toBe('over-limit');
+    // Only the head is retained — the upload is not buffered past it.
+    expect(capped.head.byteLength).toBeLessThanOrEqual(8 * 1024);
+    expect(severityIndexFromHead(capped.head)).toBe(2);
+  });
+
+  it('refuses a body whose declared length is over the cap', async () => {
+    const capped = await readCappedBody(request(reportBody('0', 1024)), 512);
+    expect(capped.body).toBeNull();
+    expect(severityIndexFromHead(capped.head)).toBe(0);
+  });
+
+  it('reads a refused body to its end instead of cancelling it', async () => {
+    // Cancelling destroys the socket mid-upload, and the client gets a reset
+    // instead of the too-large screen that keeps its severity.
+    const body = reportBody('2', 256 * 1024);
+    const { req, wasCancelled, deliveredBytes } = streamedRequest(body, 16 * 1024);
+    const capped = await readCappedBody(req, 64 * 1024);
+    expect(capped.body).toBeNull();
+    expect(severityIndexFromHead(capped.head)).toBe(2);
+    expect(wasCancelled()).toBe(false);
+    expect(deliveredBytes()).toBe(body.byteLength);
+  });
+
+  it('keeps only the head of a refused body, never the rest', async () => {
+    const { req } = streamedRequest(reportBody('1', 4 * 1024 * 1024), 64 * 1024);
+    const capped = await readCappedBody(req, 64 * 1024);
+    expect(capped.head.byteLength).toBe(8 * 1024);
+    // The head owns its bytes — no view pinning a megabyte-sized buffer.
+    expect(capped.head.buffer.byteLength).toBe(8 * 1024);
+  });
+
+  it('drains a photo-sized overshoot on the default headroom', async () => {
+    // 3MB over a 1MB cap: the realistic range the too-large screen exists for,
+    // well inside the 24MB of headroom, so the socket stays alive to answer on.
+    const body = reportBody('1', 3 * 1024 * 1024);
+    const { req, wasCancelled, deliveredBytes } = streamedRequest(body, 64 * 1024);
+    const capped = await readCappedBody(req, 1024 * 1024);
+    expect(capped.refusal).toBe('over-limit');
+    expect(severityIndexFromHead(capped.head)).toBe(1);
+    expect(wasCancelled()).toBe(false);
+    expect(deliveredBytes()).toBe(body.byteLength);
+  });
+
+  it('stops reading a body that keeps streaming past the drain headroom', async () => {
+    const { req, deliveredBytes, wasCancelled } = streamedRequest(
+      reportBody('0', 2 * 1024 * 1024),
+      16 * 1024,
+    );
+    const capped = await readCappedBody(req, 64 * 1024, { drainHeadroom: 128 * 1024 });
+    expect(capped.body).toBeNull();
+    // Walking away, not cancelling: cancelling here leaves the response
+    // unwritten and the socket idling until Node's own request timeout.
+    expect(wasCancelled()).toBe(false);
+    // Walked away once it passed cap + headroom — not after the whole 2MB.
+    expect(deliveredBytes()).toBeLessThan(512 * 1024);
+  });
+
+  it('gives up on a refused body that goes quiet', async () => {
+    // A sender that stalls would otherwise hold the read until Node's own
+    // 300s request timeout, for a request already refused — and it has plenty
+    // of total drain budget left, so only the idle bound catches this.
+    const { req, wasCancelled } = streamedRequest(
+      reportBody('0', 2 * 1024 * 1024),
+      16 * 1024,
+      96 * 1024,
+    );
+    const started = Date.now();
+    const capped = await readCappedBody(req, 64 * 1024, {
+      drainIdleMs: 50,
+      drainTimeoutMs: 60_000,
+    });
+    expect(capped.refusal).toBe('over-limit');
+    expect(wasCancelled()).toBe(false);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('gives up on a refused body that outlasts the total drain budget', async () => {
+    // Steady, never idle, and still not entitled to hold the read forever.
+    const { req, deliveredBytes, wasCancelled } = streamedRequest(
+      reportBody('0', 8 * 1024 * 1024),
+      8 * 1024,
+      Infinity,
+      5,
+    );
+    const capped = await readCappedBody(req, 64 * 1024, {
+      drainTimeoutMs: 100,
+      drainIdleMs: 60_000,
+    });
+    expect(capped.refusal).toBe('over-limit');
+    expect(wasCancelled()).toBe(false);
+    expect(deliveredBytes()).toBeLessThan(8 * 1024 * 1024);
+  });
+
+  it('never lets a late refusal outlive the read deadline', async () => {
+    // The drain's budget starts when the body is refused, so a body that
+    // crosses the cap late would run `time-until-over + drainTimeoutMs` in
+    // total — on a slow uplink that lands past Node's own 300s request
+    // timeout, which destroys the socket and hands the visitor the connection
+    // reset the drain exists to avoid. Here the crossing is at ~110ms of a
+    // 400ms read deadline, with a drain budget of a minute behind it.
+    const { req, deliveredBytes, wasCancelled } = streamedRequest(
+      reportBody('2', 2 * 1024 * 1024),
+      4 * 1024,
+      Infinity,
+      10,
+    );
+    const started = Date.now();
+    const capped = await readCappedBody(req, 40 * 1024, {
+      readTimeoutMs: 400,
+      drainTimeoutMs: 60_000,
+      drainIdleMs: 60_000,
+      drainHeadroom: 8 * 1024 * 1024,
+    });
+    expect(capped.refusal).toBe('over-limit');
+    expect(wasCancelled()).toBe(false);
+    // Still answerable: the head made it, so the screen still carries their
+    // severity — the whole request just fits inside the one deadline.
+    expect(severityIndexFromHead(capped.head)).toBe(2);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(deliveredBytes()).toBeLessThan(2 * 1024 * 1024);
+  });
+
+  it('gives up on a body under the cap that stops arriving', async () => {
+    // Nothing refused this one — it just never finished. Only the accepted
+    // path's own clock catches it, or it holds a request open until Node's.
+    const { req, wasCancelled } = streamedRequest(
+      reportBody('1', 1024 * 1024),
+      16 * 1024,
+      32 * 1024,
+    );
+    const capped = await readCappedBody(req, 4 * 1024 * 1024, {
+      readIdleMs: 50,
+      readTimeoutMs: 60_000,
+    });
+    // Not 'over-limit' and not 'read-failed': it was neither too big nor broken.
+    expect(capped.refusal).toBe('timed-out');
+    expect(wasCancelled()).toBe(false);
+  });
+
+  it('gives up on a body under the cap that outlasts the total read budget', async () => {
+    const { req, deliveredBytes } = streamedRequest(
+      reportBody('1', 8 * 1024 * 1024),
+      8 * 1024,
+      Infinity,
+      5,
+    );
+    const capped = await readCappedBody(req, 16 * 1024 * 1024, {
+      readTimeoutMs: 100,
+      readIdleMs: 60_000,
+    });
+    expect(capped.refusal).toBe('timed-out');
+    expect(deliveredBytes()).toBeLessThan(8 * 1024 * 1024);
+  });
+
+  it('tells a failed read apart from an oversized one', async () => {
+    const failing = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new Error('socket went away'));
+      },
+    });
+    const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+      method: 'POST',
+      headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+      body: failing,
+      // @ts-expect-error — undici requires duplex for a streamed body; it is
+      // absent from the DOM lib types.
+      duplex: 'half',
+    });
+    const capped = await readCappedBody(req, 64 * 1024);
+    expect(capped.body).toBeNull();
+    // Not 'over-limit': nothing about this body was too large, and telling the
+    // visitor their photo was would send them to fix the wrong thing.
+    expect(capped.refusal).toBe('read-failed');
+  });
+
+  it('answers an aborted upload it had already refused with the cap, not an error', async () => {
+    // A visitor closing the tab on an upload the server refused ten megabytes
+    // ago: ordinary, and the body was provably too large, so that is still the
+    // answer — a 400 would cost them the screen that keeps their severity.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const body = reportBody('2', 512 * 1024);
+      let sent = 0;
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (sent >= 256 * 1024) return controller.error(new Error('client hung up'));
+          const chunk = new Uint8Array(body.subarray(sent, sent + 32 * 1024));
+          sent += chunk.byteLength;
+          controller.enqueue(chunk);
+        },
+      });
+      const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+        method: 'POST',
+        headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+        body: stream,
+        // @ts-expect-error — undici requires duplex for a streamed body; it is
+        // absent from the DOM lib types.
+        duplex: 'half',
+      });
+      const capped = await readCappedBody(req, 64 * 1024);
+      expect(capped.refusal).toBe('over-limit');
+      expect(severityIndexFromHead(capped.head)).toBe(2);
+      // A cancelled upload is not an incident: one quiet line, no stack.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it('reports no severity rather than guessing one', async () => {
+    expect(severityIndexFromHead(new Uint8Array())).toBeNull();
+    const noField = Buffer.from(
+      `--${BOUNDARY}\r\nContent-Disposition: form-data; name="photo"\r\n\r\nxx\r\n--${BOUNDARY}--\r\n`,
+    );
+    expect(severityIndexFromHead(new Uint8Array(noField))).toBeNull();
+    const outOfRange = reportBody('9', 16);
+    expect(severityIndexFromHead(new Uint8Array(outOfRange))).toBeNull();
+  });
+});
+
+describe('head-only reads', () => {
+  it('takes the report route’s two fields off the head and keeps no photo', async () => {
+    const body = reportBody('2', 4 * 1024 * 1024);
+    const { req, wasCancelled, deliveredBytes } = streamedRequest(body, 64 * 1024);
+    const capped = await readCappedHead(req, 12 * 1024 * 1024);
+
+    expect(capped.refusal).toBeNull();
+    expect(severityIndexFromHead(capped.head)).toBe(2);
+    expect(photoAttachedFromHead(capped.head)).toBe(true);
+    // The whole body arrived and was counted; only the head was ever held.
+    expect(capped.bytes).toBe(body.byteLength);
+    expect(capped.head.byteLength).toBe(HEAD_BYTES);
+    expect(capped.head.buffer.byteLength).toBe(HEAD_BYTES);
+    expect(wasCancelled()).toBe(false);
+    expect(deliveredBytes()).toBe(body.byteLength);
+  });
+
+  it('refuses one over the cap, with the severity still readable', async () => {
+    const { req, wasCancelled } = streamedRequest(reportBody('0', 512 * 1024), 64 * 1024);
+    const capped = await readCappedHead(req, 64 * 1024);
+    expect(capped.refusal).toBe('over-limit');
+    expect(severityIndexFromHead(capped.head)).toBe(0);
+    expect(wasCancelled()).toBe(false);
+  });
+
+  it('reads no photo where nobody picked one', () => {
+    const empty = Buffer.from(
+      `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="severity"\r\n\r\n1\r\n' +
+        `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="photo"; filename=""\r\n' +
+        'Content-Type: application/octet-stream\r\n\r\n' +
+        `\r\n--${BOUNDARY}--\r\n`,
+    );
+    expect(photoAttachedFromHead(new Uint8Array(empty))).toBe(false);
+    expect(photoAttachedFromHead(new Uint8Array())).toBe(false);
+    expect(photoAttachedFromHead(new Uint8Array(reportBody('1', 16)))).toBe(true);
+  });
+});
+
+describe('the in-flight budget', () => {
+  /** A body that arrives in one chunk and then waits to be let go. */
+  function gatedRequest(body: Buffer) {
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sent = false;
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (sent) {
+          await gate;
+          return controller.close();
+        }
+        sent = true;
+        controller.enqueue(new Uint8Array(body));
+      },
+    });
+    const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+      method: 'POST',
+      headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+      body: stream,
+      // @ts-expect-error — undici requires duplex for a streamed body; it is
+      // absent from the DOM lib types.
+      duplex: 'half',
+    });
+    return { req, release: () => release() };
+  }
+
+  /**
+   * A buffered read's cap sized so its reservation leaves `free` bytes of the
+   * budget behind — the reservation being twice the cap plus a chunk.
+   */
+  function capLeaving(free: number): number {
+    return (MAX_INFLIGHT_BODY_BYTES - CHUNK_ALLOWANCE_BYTES - free) / 2;
+  }
+
+  /** A read holding its reservation until it is released. */
+  async function hold(cap: number) {
+    const holding = gatedRequest(reportBody('1', 1024));
+    const held = readCappedBody(holding.req, cap);
+    await new Promise((resolve) => setImmediate(resolve));
+    return { release: holding.release, settled: () => held };
+  }
+
+  it('refuses a read there is no room for, and admits it once there is', async () => {
+    const holding = await hold(capLeaving(8 * 1024 * 1024));
+
+    const cap = 20 * 1024 * 1024;
+    const crowded = await readCappedBody(request(reportBody('2', 1024)), cap);
+    // Not 'over-limit': this body was small. The server had no room for it,
+    // and it was read to its end so the answer reaches whoever sent it.
+    expect(crowded.refusal).toBe('busy');
+    expect(crowded.body).toBeNull();
+    // Enough was kept to carry their severity to the screen that offers a retry.
+    expect(severityIndexFromHead(crowded.head)).toBe(2);
+
+    holding.release();
+    expect((await holding.settled()).refusal).toBeNull();
+
+    // The reservation is released with the read, not leaked past it.
+    const after = await readCappedBody(request(reportBody('0', 1024)), cap);
+    expect(after.refusal).toBeNull();
+  });
+
+  it('costs a head-only read only its head, so uploads keep being admitted', async () => {
+    const holding = await hold(capLeaving(8 * 1024 * 1024));
+
+    // No room at all for another buffered read of that size — but a head-only
+    // read holds kilobytes, which is what keeps the report route open to
+    // hundreds of concurrent phone uploads.
+    const alongside = await readCappedHead(request(reportBody('2', 1024)), 12 * 1024 * 1024);
+    expect(alongside.refusal).toBeNull();
+
+    holding.release();
+    expect((await holding.settled()).refusal).toBeNull();
+  });
+
+  it('counts the chunk in hand, not just the head it keeps', async () => {
+    // Room for the head and nothing else. A read holds the chunk it is looking
+    // at as well as the bytes it decided to keep, and reserving only the latter
+    // under-counted the report route by the better part of an order of
+    // magnitude — a budget that admits eight times what it can hold is no
+    // budget at all.
+    const holding = await hold(capLeaving(HEAD_BYTES + 1024));
+
+    const crowded = await readCappedHead(request(reportBody('2', 1024)), 12 * 1024 * 1024);
+    expect(crowded.refusal).toBe('busy');
+
+    holding.release();
+    await holding.settled();
+  });
+
+  it('stops reading a body it has no room for instead of draining it', async () => {
+    // The shed that makes the budget mean something: a refusal that costs the
+    // same ingress as an admitted upload sheds nothing.
+    const holding = await hold(capLeaving(1024));
+
+    const { req, deliveredBytes, wasCancelled } = streamedRequest(
+      reportBody('2', 8 * 1024 * 1024),
+      64 * 1024,
+    );
+    const crowded = await readCappedHead(req, 12 * 1024 * 1024);
+    expect(crowded.refusal).toBe('busy');
+    expect(wasCancelled()).toBe(false);
+    // A chunk of slack either side: the read stops on the chunk that crosses
+    // the budget, and the stream has already pulled the next one behind it.
+    expect(deliveredBytes()).toBeLessThanOrEqual(BUSY_DRAIN_BYTES + 2 * CHUNK_ALLOWANCE_BYTES);
+
+    holding.release();
+    await holding.settled();
+  });
+
+  it('bounds how many reads it sheds at once, and keeps nothing past that', async () => {
+    // The byte budget covers admitted reads; shed ones hold a head and the
+    // chunk in hand of their own, so without a count they sit outside the very
+    // bound they were refused by. Past this many a read keeps nothing at all
+    // and stops at SHED_DRAIN_BYTES — it still reads that much, because a body
+    // left untouched is one Node dumps to its end on our behalf.
+    const holding = await hold(capLeaving(1024));
+    const shedding = Array.from({ length: MAX_SHED_READS }, () => {
+      const gated = gatedRequest(reportBody('1', 1024));
+      return { release: gated.release, settled: readCappedHead(gated.req, 12 * 1024 * 1024) };
+    });
+
+    const { req, deliveredBytes, wasCancelled } = streamedRequest(
+      reportBody('2', 4 * SHED_DRAIN_BYTES),
+      8 * 1024,
+    );
+    const beyond = await readCappedHead(req, 12 * 1024 * 1024);
+
+    for (const shed of shedding) shed.release();
+    const shedRefusals = await Promise.all(shedding.map((shed) => shed.settled));
+    // A shed slot is released with its read, so the next one is read again.
+    const after = await readCappedHead(request(reportBody('0', 1024)), 12 * 1024 * 1024);
+    holding.release();
+    await holding.settled();
+
+    expect(beyond.refusal).toBe('busy');
+    // Nothing kept, and the ingress stopped at the shed drain rather than at
+    // whatever the sender had left — this is what the peak heap claim rests on
+    // past the shed count, and what walking away instead would have cost.
+    expect(beyond.head.byteLength).toBe(0);
+    expect(beyond.bytes).toBeLessThanOrEqual(SHED_DRAIN_BYTES + CHUNK_ALLOWANCE_BYTES);
+    expect(deliveredBytes()).toBeLessThanOrEqual(SHED_DRAIN_BYTES + 2 * CHUNK_ALLOWANCE_BYTES);
+    // Not cancelled: the socket has to survive to carry the busy screen.
+    expect(wasCancelled()).toBe(false);
+    // The cost: no head means no severity, which the busy screen does without.
+    expect(severityIndexFromHead(beyond.head)).toBeNull();
+
+    expect(shedRefusals.every((shed) => shed.refusal === 'busy')).toBe(true);
+    expect(after.refusal).toBe('busy');
+    expect(severityIndexFromHead(after.head)).toBe(0);
+  });
+
+  it('tells a shed read that was also oversized which of the two it was', async () => {
+    // The refusal ladder's own precedence, which the shed path used to invert:
+    // a 20MB photo told "the tag is busy" retries the same photo forever, where
+    // "that photo was too large" is the one thing they can act on.
+    const holding = await hold(capLeaving(1024));
+    const shedding = Array.from({ length: MAX_SHED_READS }, () => {
+      const gated = gatedRequest(reportBody('1', 1024));
+      return { release: gated.release, settled: readCappedHead(gated.req, 12 * 1024 * 1024) };
+    });
+
+    // Declared over the cap by its own Content-Length, and arriving with no
+    // room left for it: both true at once, and only one of them is actionable.
+    const beyond = await readCappedHead(request(reportBody('2', 256 * 1024)), 64 * 1024);
+
+    for (const shed of shedding) shed.release();
+    await Promise.all(shedding.map((shed) => shed.settled));
+    holding.release();
+    await holding.settled();
+
+    expect(beyond.refusal).toBe('over-limit');
+  });
+
+  it('holds a body that can only be short for seconds, not the photo route’s minutes', async () => {
+    // The bound that fires is the bound that gives the reservation back, so
+    // the photo-sized clocks on these routes were what let a trickle deny the
+    // server: one byte every 25s held a slot for four minutes, and a few
+    // hundred such sockets exhausted the whole in-flight budget between them.
+    // Both paths at once, and on a driven clock: the assertion is which bound
+    // fires, and waiting out the real one would put seconds into the fast suite.
+    vi.useFakeTimers();
+    try {
+      const single = stalledFormRequest();
+      const typed = stalledFormRequest();
+      const button = discardBody(single.req, 'confirmation');
+      const form = readCappedForm(typed.req, MAX_FORM_BYTES);
+      let settled = false;
+      const both = Promise.all([button, form]).then((answers) => {
+        settled = true;
+        return answers;
+      });
+
+      // One tick short of the form's own idle bound, both are still reading —
+      // so this is the bound being measured, not something else finishing early.
+      await vi.advanceTimersByTimeAsync(FORM_READ_IDLE_MS - 1);
+      expect(settled).toBe(false);
+
+      // One tick past it, both are answered. On the photo route's clocks these
+      // would still be holding their reservations 25 seconds from here.
+      await vi.advanceTimersByTimeAsync(2);
+      expect(settled).toBe(true);
+      expect(FORM_READ_IDLE_MS).toBeLessThan(READ_IDLE_MS);
+
+      const [answer, refused] = await both;
+      expect(answer?.status).toBe(408);
+      expect(refused.refusal).toBe('timed-out');
+      // Walked away from, not cancelled: the route still has a socket to answer on.
+      expect(single.wasCancelled()).toBe(false);
+      expect(typed.wasCancelled()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives even the photo route only seconds to send its head', async () => {
+    // The one route that genuinely needs minutes, and until the head is in
+    // there is nothing to spend them on: a report with no photo is a few
+    // hundred bytes in total, and a phone puts the first chunk of a 20MB upload
+    // on the wire in well under a second. On the long clocks this was the
+    // cheapest reservation on the whole surface — a byte every 29s from a few
+    // hundred cookie-less sockets holds the in-flight budget shut for minutes.
+    vi.useFakeTimers();
+    try {
+      const { req, wasCancelled } = streamedRequest(
+        reportBody('1', 4 * 1024 * 1024),
+        4 * 1024,
+        4 * 1024,
+      );
+      let settled = false;
+      const reading = readCappedHead(req, 12 * 1024 * 1024).then((capped) => {
+        settled = true;
+        return capped;
+      });
+
+      // Short of the head's own idle bound, still reading — so it is that bound
+      // being measured and not something else finishing early.
+      await vi.advanceTimersByTimeAsync(HEAD_READ_IDLE_MS - 1);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(2);
+      expect(settled).toBe(true);
+      expect(HEAD_READ_IDLE_MS).toBeLessThan(READ_IDLE_MS);
+
+      const capped = await reading;
+      expect(capped.refusal).toBe('timed-out');
+      // Walked away from, not cancelled: the route still has a socket to answer
+      // on, so this reaches the screen that keeps the report.
+      expect(wasCancelled()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives the photo route its minutes once a photo is actually arriving', async () => {
+    // The other half of the same bound: a real upload pausing longer than the
+    // head clock is exactly the slow-uplink case the graceful screen exists
+    // for, and it must keep the long clocks it was sized with.
+    vi.useFakeTimers();
+    try {
+      const { req } = streamedRequest(reportBody('2', 4 * 1024 * 1024), 16 * 1024, 16 * 1024);
+      let settled = false;
+      const reading = readCappedHead(req, 12 * 1024 * 1024).then((capped) => {
+        settled = true;
+        return capped;
+      });
+
+      // The first chunk carries the whole head, so the short clock is done with.
+      await vi.advanceTimersByTimeAsync(10);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(HEAD_READ_IDLE_MS);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(READ_IDLE_MS);
+      expect(settled).toBe(true);
+      const capped = await reading;
+      expect(capped.refusal).toBe('timed-out');
+      expect(severityIndexFromHead(capped.head)).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still reads a small refused body to its end, so the answer reaches it', async () => {
+    // Everything carrying something a person typed is far under the busy
+    // drain: a sign-in, an adopt form, a refile, a single-button POST. Those
+    // keep the answer they would have had.
+    const holding = await hold(capLeaving(1024));
+
+    const body = reportBody('1', 16 * 1024);
+    const { req, deliveredBytes } = streamedRequest(body, 4 * 1024);
+    const crowded = await readCappedHead(req, 12 * 1024 * 1024);
+    expect(crowded.refusal).toBe('busy');
+    expect(deliveredBytes()).toBe(body.byteLength);
+    expect(severityIndexFromHead(crowded.head)).toBe(1);
+
+    holding.release();
+    await holding.settled();
+  });
+});

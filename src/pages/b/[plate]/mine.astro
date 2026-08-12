@@ -1,0 +1,125 @@
+---
+// The adopter's own view — same plaque, different verbs. Streak and points
+// render from stored values only; the earning rules are a later task.
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store-local';
+import { getBedView, hasPhotoThisWeek } from '../../../lib/service';
+import { getSessionUserId } from '../../../lib/session';
+import { severityName } from '../../../lib/severity';
+import { relativeAge, sinceLabel } from '../../../lib/format';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
+
+const { plate = '' } = Astro.params;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) return new Response('No bed with that plate.', { status: 404 });
+const base = `/b/${plate}`;
+
+const userId = getSessionUserId(Astro.cookies);
+if (!userId) return Astro.redirect(`${base}/auth`, 303);
+const me = await store.getUser(userId);
+if (!me) return Astro.redirect(`${base}/auth`, 303);
+
+const { bed, adopters, openSlots, openReport } = view;
+const isAdopter = adopters.some((a) => a.user.id === me.id);
+// Signed in but not a guardian of this bed → back to the public plaque.
+if (!isAdopter) return Astro.redirect(ourPlaqueLink(base), 303);
+
+const photoLogged = await hasPhotoThisWeek(store, plate, me.id);
+
+// Green "you cleaned it" band: the most recent report was closed by me,
+// recently enough to still be news (12h).
+const lastReport = (await store.getReports(plate))[0] ?? null;
+const clearedByMe =
+  !openReport &&
+  lastReport?.closedBy === me.id &&
+  lastReport.closedAt !== null &&
+  Date.now() - new Date(lastReport.closedAt).getTime() < 12 * 60 * 60 * 1000;
+---
+
+<Screen title={`Your bed · ${plate}`}>
+  <div class="screen">
+    <div class="top-row">
+      <a class="back-link" href={ourPlaqueLink(base)}>← {plate}</a>
+      <span class="your-bed">YOUR BED</span>
+    </div>
+    <div class="card">
+      <div class="plate-lg">{bed.plate}</div>
+      <div class="cross-streets">{bed.crossStreets}</div>
+      <div class="slots">
+        {
+          adopters.map(({ adoption, user }) =>
+            user.id === me.id ? (
+              <div class="slot-taken slot-me">
+                {user.name} — that's you <span class="since">{sinceLabel(new Date(adoption.adoptedAt))}</span>
+              </div>
+            ) : (
+              <div class="slot-taken">
+                {adoption.displayNameHidden ? 'A neighbor' : user.name}{' '}
+                <span class="since">{sinceLabel(new Date(adoption.adoptedAt))}</span>
+              </div>
+            ),
+          )
+        }
+        {openSlots > 0 && <div class="slot-open">Open slot — {openSlots} of {bed.slots} left</div>}
+      </div>
+    </div>
+    {
+      openReport && (
+        <div class="band band-open">
+          <div class="band-title band-title-sm">REPORTED · {severityName(openReport.severity)}</div>
+          <div class="band-sub band-sub-tight">{relativeAge(new Date(openReport.openedAt))}</div>
+        </div>
+      )
+    }
+    {
+      clearedByMe && lastReport?.closedAt && (
+        <div class="band band-clear">
+          <div class="band-row">
+            <span class="band-title band-title-sm">CLEAR · YOU CLEANED IT</span>
+            <span class="band-when mono">{relativeAge(new Date(lastReport.closedAt))}</span>
+          </div>
+        </div>
+      )
+    }
+    <div class="stats">
+      <span><span class="stat-streak">{me.streakWeeks} wk</span> photo streak</span>
+      <span><span class="stat-points">{me.points}</span> club points</span>
+    </div>
+    {photoLogged && <div class="ok-line">✓ Week {me.streakWeeks} photo on file. Streak alive.</div>}
+    <div class="actions-bottom">
+      {
+        openReport && (
+          <form method="POST" action={`${base}/clear`}>
+            <button class="btn btn-outline btn-clean" type="submit">I CLEANED IT — CLOSE THE REPORT</button>
+          </form>
+        )
+      }
+      <form method="POST" action={`${base}/photo`}>
+        <button class="btn btn-primary btn-photo" type="submit">
+          {photoLogged ? `PHOTO IN — WK ${me.streakWeeks} ✓` : "GIVE THIS WEEK'S PHOTO"}
+        </button>
+      </form>
+    </div>
+  </div>
+</Screen>
+
+<style>
+  .top-row { display: flex; justify-content: space-between; align-items: center; }
+  .back-link { color: var(--muted); font-size: 14px; font-weight: 800; text-decoration: none; padding: 8px 0; }
+  .your-bed { font-size: 12px; font-weight: 900; letter-spacing: 0.14em; color: var(--action); }
+  .plate-lg { font-size: 32px; font-weight: 900; line-height: 1.05; }
+  .cross-streets { font-size: 15px; font-weight: 800; color: var(--surface-dark); margin-top: 4px; }
+  .slots { margin-top: 14px; }
+  .slot-me { border: 2px solid var(--action); padding: 10px 12px; }
+  .band-title-sm { font-size: 17px; }
+  .band-sub-tight { margin-top: 2px; }
+  .band-when { font-size: 12px; opacity: 0.9; }
+  .stats { display: flex; justify-content: center; gap: 20px; font-size: 13px; font-weight: 800; color: var(--muted); }
+  .stat-streak { color: var(--action); }
+  .stat-points { color: var(--ink); }
+  .ok-line { font-size: 14px; font-weight: 800; color: var(--success); }
+  .actions-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+  .btn-clean { min-height: 56px; font-size: 16px; letter-spacing: 0; }
+  .btn-photo { min-height: 62px; font-size: 17px; letter-spacing: 0; }
+</style>

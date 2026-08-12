@@ -1,0 +1,30 @@
+# Both suites run here, deliberately. `npm test` is the fast rule suite and
+# `npm run test:e2e` builds the app and posts real bodies at a real server —
+# the split exists so nobody has to wait for a build on every save, and this
+# job exists so the slow half is never quietly lost.
+name: tests
+
+# Feature branches are covered by `pull_request`; listing them under `push` as
+# well would run this whole job — build, server and all — twice per commit.
+on:
+  push:
+    branches: [main, dev, qa, stage, prod]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      # Builds and serves the production bundle, so it needs the same secret
+      # any production start does.
+      - run: npm run test:e2e
+        env:
+          TREEBED_SESSION_SECRET: ci-secret-not-a-real-one

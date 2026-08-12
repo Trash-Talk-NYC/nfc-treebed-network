@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.astro/
+# Runtime data written by the local JSON store (src/lib/store-local.ts).
+# The seed is created in code on first boot; nothing here is source.
+.data/
+npm-debug.log*
+.DS_Store
