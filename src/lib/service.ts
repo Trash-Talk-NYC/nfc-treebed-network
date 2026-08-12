@@ -33,9 +33,13 @@ export class RuleError extends Error {
 
 const PIN_ROUNDS = 10;
 
-// bcrypt costs ~100ms of CPU by design. The async variants yield between
-// rounds, so one adoption or sign-in can't pin the single-threaded server —
-// which matters most on sign-in, the one un-rate-limited path (AGENTS.md).
+// bcrypt costs ~150–300ms of CPU by design, and bcryptjs is pure JS on the one
+// thread that serves every tap. The async variants yield to the event loop once
+// per `MAX_EXECUTION_TIME` (100ms) of synchronous work — not per round — so
+// they keep a hash from blocking the loop for its whole duration; they do not
+// make it cheap. `MAX_INFLIGHT_PIN_HASHES` below is what bounds how many of
+// these run at once, which matters most on sign-in, the one un-rate-limited
+// path (AGENTS.md).
 export async function hashPin(pin: string): Promise<string> {
   return bcrypt.hash(pin, PIN_ROUNDS);
 }
@@ -57,25 +61,44 @@ export async function verifyPin(pin: string, pinHash: string): Promise<boolean> 
  * behind them.
  *
  * It sheds rather than queues, the same way an over-budget body does: waiting
- * in line for a saturated CPU is the stall, not the cure. A handful of real
- * neighbours signing in never collide on a one-bed street test, so what this
- * costs the product is nothing and what it bounds is the whole CPU an
- * anonymous caller can command.
+ * in line for a saturated CPU is the stall, not the cure.
  *
- * This is not brute-force protection: per-PIN rate limiting is still absent
- * and still owed before any real rollout (AGENTS.md). It bounds the cost of
+ * What it guarantees is bounded backlog, not bounded CPU. bcryptjs yields once
+ * per 100ms of synchronous work, so four admitted hashes keep the thread in
+ * bcrypt nearly continuously; what the bound removes is the queue behind them.
+ * A tap arriving mid-flood waits behind at most `MAX_INFLIGHT_PIN_HASHES`
+ * hashes — a few hundred milliseconds — instead of behind however many the
+ * flood managed to start. The plaque, the report and the confirm stay usable
+ * under load; they do not stay fast.
+ *
+ * The other side of that trade is that a sustained flood holds `/auth` and
+ * `/adopt` at their busy screens for as long as it lasts. That is deliberate:
+ * auth loses to the street action. Per-IP limiting at the platform tier is the
+ * eventual remedy, alongside the per-PIN rate limiting that is still absent and
+ * still owed before any real rollout (AGENTS.md) — this bounds the cost of
  * attempts, not their number.
  *
  * `TREEBED_MAX_INFLIGHT_PIN_HASHES` exists so the end-to-end suite can watch a
  * real client be shed without racing a bcrypt; it is a test seam, like the two
- * in request-body.ts, not a deployment knob.
+ * in request-body.ts, not a deployment knob. Zero is legal because that is the
+ * value the suite drives the shed path with, and it disables sign-in and
+ * adoption outright — which is why any process that starts with it says so.
  */
 export const MAX_INFLIGHT_PIN_HASHES = boundFromEnv('TREEBED_MAX_INFLIGHT_PIN_HASHES', 4);
+
+if (MAX_INFLIGHT_PIN_HASHES < 1) {
+  console.warn(
+    `[service] TREEBED_MAX_INFLIGHT_PIN_HASHES=${MAX_INFLIGHT_PIN_HASHES}: sign-in and adoption are disabled, every attempt answers busy`,
+  );
+}
 
 let inflightPinHashes = 0;
 
 async function withPinHashSlot<T>(work: () => Promise<T>): Promise<T> {
   if (inflightPinHashes >= MAX_INFLIGHT_PIN_HASHES) {
+    // The only server-side trace of a CPU flood: the node adapter writes no
+    // access log, so without this the 503s are invisible from the box.
+    console.warn(`[service] PIN hash shed at the ${MAX_INFLIGHT_PIN_HASHES}-hash bound`);
     throw new RuleError('busy', `More than ${MAX_INFLIGHT_PIN_HASHES} PIN hashes already running`);
   }
   inflightPinHashes += 1;
