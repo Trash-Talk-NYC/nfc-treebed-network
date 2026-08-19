@@ -8,7 +8,11 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 
 ## Stack
 
-- Astro (server-rendered, `@astrojs/node` standalone adapter) + TypeScript strict.
+- Astro (server-rendered) + TypeScript strict, with two build targets selected in `astro.config.mjs` by `TREEBED_ADAPTER`:
+  `node` (the default — `@astrojs/node` standalone server, what `npm start`, `npm run preview` and the e2e suite run) and `netlify` (`@astrojs/netlify`, what production deploys; `netlify.toml` sets the variable for every Netlify build).
+  The node target stays first-class rather than becoming a dev shim because the request-body bounds below are measured against its real sockets.
+- `@astrojs/node` is pinned exactly to 11.1.1: 11.1.4 calls `app.getLogger()`, which `astro` 7.2.1 does not have, so the built server crashes at boot despite the adapter's `^7.2.1` peer range.
+  Unpin when astro itself is upgraded.
 - Requires Node >= 22 (`~/.nvm/versions/node/v22.23.1` works; the default shell Node 18.10 does not).
 - `npm run dev` / `npm run build` / `npm run preview` / `npm test` (vitest) / `npm run test:e2e` / `npm run check` (astro check).
   `npm test` is the fast suite — rules and transport handling, no build — and `npm run test:e2e` builds the app, serves `dist/server/entry.mjs`, and posts real bodies at it (`vitest.e2e.config.ts`); CI runs both (`.github/workflows/tests.yml`).
@@ -19,8 +23,13 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 ## Architecture invariants
 
 - **All persistence goes through the `Store` interface in `src/lib/store.ts`.**
-  The only implementation is `src/lib/store-local.ts` (one JSON file in `.data/`, gitignored).
-  Swapping to Supabase later means writing one new `Store` implementation and changing `getStore()` — nothing else.
+  Two implementations exist, selected at runtime by `getStore()` in `store-local.ts` on `TREEBED_STORE`: `LocalStore` (`src/lib/store-local.ts`, one JSON file in `.data/`, gitignored — dev and tests, the default) and `BlobsStore` (`src/lib/store-blobs.ts`, Netlify Blobs — the deployed pilot, `TREEBED_STORE=blobs`).
+  The dataset shape, the seed, and the operations they share live in `src/lib/store-dataset.ts`, so the backends cannot drift on what the data means.
+  Swapping to Supabase later still means writing one new `Store` implementation and changing `getStore()` — nothing else.
+- **`BlobsStore` commits by atomically creating revision keys (`rev/<n>`), never by overwriting one.**
+  Function instances scale horizontally, so its `transaction` is optimistic: read the newest revision, run the callback on a private copy, commit by creating `rev/<n+1>` with `onlyIfNew`, and re-run the whole callback on loss — a rule check made against a dataset another commit replaced never reaches the store.
+  ETag compare-and-swap (`onlyIfMatch`) was rejected because the emulated Blobs server (`@netlify/blobs/server`, which `tests/store-blobs.test.ts` runs the real wire protocol against) does not produce ETags on reads, so that path would be untestable.
+  Old revisions are pruned a safe distance behind the newest; the survivors double as a short paper trail (`netlify blobs:list treebed`).
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
   Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, escalate-to-dumping-once, one photo per NY week, PIN hashing.
   Anything in the browser is editable in devtools (spec §7).
@@ -124,6 +133,15 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 ## Seed data
 
 One hand-seeded bed `BED-HRL-0847` (created on first boot by `store-local.ts`), with seeded adopter `marisol_r`, PIN `1234` — demo credentials for driving the sign-in flow locally.
+
+## Deployment (pilot)
+
+- Production is the Netlify site **`treebed-plaque`** (site id `449a9585-ae51-4e23-9614-fe5b3ac669f1`), live at <https://treebed-plaque.netlify.app>, resolved for wayfinder ticket #8.
+  **The site `trashtalknyc` (id `77ee72e0-18f8-43b7-a338-9b5d67d40236`) is the org's public website — a different product. Never deploy this app there.**
+- Deploys are CLI-driven, not repo-linked: `NETLIFY_SITE_ID=449a9585-ae51-4e23-9614-fe5b3ac669f1 npx netlify-cli@latest deploy --build --prod` from a checkout on Node >= 22.
+  `netlify.toml` carries the build command, the publish dir, and the environment that selects the netlify adapter — the CLI applies it, so no flags beyond the site id are needed.
+- Site environment variables (set via `netlify env:set`, all already in place): `TREEBED_SESSION_SECRET` (secret, generated — never in the repo), `TREEBED_STORE=blobs`, `AWS_LAMBDA_JS_RUNTIME=nodejs22.x` (functions default to an older Node than `engines` demands).
+- The custom domain (`trashtalknyc.org/t/*` proxying, per ticket #5) is deliberately not wired yet; the `/b/[plate]` → `/t/[tag]` re-key is its own ticket.
 
 ## Branching model
 

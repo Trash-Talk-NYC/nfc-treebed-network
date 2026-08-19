@@ -6,8 +6,11 @@
 // (or anything else) later, write one new implementation of `Store` and change
 // the factory in store-local.ts — nothing else in the app should need edits.
 //
-// The only local implementation is store-local.ts, backed by a JSON file on
-// disk. It is intentionally the single file that knows how data is persisted.
+// Two implementations exist, selected at runtime by `getStore()` in
+// store-local.ts: LocalStore (a JSON file on disk — dev and tests) and
+// BlobsStore (Netlify Blobs — the deployed pilot). Each owns only its
+// persistence; the dataset shape and operations they share live in
+// store-dataset.ts.
 //
 // Two contracts every implementation must honour:
 //  - Reads return detached copies. Callers may mutate what they get back

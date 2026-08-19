@@ -1,0 +1,16 @@
+# Deploy configuration for the treebed-plaque Netlify site (wayfinder #8).
+#
+# Deploys are driven by the CLI (`netlify deploy --build`) rather than a
+# linked repository, so this file is the one place the Netlify build is
+# described. The environment block — not the command line — is what selects
+# the Netlify adapter, so any build Netlify runs gets the right target.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # astro.config.mjs: emit Netlify Functions instead of the standalone node server.
+  TREEBED_ADAPTER = "netlify"
+  # package.json engines wants Node >= 22; Netlify's default is older.
+  NODE_VERSION = "22"
