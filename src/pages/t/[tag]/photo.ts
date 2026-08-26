@@ -7,13 +7,19 @@ import { getBedView, logPhoto } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { resolveTagParam } from '../../../lib/tag-bindings';
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
-  const plate = params.plate ?? '';
+  // Resolved before the body is read: a POST at a tag nobody bound has no bed
+  // behind it, and its body deserves no drain budget.
+  const resolved = resolveTagParam(params.tag);
+  if (resolved.state !== 'bound') return new Response('No bed bound to that tag.', { status: 404 });
+  const { plate } = resolved;
+  const base = `/t/${resolved.tag}`;
   const refused = await discardBody(request, 'check-in');
   if (refused) return refused;
   const userId = getSessionUserId(cookies);
-  if (!userId) return redirect(`/b/${plate}/auth`, 303);
+  if (!userId) return redirect(`${base}/auth`, 303);
 
   const store = getStore();
   const view = await getBedView(store, plate);
@@ -23,9 +29,9 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   // Flagged like every other POST route's way back: this render is the tail of
   // a submission, not somebody arriving at the tag.
   if (!view.adopters.some((a) => a.user.id === userId)) {
-    return redirect(ourPlaqueLink(`/b/${plate}`), 303);
+    return redirect(ourPlaqueLink(base), 303);
   }
 
   await logPhoto(store, { plate, actorId: userId });
-  return redirect(`/b/${plate}/mine`, 303);
+  return redirect(`${base}/mine`, 303);
 };

@@ -8,12 +8,15 @@ import { getSessionUserId } from '../../../lib/session';
 import { severityName } from '../../../lib/severity';
 import { relativeAge, sinceLabel } from '../../../lib/format';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { resolveTagParam } from '../../../lib/tag-bindings';
 
-const { plate = '' } = Astro.params;
+const resolved = resolveTagParam(Astro.params.tag);
+if (resolved.state !== 'bound') return new Response('No bed bound to that tag.', { status: 404 });
+const { plate } = resolved;
+const base = `/t/${resolved.tag}`;
 const store = getStore();
 const view = await getBedView(store, plate);
 if (!view) return new Response('No bed with that plate.', { status: 404 });
-const base = `/b/${plate}`;
 
 const userId = getSessionUserId(Astro.cookies);
 if (!userId) return Astro.redirect(`${base}/auth`, 303);

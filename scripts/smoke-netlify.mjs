@@ -46,7 +46,7 @@ if (response.status !== 302) {
   fail(`GET / answered ${response.status}, expected the 302 redirect to the seeded bed.`);
 }
 const location = response.headers.get('location');
-if (!location?.startsWith('/b/')) {
+if (!location?.startsWith('/t/')) {
   fail(`GET / redirected to ${location ?? '(nothing)'}, expected a plaque URL.`);
 }
 

@@ -1,12 +1,15 @@
 ---
 import { ourPlaqueLink } from '../lib/plaque-url';
+import { TAG_BINDINGS } from '../lib/tag-bindings';
 
-// The root has no content of its own — a tag URL always names a bed.
-// Send strays to the one seeded bed for now.
+// The root has no content of its own — a tag URL always names a tag.
+// Send strays to the first live tag for now.
 //
 // Flagged like every other navigation of ours: a tag never sends anyone here,
 // so what does is an uptime check, a crawler, or somebody typing the domain —
 // and a monitor polling this once a minute would be 1,440 taps a day on the
 // only seeded bed.
-return Astro.redirect(ourPlaqueLink('/b/BED-HRL-0847'), 302);
+const demo = TAG_BINDINGS.find((b) => b.retiredAt === null);
+if (!demo) return new Response('No tags are live.', { status: 404 });
+return Astro.redirect(ourPlaqueLink(`/t/${demo.tagId}`), 302);
 ---

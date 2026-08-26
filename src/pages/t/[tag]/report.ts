@@ -16,6 +16,7 @@ import {
 } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 import { BUILD_TARGET } from '../../../lib/build-target';
+import { resolveTagParam } from '../../../lib/tag-bindings';
 import type { Severity } from '../../../lib/types';
 
 // A phone photo is a few MB; nothing here is stored, so the cap only has to
@@ -35,8 +36,13 @@ import type { Severity } from '../../../lib/types';
 const MAX_PHOTO_BODY_BYTES = (BUILD_TARGET === 'netlify' ? 4 : 12) * 1024 * 1024;
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
-  const plate = params.plate ?? '';
-  const base = `/b/${plate}`;
+  // Resolved before the body is read: a POST at a tag nobody bound has no bed
+  // to file against, and its body deserves no drain budget. Our own forms
+  // always post at a bound tag, so only a hand-built request lands here.
+  const resolved = resolveTagParam(params.tag);
+  if (resolved.state !== 'bound') return new Response('No bed bound to that tag.', { status: 404 });
+  const { plate } = resolved;
+  const base = `/t/${resolved.tag}`;
   const actor = getActorId(cookies);
 
   const contentType = request.headers.get('content-type')?.toLowerCase() ?? '';

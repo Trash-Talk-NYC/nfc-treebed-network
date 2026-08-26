@@ -8,8 +8,12 @@ import { getBedView } from '../../../../lib/service';
 import { severityName } from '../../../../lib/severity';
 import { receiptTime } from '../../../../lib/format';
 import { ourPlaqueLink } from '../../../../lib/plaque-url';
+import { resolveTagParam } from '../../../../lib/tag-bindings';
 
-const { plate = '', rid = '' } = Astro.params;
+const resolved = resolveTagParam(Astro.params.tag);
+if (resolved.state !== 'bound') return new Response('No bed bound to that tag.', { status: 404 });
+const { plate } = resolved;
+const rid = Astro.params.rid ?? '';
 const store = getStore();
 const view = await getBedView(store, plate);
 const report = await store.getReport(rid);
@@ -20,7 +24,7 @@ if (!view || !report || report.bedPlate !== plate) {
 const { openSlots } = view;
 const canAdopt = openSlots > 0;
 const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slots still open`;
-const base = `/b/${plate}`;
+const base = `/t/${resolved.tag}`;
 ---
 
 <Screen title={`Report filed · ${plate}`}>

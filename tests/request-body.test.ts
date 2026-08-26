@@ -37,7 +37,7 @@ function reportBody(severityIndex: string, photoBytes: number): Buffer {
 }
 
 function request(body: Buffer): Request {
-  return new Request('http://localhost/b/BED-HRL-0847/report', {
+  return new Request('http://localhost/t/2mq2amhv/report', {
     method: 'POST',
     headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
     body: new Uint8Array(body),
@@ -67,7 +67,7 @@ function streamedRequest(body: Buffer, chunkBytes: number, stallAfter = Infinity
       cancelled = true;
     },
   });
-  const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+  const req = new Request('http://localhost/t/2mq2amhv/report', {
     method: 'POST',
     headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
     body: stream,
@@ -95,7 +95,7 @@ function stalledFormRequest() {
       cancelled = true;
     },
   });
-  const req = new Request('http://localhost/b/BED-HRL-0847/confirm', {
+  const req = new Request('http://localhost/t/2mq2amhv/confirm', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: stream,
@@ -278,7 +278,7 @@ describe('capped request bodies', () => {
         controller.error(new Error('socket went away'));
       },
     });
-    const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+    const req = new Request('http://localhost/t/2mq2amhv/report', {
       method: 'POST',
       headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
       body: failing,
@@ -310,7 +310,7 @@ describe('capped request bodies', () => {
           controller.enqueue(chunk);
         },
       });
-      const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+      const req = new Request('http://localhost/t/2mq2amhv/report', {
         method: 'POST',
         headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
         body: stream,
@@ -399,7 +399,7 @@ describe('the in-flight budget', () => {
         controller.enqueue(new Uint8Array(body));
       },
     });
-    const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+    const req = new Request('http://localhost/t/2mq2amhv/report', {
       method: 'POST',
       headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
       body: stream,

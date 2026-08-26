@@ -1,7 +1,8 @@
 # NFC Tree Bed Network — agent notes
 
 The v1 tap screen ("plaque") for Trash Talk NYC's NFC tree bed network.
-A pedestrian taps a tag on a tree guard and lands on `/b/<plate>` — e.g. `/b/BED-HRL-0847`.
+A pedestrian taps a tag on a tree guard and lands on `/t/<tag>` — an opaque 8-character tag ID, e.g. `/t/2mq2amhv` (production host `https://trashtalknyc.org/t/<id>`; the custom domain is separate work).
+The bed's plate (`BED-HRL-0847`) is display text on the plaque, never the URL — see "The tag URL" below.
 
 Source-of-truth documents live in the firstmate repo under `data/plaque-mvp-n4/`:
 the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authoritative for visuals/copy/flow, and `spec.md` for product intent and rules.
@@ -27,9 +28,29 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - The plaque ships zero client JavaScript except one inline script enhancing the severity sheet — live tier name/definition on the slider, and the "photo attached" state on the file input.
   Every form is a plain HTML POST and works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
 
+## The tag URL (read before touching routing)
+
+- **The URL on a tag is `/t/<id>` and the ID is opaque — no meaning encoded, ever.**
+  Locked on the wayfinder map (issue #3, decision 3; re-keyed from `/b/<plate>` in issue #5): the plate encodes site type and neighbourhood, and a tag's site is unknowable at encoding time — tags are bulk-encoded and may sit in the wood before a guard exists.
+  Re-encoding means physically visiting every tag, so nothing may creep back into the URL.
+  The format also has to tolerate NTAG424 query parameters later (map decision 4): route logic must ignore unknown query params, which is also why tap suppression matches only our own flags (`plaque-url.ts`).
+- **ID format (issue #5, decided): 8 chars of Crockford base32, lowercase, alphabet `0-9a-z` minus `i l o u`.**
+  `src/lib/tag-id.ts` normalizes lookups — case-insensitive, strips hyphens/spaces, maps `i`/`l`→`1` and `o`→`0` — so an ID typed off a sign still resolves; `u` has no mapping and is simply invalid.
+  The plaque route 302s a non-canonical spelling to the canonical URL, query string intact.
+- **Tag → site is a binding, and only `src/lib/tag-bindings.ts` knows it.**
+  A tag is a physical object, a site is a place; theft is expected.
+  Retiring a stolen tag (`retiredAt`) and binding a replacement to the same plate loses no history, because reports and events are keyed by the plate, never the tag.
+  The registry is a checked-in table *by decision*: the team binds pilot tags itself (map note 14 — paperwork binding suffices until ~tag twenty), the in-field claim flow is a later ticket, and until it lands nothing at runtime writes a binding.
+  When that flow arrives, the binding moves behind the `Store` interface; `resolveTagParam` is the only thing routes call, so the swap is contained.
+- **An unbound tag is a normal state, not an error.**
+  A well-formed ID with no active binding renders the calm "not assigned to a bed yet" screen (with the ID on it) at 404 — never a 500.
+  It logs no tap: sites own history and an unbound tag has none to write to.
+  POSTs at an unbound tag 404 before their body is read.
+
 ## Architecture invariants
 
 - **All persistence goes through the `Store` interface in `src/lib/store.ts`.**
+  The one deliberate exception is the tag→site registry above, checked in rather than stored, until the claim flow gives it a write path.
   Two implementations exist, selected at runtime by `getStore()` in `store.ts` — beside the contract, not inside either backend — on `TREEBED_STORE`: `LocalStore` (`src/lib/store-local.ts`, one JSON file in `.data/`, gitignored — dev and tests, the default) and `BlobsStore` (`src/lib/store-blobs.ts`, Netlify Blobs — the deployed pilot, `TREEBED_STORE=blobs`).
   The dataset shape, the seed, and the operations they share live in `src/lib/store-dataset.ts`, so the backends cannot drift on what the data means.
   Swapping to Supabase later still means writing one new `Store` implementation and changing `getStore()` — nothing else.
@@ -149,7 +170,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - Fonts are self-hosted subsets (Nunito variable 700–900, Space Mono 400/700); provenance pinned in `public/fonts/README.md`.
   No Google Fonts CDN. Bebas Neue is intentionally absent — the prototype doesn't use it despite spec §3a.
 - The bed screen's oversized action buttons are the captain's explicit override of the prototype's 66px buttons ("buttons taking close to as much of the screen as they can"). Don't shrink them back to match the prototype.
-- `b/[plate]/too-large.astro` is the one screen with no prototype counterpart: where a refused upload lands.
+- `t/[tag]/too-large.astro` is the one screen with no prototype counterpart: where a refused upload lands.
   Filing is the core street action, so an optional attachment must never cost someone the report they already filled in — the screen carries their chosen severity and offers to file it without the photo.
   `?reason=busy` (the server was at capacity) and `?reason=incomplete` (the upload stalled or broke off) are the same screen for the other two refusals, each with its own copy: nothing is gained by telling somebody to shrink a photo that was never the problem.
   It is built from the same tokens as the rate-limited screen and, like every other screen, works with JavaScript disabled.
@@ -164,6 +185,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 
 One hand-seeded bed `BED-HRL-0847`, with seeded adopter `marisol_r`.
 On the local store it is created on first boot with PIN `1234` — demo credentials for driving the sign-in flow locally.
+The checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed, so `/t/2mq2amhv` renders on first run; the e2e suite and the site-root redirect both key off that binding.
 
 **`BlobsStore` seeds the same adopter with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the plaque engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open guardian account on the internet — `/mine`, `/photo`, and the deliberately auth-gated `/clear`.
 `TREEBED_SEED_PIN` is a **development-only** seam, for driving the sign-in flow against a store that seeds without one.
@@ -190,7 +212,7 @@ A surviving `head` is the store's own proof that it has been written to, and `Bl
   **None of the three build-time keys is to be set with `netlify env:set`**: a site-level variable silently overrides `[build.environment]`, so a duplicate would leave this file documented as the source of truth while the site quietly won, and an edit here would have no effect on the deploy.
   The earlier site-level copies of all three have been unset accordingly.
   Checking that is itself a trap: `netlify env:list` run *inside the repo* merges `[build.environment]` into its output, so the build-time keys appear whether or not the site holds them — site-only state has to be checked from outside a checkout.
-- The custom domain (`trashtalknyc.org/t/*` proxying, per ticket #5) is deliberately not wired yet; the `/b/[plate]` → `/t/[tag]` re-key is its own ticket.
+- The custom domain (`trashtalknyc.org/t/*` proxying, per ticket #5) is deliberately not wired yet; the `/b/[plate]` → `/t/[tag]` re-key landed separately and is what the site already serves.
 
 ## Branching model
 

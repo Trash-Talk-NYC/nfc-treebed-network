@@ -9,10 +9,10 @@
 // What bounds every publicly reachable route. "Screen" below means a styled
 // page; no bound is ever enforced by dropping the connection on a visitor.
 //
-//   GET  /                             A redirect to the seeded bed, built by
-//                                      ourPlaqueLink; no body, no buffer, and
-//                                      no store read at all.
-//   GET  /b/<plate>                    No body to read, so no size, time or
+//   GET  /                             A redirect to the first live tag, built
+//                                      by ourPlaqueLink; no body, no buffer,
+//                                      and no store read at all.
+//   GET  /t/<tag>                      No body to read, so no size, time or
 //                                      concurrency bound applies. Peak heap is
 //                                      one render's reads, no per-request
 //                                      buffer. A failed tap write is logged and
