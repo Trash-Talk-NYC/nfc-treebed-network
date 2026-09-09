@@ -21,6 +21,8 @@ import path from 'node:path';
 
 // The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847.
 const TAG = '2mq2amhv';
+// Well-formed, and no binding speaks for it — the calm "not assigned" state.
+const UNBOUND_TAG = '7zzzzzz0';
 const BOUNDARY = '----treebede2e';
 const MEGABYTE = 1024 * 1024;
 
@@ -232,6 +234,8 @@ interface UploadTo {
   keepAlive?: boolean;
   /** Stop writing after this long, so a server that never reads can't hang the test. */
   budgetMs?: number;
+  /** Which tag to post at; the unbound one is refused before any rule runs. */
+  tag?: string;
 }
 
 /**
@@ -243,7 +247,7 @@ async function slowUpload(
   photoBytes: number,
   chunkBytes: number,
   pauseMs: number,
-  { port: target = port, keepAlive = false, budgetMs = Infinity }: UploadTo = {},
+  { port: target = port, keepAlive = false, budgetMs = Infinity, tag = TAG }: UploadTo = {},
 ): Promise<Upload> {
   const head = preamble(severity);
   const length = head.byteLength + photoBytes + TRAILER.byteLength;
@@ -264,7 +268,7 @@ async function slowUpload(
   });
 
   socket.write(
-    `POST /t/${TAG}/report HTTP/1.1\r\n` +
+    `POST /t/${tag}/report HTTP/1.1\r\n` +
       `Host: 127.0.0.1:${target}\r\n` +
       // Astro rejects cross-site form POSTs; a browser on the plaque sends this.
       `Origin: http://127.0.0.1:${target}\r\n` +
@@ -797,23 +801,40 @@ describe('the tag URL, end to end', () => {
     // A freshly-encoded tag nobody has bound: a normal state — tags go into
     // the wood before their guard exists. 404 because there is no site here,
     // but the page is the honest answer, with the ID on it.
-    const unbound = await fetch(`${origin}/t/7zzzzzz0`);
+    const unbound = await fetch(`${origin}/t/${UNBOUND_TAG}`);
     expect(unbound.status).toBe(404);
     const html = await unbound.text();
-    expect(html).toContain('7zzzzzz0');
+    expect(html).toContain(UNBOUND_TAG);
     expect(html).toContain('assigned to a bed yet');
   });
 
-  it('refuses a POST at an unbound tag before reading its body', async () => {
+  it('sends a sub-page at an unbound tag to the calm plaque screen', async () => {
     withServerLog();
-    const posted = await fetch(`${origin}/t/7zzzzzz0/report`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
-      body: 'severity=1',
-      redirect: 'manual',
-    });
-    expect(posted.status).toBe(404);
+    // A page bookmarked before the tag was retired, or tapped between the tap
+    // and the button: an unbound tag is a normal state everywhere, not a line
+    // of unstyled text on the screens below the plaque.
+    for (const page of ['adopt', 'auth', 'mine', 'too-large', 'receipt/r_nope']) {
+      const sub = await fetch(`${origin}/t/${UNBOUND_TAG}/${page}`, { redirect: 'manual' });
+      expect(sub.status).toBe(302);
+      expect(sub.headers.get('location')).toBe(`/t/${UNBOUND_TAG}`);
+    }
   });
+
+  it('refuses a POST at an unbound tag, and takes kilobytes of its body doing it', async () => {
+    withServerLog();
+    // Refused before any rule runs — but a body the app never touches is not a
+    // body the server never receives: Node dumps an unconsumed one to its end.
+    // So this is measured over a socket that is still writing, the same way the
+    // shed path is, because a status code alone cannot tell the two apart.
+    const upload = await slowUpload('1', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+      keepAlive: true,
+      budgetMs: 20_000,
+      tag: UNBOUND_TAG,
+    });
+
+    expect(upload.status).toBe(404);
+    expect(upload.written).toBeLessThan(16 * MEGABYTE);
+  }, 60_000);
 
   it('serves nothing at the old plate-keyed route', async () => {
     withServerLog();

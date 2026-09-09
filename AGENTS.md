@@ -41,11 +41,14 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   A tag is a physical object, a site is a place; theft is expected.
   Retiring a stolen tag (`retiredAt`) and binding a replacement to the same plate loses no history, because reports and events are keyed by the plate, never the tag.
   The registry is a checked-in table *by decision*: the team binds pilot tags itself (map note 14 — paperwork binding suffices until ~tag twenty), the in-field claim flow is a later ticket, and until it lands nothing at runtime writes a binding.
-  When that flow arrives, the binding moves behind the `Store` interface; `resolveTagParam` is the only thing routes call, so the swap is contained.
+  When that flow arrives, the binding moves behind the `Store` interface; `resolveTagParam` is the only thing the route helpers call and the only thing routes reach it through, so the swap is contained.
 - **An unbound tag is a normal state, not an error.**
   A well-formed ID with no active binding renders the calm "not assigned to a bed yet" screen (with the ID on it) at 404 — never a 500.
   It logs no tap: sites own history and an unbound tag has none to write to.
-  POSTs at an unbound tag 404 before their body is read.
+  POSTs at an unbound tag 404 before any rule runs, and pay `abandonBody`'s bounded drain (`request-body.ts`) for the body on the way out:
+  a body the app never touches is one Node dumps to its end for us, so refusing without reading is the expensive answer rather than the free one.
+  `requireBoundTag` / `requireBoundTagForPost` (`src/lib/tag-route.ts`) are what every route behind `/t/<tag>` resolves through, which is where that ordering is kept.
+  A GET at a sub-page of an unbound tag redirects to the plaque, so the calm screen lives in exactly one place.
 
 ## Architecture invariants
 

@@ -72,6 +72,14 @@
 //                                      bounds before either is consulted, so an
 //                                      unauthenticated POST is bounded by the
 //                                      row above and writes nothing.
+//   POST at an unbound/invalid tag     Answered 404 before any rule runs, so
+//                                      nothing above it applies — but the body
+//                                      still does: `abandonBody` takes
+//                                      SHED_DRAIN_BYTES / SHED_DRAIN_MS of it
+//                                      and stops, reserving nothing and keeping
+//                                      nothing. Leaving it unread is the
+//                                      expensive answer, not the free one (see
+//                                      SHED_DRAIN_BYTES below).
 //
 // The time bounds split because the reservation is only released when one of
 // them fires, so the slowest body a route can receive is what decides how long
@@ -759,4 +767,42 @@ export function photoAttachedFromHead(head: Uint8Array): boolean {
 /** latin1: the field names and values we look for are ASCII, and it never throws. */
 function headText(head: Uint8Array): string {
   return Buffer.from(head).toString('latin1');
+}
+
+/**
+ * Read enough of a body to mark it consumed, then stop — for a route that has
+ * already decided it wants nothing from it.
+ *
+ * Answering a POST without touching its body is not the cheap path it looks
+ * like: Node dumps the body of any request whose response finished unconsumed,
+ * reading it to its end with nothing but its own 300s timeout in the way (the
+ * 200MB measured in `tests/report-upload.e2e.test.ts`). Taking the first chunk
+ * ourselves is what puts the stopping point back in our hands, so a route that
+ * refuses before any rule runs — a POST at a tag no binding speaks for — costs
+ * the same kilobytes as a read past `MAX_SHED_READS` rather than everything the
+ * sender cares to push.
+ *
+ * Nothing is reserved and nothing is kept: the chunk in hand is the whole
+ * footprint, which is why this is bounded by `SHED_DRAIN_*` and not by a share
+ * of `MAX_INFLIGHT_BODY_BYTES`. The socket is left live, so the route's own
+ * answer still reaches whatever is on the other end.
+ */
+export async function abandonBody(request: Request): Promise<void> {
+  if (!request.body) return;
+  const reader = request.body.getReader();
+  const deadline = Date.now() + SHED_DRAIN_MS;
+  let total = 0;
+  try {
+    for (;;) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const raced = await readWithin(reader, remaining);
+      if (raced === STALLED || raced.done) break;
+      total += raced.value.byteLength;
+      if (total > SHED_DRAIN_BYTES) break;
+    }
+  } catch {
+    // A body abandoned before it finished arriving is not an incident: nothing
+    // downstream wanted it, and the answer has already been decided.
+  }
 }

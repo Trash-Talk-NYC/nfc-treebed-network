@@ -15,15 +15,15 @@ import { RuleError, closeReport, getBedView } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
-import { resolveTagParam } from '../../../lib/tag-bindings';
+import { requireBoundTagForPost } from '../../../lib/tag-route';
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
-  // Resolved before the body is read: a POST at a tag nobody bound has no bed
-  // behind it, and its body deserves no drain budget.
-  const resolved = resolveTagParam(params.tag);
-  if (resolved.state !== 'bound') return new Response('No bed bound to that tag.', { status: 404 });
-  const { plate } = resolved;
-  const base = `/t/${resolved.tag}`;
+  // Resolved before anything else, and its body accounted for either way: a
+  // POST at a tag nobody bound has no bed behind it, and a body left untouched
+  // is one Node dumps to its end for us.
+  const { bound, refused: unbound } = await requireBoundTagForPost(params.tag, request);
+  if (unbound) return unbound;
+  const { plate, base } = bound;
   const refused = await discardBody(request, 'update');
   if (refused) return refused;
   const userId = getSessionUserId(cookies);
