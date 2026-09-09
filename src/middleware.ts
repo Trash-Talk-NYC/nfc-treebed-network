@@ -25,7 +25,9 @@
 // dumps to its end for us. Draining once here, after the response is decided,
 // covers every route and every method at once, and costs nothing on the paths
 // that already read their body: `abandonBody` returns immediately for a stream
-// that is used or locked.
+// that is used or locked. It runs in a `finally` because a route that throws
+// is the same unread body: Astro turns the rejection into a 500 of its own,
+// and the drain has to happen before that answer is written.
 import type { APIContext, MiddlewareNext } from 'astro';
 
 import { runInRequestContext } from './lib/request-context';
@@ -40,7 +42,9 @@ warnIfPinHashingDisabled();
 // lets the store validate its dataset once per request instead of once per
 // read (src/lib/request-context.ts).
 export async function onRequest(context: APIContext, next: MiddlewareNext): Promise<Response> {
-  const response = await runInRequestContext(next);
-  await abandonBody(context.request);
-  return response;
+  try {
+    return await runInRequestContext(next);
+  } finally {
+    await abandonBody(context.request);
+  }
 }
