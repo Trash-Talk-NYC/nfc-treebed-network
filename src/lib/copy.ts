@@ -72,13 +72,13 @@ export const ADOPT = {
   title: { en: 'Put your name on it', es: 'Pon tu nombre' },
   firstName: { en: 'First name', es: 'Nombre' },
   lastName: { en: 'Last name', es: 'Apellido' },
-  username: { en: 'Username', es: 'Nombre de usuario' },
-  pin: { en: 'PIN', es: 'PIN' },
   email: { en: 'Email', es: 'Correo electrónico' },
   phone: { en: 'Phone', es: 'Teléfono' },
-  pinHelp: {
-    en: "Pick a PIN to sign in later — 4 to 8 digits. It's the only thing you'll need to remember.",
-    es: 'Elige un PIN para entrar después: de 4 a 8 dígitos. Es lo único que tendrás que recordar.',
+  // No password, no PIN, no code: the captain chose passwordless, and there is
+  // deliberately nothing here to invent or forget.
+  noSecret: {
+    en: 'No password to invent or forget.',
+    es: 'Sin contraseña que inventar ni que olvidar.',
   },
   // No policy exists yet, so no link is rendered — a dead link on a form
   // collecting an email and a phone number is worse than none
@@ -97,22 +97,12 @@ export const ADOPT = {
     en: 'Both slots just filled up. This bed has the people it needs.',
     es: 'Los dos lugares se acaban de ocupar. Este cantero ya tiene quien lo cuide.',
   },
-  busy: {
-    en: 'Too many people are signing up at once. Give it a moment and try again.',
-    es: 'Demasiada gente se está registrando a la vez. Espera un momento e inténtalo otra vez.',
-  },
 } satisfies Record<string, Phrase>;
 
-/** Field-level validation messages. Same keys as `AdoptInput`. */
+/** Field-level validation messages. Same keys as `AdoptErrorCode`. */
 export const ADOPT_ERRORS = {
   firstName: { en: 'Tell us your first name.', es: 'Dinos tu nombre.' },
   lastName: { en: 'Tell us your last name.', es: 'Dinos tu apellido.' },
-  username: {
-    en: 'Usernames are 2–24 letters, numbers, or underscores.',
-    es: 'El nombre de usuario lleva de 2 a 24 letras, números o guiones bajos.',
-  },
-  usernameTaken: { en: 'That username is taken.', es: 'Ese nombre de usuario ya está en uso.' },
-  pin: { en: 'PIN must be 4–8 digits.', es: 'El PIN debe tener de 4 a 8 dígitos.' },
   email: { en: 'That email doesn’t look right.', es: 'Ese correo no parece correcto.' },
   phone: { en: 'That phone number doesn’t look right.', es: 'Ese teléfono no parece correcto.' },
 } satisfies Record<string, Phrase>;
@@ -204,9 +194,18 @@ export const TOO_LARGE = {
   back: { en: 'Back to the bed', es: 'Volver al cantero' },
 } satisfies Record<string, Phrase>;
 
-/** Sign-in, for a steward coming back. */
+/**
+ * Sign-in, for a steward coming back.
+ *
+ * Pre-existing, and untouched on purpose: the captain's passwordless decision
+ * removes the secret from the ADOPT form, and migrating these screens to a
+ * tap-to-sign-in link is `adopt-name-split-r5`. Nobody created by the new
+ * adopt form has a PIN, so nobody created by it can use this screen yet.
+ */
 export const AUTH = {
   title: { en: 'Sign in', es: 'Entrar' },
+  username: { en: 'Username', es: 'Nombre de usuario' },
+  pin: { en: 'PIN', es: 'PIN' },
   sub: {
     en: 'Your username and the PIN you picked.',
     es: 'Tu nombre de usuario y el PIN que elegiste.',

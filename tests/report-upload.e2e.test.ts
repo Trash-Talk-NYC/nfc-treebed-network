@@ -718,12 +718,16 @@ describe('oversized report uploads, end to end', () => {
 });
 
 describe('a sign-in that arrives past the PIN-hash bound', () => {
-  // What bounds /auth and /adopt is the CPU a bcrypt costs, so the shed path
-  // opens only when hashes overlap — and how many overlap depends on how fast
-  // the box is, which is no basis for an assertion. Driven instead with a
-  // server whose bound is zero, the way the shed-read paths above are: the
-  // question worth measuring is what the visitor actually receives, and that
-  // is the same answer at any bound.
+  // What bounds /auth is the CPU a bcrypt costs, so the shed path opens only
+  // when hashes overlap — and how many overlap depends on how fast the box is,
+  // which is no basis for an assertion. Driven instead with a server whose
+  // bound is zero, the way the shed-read paths above are: the question worth
+  // measuring is what the visitor actually receives, and that is the same
+  // answer at any bound.
+  //
+  // `/adopt` used to be shed here too. It collects no secret any more (the
+  // captain's passwordless decision), so it hashes nothing and this bound no
+  // longer reaches it — which is what the second case below measures.
   let full: Served;
 
   beforeAll(async () => {
@@ -758,32 +762,48 @@ describe('a sign-in that arrives past the PIN-hash bound', () => {
     expect(html).toContain('data-es="ENTRAR"');
   }, 60_000);
 
-  it('hands the adopt form back filled in, so a slot is never lost to a busy server', async () => {
+  it('never renders a password, PIN or code field on the adopt form', async () => {
     withServerLog(() => full.log());
+    // The captain ordered the field dropped. This is the assertion that keeps
+    // it dropped, in both languages, rather than a comment saying so.
+    for (const lang of ['en', 'es']) {
+      const html = await (await fetch(`${full.origin}/t/${TAG}/adopt?lang=${lang}`)).text();
+      expect(html).not.toContain('type="password"');
+      expect(html).not.toContain('name="pin"');
+      expect(html).not.toContain('name="username"');
+      expect(html).toContain('name="firstName"');
+      expect(html).toContain('name="lastName"');
+      expect(html).toContain('name="email"');
+    }
+  }, 60_000);
+  it('still takes an adoption while sign-in is saturated, because it hashes nothing', async () => {
+    withServerLog(() => full.log());
+    // The good half of the passwordless trade: a slot is no longer lost to a
+    // busy sign-in path, because adoption never buys a bcrypt to be shed at.
     const posted = await fetch(`${full.origin}/t/${TAG}/adopt`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
-      body:
-        'firstName=R.&lastName=Okafor&username=r_okafor&pin=4321' +
-        '&email=r.okafor%40example.com&phone=%2B1+555+010+1234',
+      body: 'firstName=Rita&lastName=Okafor&email=r.okafor%40example.com&phone=%2B1+555+010+1234',
       redirect: 'manual',
     });
 
-    expect(posted.status).toBe(503);
-    expect(posted.headers.get('retry-after')).toBe('5');
-    const html = await posted.text();
-    expect(html).toContain('signing up at once');
-    expect(html).toContain('value="R."');
-    expect(html).toContain('value="Okafor"');
-    expect(html).toContain('value="r_okafor"');
-    expect(html).toContain('value="r.okafor@example.com"');
-    expect(html).not.toContain('4321');
-    // Shed before the hash, so nothing was stored and the slot is still there.
+    expect(posted.status).toBe(303);
+    expect(posted.headers.get('location')).toBe(`/t/${TAG}/adopted`);
+    // And the session cookie is what carries them from here: it is the only
+    // return path a steward has until the tap-to-sign-in link lands.
+    expect(posted.headers.getSetCookie().some((c) => c.startsWith('tg_session='))).toBe(true);
+
     const data = JSON.parse(await readFile(path.join(full.dataDir, 'store.json'), 'utf8')) as {
-      users: Record<string, { username: string }>;
+      users: Record<string, { username: string; pinHash: string | null; hasSignInRoute: boolean }>;
     };
-    expect(Object.values(data.users).map((u) => u.username)).toEqual(['marisol_r']);
+    const rita = Object.values(data.users).find((u) => u.username === 'rita_o');
+    // The handle is derived from the name — nobody typed one.
+    expect(rita).toBeDefined();
+    // And no secret was stored, because none was collected.
+    expect(rita?.pinHash).toBeNull();
+    expect(rita?.hasSignInRoute).toBe(false);
   }, 60_000);
+
 });
 
 describe('an upload that arrives past the shed count', () => {

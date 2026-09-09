@@ -1,19 +1,27 @@
 ---
 // One short form. The whole of what it takes to put your name on a bed.
 //
-// Fields, in the order the approved screens show them: first name, last name,
-// then the two the captain's own gap notes asked for — the single "YOUR NAME"
-// split in two, and the phone made optional ("Right now the form refuses to
-// submit without one, which costs signups on a sidewalk").
+// Four fields, exactly as the approved screens draw them: first name, last
+// name, email, and a phone the captain's own gap note made optional ("Right
+// now the form refuses to submit without one, which costs signups on a
+// sidewalk"). The single "YOUR NAME" field the old form had is split in two,
+// which was the other gap note.
 //
-// A username and a PIN sit with them, which the approved screen does not show,
-// and this is the one deliberate departure from it. That screen's line reads
-// "We'll email you a link to sign in", which is spec §2's magic-link plan — the
-// plan the captain later replaced with username + numeric PIN for the street
-// MVP (AGENTS.md, "Security decisions"). No email is sent by anything in this
-// build, so shipping the screen as drawn would leave every steward created here
-// with no way back in at all. The two fields are what the captain's own later
-// decision costs, and the copy says plainly what the PIN is for.
+// **No password, no PIN, no code.** The captain's passwordless decision
+// superseded the PIN plan, and ordered the field, the column and the
+// username+PIN screen dropped. Three reasons, all of which a secret here would
+// undo: a forgotten one is permanent lockout with no recovery path; a cloned
+// plaque on a public repo hands an attacker a reusable secret to harvest; and
+// a short code on a street object has no brute-force protection. The handle
+// shown on the plaque is derived from the name instead (`deriveUsername`).
+//
+// What carries a steward from here is the session cookie set below, which
+// lasts a year — sign-in is rare precisely because of it. The tap-to-sign-in
+// link that replaces the PIN screens is `adopt-name-split-r5` and needs the
+// org's Brevo account, so it is NOT built here. Until it lands, a steward who
+// clears cookies has no way back in; that gap is stated in the PR rather than
+// closed with the secret the captain removed. The existing `/auth` screens are
+// left alone for the same reason — migrating them is that task too.
 //
 // Email and phone are PII: stored, never displayed anywhere public, never
 // echoed into any client payload. Only the username and the initials are
@@ -55,11 +63,12 @@ const bed = view.bed;
 let openSlots = view.openSlots;
 let errors: AdoptErrors = {};
 let formError: Phrase | null = null;
-// Values echoed back on validation failure — the PIN deliberately never is.
-let values = { firstName: '', lastName: '', username: '', email: '', phone: '' };
+// Everything the visitor typed, echoed back on a validation failure. All of it
+// this time: there is no secret on this form to withhold.
+let values = { firstName: '', lastName: '', email: '', phone: '' };
 
 if (Astro.request.method === 'POST') {
-  // Public and unauthenticated, like every POST here: six short text fields
+  // Public and unauthenticated, like every POST here: four short text fields
   // never need more, and an unbounded body is free memory exhaustion.
   const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'form');
   // Each reason gets its own answer: a 413 would send somebody off to shorten
@@ -68,19 +77,11 @@ if (Astro.request.method === 'POST') {
   const input = {
     firstName: String(form.get('firstName') ?? ''),
     lastName: String(form.get('lastName') ?? ''),
-    username: String(form.get('username') ?? ''),
-    pin: String(form.get('pin') ?? ''),
     email: String(form.get('email') ?? ''),
     phone: String(form.get('phone') ?? ''),
   };
   const checked = validateAdoptInput(input);
-  values = {
-    firstName: checked.values.firstName,
-    lastName: checked.values.lastName,
-    username: checked.values.username,
-    email: checked.values.email,
-    phone: checked.values.phone,
-  };
+  values = { ...checked.values };
   errors = checked.errors;
   if (Object.keys(errors).length === 0) {
     try {
@@ -89,17 +90,11 @@ if (Astro.request.method === 'POST') {
       return Astro.redirect(langLink(`${base}/adopted`, lang), 303);
     } catch (err) {
       if (err instanceof RuleError && err.code === 'slots-full') {
+        // The only rule this form can lose to now. Nothing here hashes, so
+        // there is no CPU bound left to be shed at, and the handle is derived
+        // rather than chosen, so there is no collision to report either.
         formError = ADOPT.slotsJustFilled;
         openSlots = 0;
-      } else if (err instanceof RuleError && err.code === 'username-taken') {
-        errors.username = 'usernameTaken';
-      } else if (err instanceof RuleError && err.code === 'busy') {
-        // Shed because too many PIN hashes are already running. The form comes
-        // back filled in — everything but the PIN, which is never echoed — so a
-        // retry costs one tap rather than the whole field set.
-        formError = ADOPT.busy;
-        Astro.response.status = 503;
-        Astro.response.headers.set('retry-after', '5');
       } else {
         throw err;
       }
@@ -188,51 +183,6 @@ if (Astro.request.method === 'POST') {
           )}
 
           <div>
-            <label class="field-label" for="username" {...bi(ADOPT.username, lang)}>
-              {ADOPT.username[lang]}
-            </label>
-            <input
-              class="field-input"
-              id="username"
-              name="username"
-              type="text"
-              placeholder="@"
-              value={values.username}
-              autocomplete="username"
-              autocapitalize="none"
-              required
-            />
-            {errors.username && (
-              <div class="field-error" {...bi(ADOPT_ERRORS[errors.username], lang)}>
-                {ADOPT_ERRORS[errors.username][lang]}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <label class="field-label" for="pin" {...bi(ADOPT.pin, lang)}>
-              {ADOPT.pin[lang]}
-            </label>
-            <input
-              class="field-input"
-              id="pin"
-              name="pin"
-              type="password"
-              inputmode="numeric"
-              autocomplete="new-password"
-              required
-            />
-            {errors.pin && (
-              <div class="field-error" {...bi(ADOPT_ERRORS.pin, lang)}>
-                {ADOPT_ERRORS.pin[lang]}
-              </div>
-            )}
-            <p class="body-copy field-help" {...bi(ADOPT.pinHelp, lang)}>
-              {ADOPT.pinHelp[lang]}
-            </p>
-          </div>
-
-          <div>
             <label class="field-label" for="email" {...bi(ADOPT.email, lang)}>
               {ADOPT.email[lang]}
             </label>
@@ -273,6 +223,12 @@ if (Astro.request.method === 'POST') {
               </div>
             )}
           </div>
+
+          {/* Says what the form does NOT ask for, which on a street object is
+              the reassuring half: nothing to invent, nothing to forget. */}
+          <p class="body-copy field-help" {...bi(ADOPT.noSecret, lang)}>
+            {ADOPT.noSecret[lang]}
+          </p>
 
           {/* The privacy sentence, with no link. When there IS a policy, the
               link goes here and nowhere else — one obvious place, left on

@@ -152,22 +152,35 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 
 ## Security decisions (read before touching auth)
 
-- **PIN auth is an MVP decision with a known weakness, not a considered long-term design.**
-  The captain chose username + numeric PIN for the street MVP (replacing spec §2's magic-link plan).
-  A 4–8 digit PIN is brute-forceable and there is no rate limiting on sign-in attempts yet.
-  Revisit before any real rollout.
-- PINs are bcrypt-hashed (`hashPin`/`verifyPin` in service.ts). Never store, log, or echo a plaintext PIN — the adopt form deliberately does not re-fill the PIN field on validation errors.
+- **The adopt form collects NO secret, and must not be given one back.**
+  The captain's passwordless decision superseded the earlier PIN plan and ordered the field, the `pinHash` column and the username+PIN screen dropped.
+  His three reasons, each of which a secret here undoes: a forgotten one is permanent lockout with no recovery path; a cloned plaque on a public repo is a reusable secret to harvest; and a short numeric code on a street object has no brute-force protection.
+  He also preferred a tap-to-sign-in LINK over a typed code, because a typed code is relay-phishable.
+  A steward's public handle is derived from their name instead (`deriveUsername` in `service.ts`) — Marisol Rivera → `@marisol_r`, the shape the seed already had.
+- **What carries a steward today is the session cookie, which lasts a year.**
+  Sign-in is rare precisely because of that, which is why adopting without a way back in is survivable rather than broken.
+  **Known gap, stated rather than buried: a steward who clears cookies before the tap-to-sign-in link lands has no return path.**
+  Building that link needs the org's Brevo account and belongs to `adopt-name-split-r5`.
+- **The `/auth` PIN screens are pre-existing and deliberately left in place.**
+  Nobody the new adopt form creates can use them — `pinHash` is null and `hasSignInRoute` is false, so `signIn` gives them the unmatchable hash — and migrating those screens is that same later task.
+  A 4–8 digit PIN is brute-forceable and there is still no rate limiting on sign-in attempts.
+  Do not build new flows on them.
+- Where a PIN still exists (the pre-existing `/auth` screens and the seeded steward), it is bcrypt-hashed (`hashPin`/`verifyPin` in service.ts). Never store, log, or echo a plaintext PIN.
+  The adopt form has no field to re-fill: it collects no secret, so everything the visitor typed comes back on a validation error.
 - **`MAX_INFLIGHT_PIN_HASHES` (service.ts, 4) bounds the backlog a PIN hash can build, not how many PINs may be tried and not the CPU itself.**
+  It covers `/auth` only. `/adopt` used to hash too; passwordless removed that, so the only work a flood can buy there is two slots' worth of reads.
   `request-body.ts` bounds bytes, time and concurrency for every public POST, but it releases a read's share of `MAX_INFLIGHT_BODY_BYTES` before any rule runs, and a bcrypt is ~150–300ms of the one thread that also serves every tap.
-  So `/auth` and `/adopt` were the one place an anonymous caller could still queue unbounded work: a few dozen POSTs a second saturate the loop and every tap, report and applause stalls behind however many hashes the flood managed to start.
+  So `/auth` is the one place an anonymous caller can still queue unbounded work: a few dozen POSTs a second saturate the loop and every tap, report and applause stalls behind however many hashes the flood managed to start.
   Past the bound the request is shed rather than queued — waiting in line for a saturated CPU is the stall, not the cure — and `signIn` takes its slot *before* the username lookup, so being shed can't reveal what the constant-time compare below is there to hide.
   What that buys is bounded queue depth and bounded added latency, not a bounded share of the CPU: bcryptjs yields to the event loop once per 100ms of synchronous work (`MAX_EXECUTION_TIME`), not per round, so four admitted hashes still keep the thread in bcrypt nearly continuously. A tap arriving mid-flood waits behind at most four hashes — a few hundred milliseconds — instead of behind an unbounded queue. The door screen, the report and the applause stay usable under load; they do not stay fast.
-  The other side of that trade, deliberately: a sustained anonymous flood holds sign-in and adoption at their busy screens for as long as it lasts. Auth loses to the tap/report path, which is the whole reason the bound sheds. Per-IP limiting at the platform tier is the eventual remedy, alongside the per-PIN and per-account rate limiting that is still absent and still owed before any real rollout — this bounds the cost of attempts, not their number.
-  Both screens answer it themselves: the sign-in form and the adopt form come back with a 503, `retry-after`, and everything the visitor typed except the PIN. Shedding logs at most one line a minute, carrying the number shed since the last one: the node adapter writes no access log, so 503s are otherwise invisible from the box, but a line per refusal would let an anonymous flood decide how much stderr it costs us — the same reason `request-body.ts` says nothing at all for a `busy` refusal.
+  The other side of that trade, deliberately: a sustained anonymous flood holds sign-in at its busy screen for as long as it lasts. Auth loses to the tap/report path, which is the whole reason the bound sheds. Per-IP limiting at the platform tier is the eventual remedy, alongside the per-PIN and per-account rate limiting that is still absent and still owed before any real rollout — this bounds the cost of attempts, not their number.
+  The sign-in screen answers it itself: the form comes back with a 503, `retry-after`, and the username still in it — never the PIN, which no response carries back. Shedding logs at most one line a minute, carrying the number shed since the last one: the node adapter writes no access log, so 503s are otherwise invisible from the box, but a line per refusal would let an anonymous flood decide how much stderr it costs us — the same reason `request-body.ts` says nothing at all for a `busy` refusal.
   How many hashes overlap depends on how fast the box is, so the end-to-end proof of what a shed visitor receives runs against a server started with `TREEBED_MAX_INFLIGHT_PIN_HASHES=0` — a test seam like the two in `request-body.ts`, not a deployment knob. Zero stays legal for exactly that reason, and it is announced the same way the session secret is: `scripts/preflight.mjs` warns before the port is bound under `npm start` / `npm run preview`, and `warnIfPinHashingDisabled` (called from `src/middleware.ts`) covers a server started any other way.
   That second one is *not* a boot warning and neither is the session-secret assertion beside it — measured against the built bundle, the node adapter imports the middleware lazily (`middleware: () => import("./virtual_astro_middleware.mjs")`), so both speak on the first request of any route. Nothing inside the app can speak earlier; preflight is the only code that runs before the server listens.
-- `signIn` runs a bcrypt compare even when the username is unknown, so unknown-user and wrong-PIN cost the same. Don't "optimize" that short circuit back in — without rate limiting it is the only thing making username enumeration expensive.
-  `adoptBed` keeps the same price on the same question: its pre-filter checks only that the bed exists and has a slot free, and `username-taken` is answered from inside the transaction, past the hash. Reading the username cheaply up front would be a second, free oracle for the question `signIn` charges a bcrypt for, and it sheds nothing anyway — a flood sends handles nobody holds, so they pass the check and buy the hash regardless. The bed and slot legs are the ones that shed: once both slots are taken, every further POST refuses before hashing.
+- `signIn` runs a bcrypt compare even when the username is unknown, so unknown-user and wrong-PIN cost the same.
+  Don't "optimize" that short circuit back in — without rate limiting it is the only thing making username enumeration expensive.
+  A steward with no sign-in route gets the same unmatchable hash, so "no such person" and "cannot sign in" are not distinguishable by timing either.
+  `adoptBed` no longer has that question to leak: nobody submits a handle, so there is no "that username is taken" to answer and no oracle to price. What sheds a flood there is the bed and the slots — once both are taken, every further POST refuses on three reads.
 - `TREEBED_SESSION_SECRET` is required in production; the app refuses to sign cookies with a generated one. The `.data/session-secret` fallback is dev-only.
   The requirement is checked twice so a misconfigured deploy can't reach traffic: `scripts/preflight.mjs` runs as npm's `prestart` and `prepreview` and refuses to boot, and `src/middleware.ts` asserts at module load so a server started any other way fails on its first request of any route rather than on the first one that touches a cookie.
 - **Every public POST reads its body through `src/lib/request-body.ts`, never `request.formData()` directly** — the adapter's own default limit is 1GB of buffered memory.
@@ -232,6 +245,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   The opaque tag ID stays the URL and an internal key, and is displayed on exactly one screen: the calm "not assigned to a bed yet" one, where it is the only thing there is to say.
   A bed NYC has no number for prints no number at all rather than falling back to the plate.
 - **A steward is shown as username first, then initials — `@marisol_r`, `M. R.`** (`publicHandle` / `publicInitials` in `types.ts`).
+  The handle is DERIVED from the name, not typed: the approved form has no username field, and `deriveUsername` gives the first name plus the last initial — exactly as much as the initials printed under it already give away.
   Full name, email and phone are admin-only and must never reach a public screen or payload.
   `fullName` exists for the admin surface and has no caller in the visitor flow.
 - **The word is "steward", not "adopter", throughout** — copy, types, comments and test names alike.
@@ -240,6 +254,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   `ADOPT.privacy` is the plain sentence, and `adopt.astro` marks the single obvious place the link goes when there is one.
 - **A steward may be held without an email**, because the sidewalk case needs it (answered open question 3).
   `User.hasSignInRoute` and `User.recordHeldOnBehalf` record that explicitly, and `pinHash` is nullable; `signIn` gives such a user the unmatchable hash so the refusal costs the same bcrypt as any other.
+  The two flags are distinct on purpose: a steward who adopts at the tag today also has `hasSignInRoute: false` (there is no secret and no link yet), but `recordHeldOnBehalf: false` — they signed themselves up and gave an email, and nobody is holding the record for them.
   **Do not invent an outreach mechanism, and never read a missing email as consent to be contacted.**
   The admin flow that creates these is a later task.
 - **The NYC sync is read-only and additive.**

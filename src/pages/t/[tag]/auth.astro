@@ -11,7 +11,7 @@ import { RuleError, getBedView, signIn } from '../../../lib/service';
 import { getSessionUserId, setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
-import { ADOPT, AUTH, COMMON } from '../../../lib/copy';
+import { AUTH, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang, type Phrase } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
@@ -84,8 +84,8 @@ if (Astro.request.method === 'POST') {
     <p class="body-copy" {...bi(AUTH.sub, lang)}>{AUTH.sub[lang]}</p>
     <form method="POST" class="auth-form">
       <div>
-        <label class="field-label" for="username" {...bi(ADOPT.username, lang)}>
-          {ADOPT.username[lang]}
+        <label class="field-label" for="username" {...bi(AUTH.username, lang)}>
+          {AUTH.username[lang]}
         </label>
         <input
           class="field-input"
@@ -100,7 +100,7 @@ if (Astro.request.method === 'POST') {
         />
       </div>
       <div>
-        <label class="field-label" for="pin" {...bi(ADOPT.pin, lang)}>{ADOPT.pin[lang]}</label>
+        <label class="field-label" for="pin" {...bi(AUTH.pin, lang)}>{AUTH.pin[lang]}</label>
         <input
           class="field-input"
           id="pin"

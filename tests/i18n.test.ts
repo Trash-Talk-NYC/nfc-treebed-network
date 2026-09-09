@@ -115,7 +115,7 @@ describe('the dictionary', () => {
     // is. Everything else differing is what "translated" means, and this is
     // what catches a screen added in English with the Spanish copied across.
     const identical = phrases.filter(([, p]) => p.en === p.es).map(([name]) => name);
-    expect(identical).toEqual(['ADOPT.pin']);
+    expect(identical).toEqual(['AUTH.pin']);
   });
 
   it('names all four problem categories in both languages', () => {

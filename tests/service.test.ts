@@ -15,6 +15,7 @@ import {
   hashPin,
   hasPhotoThisWeek,
   logPhoto,
+  deriveUsername,
   logTap,
   reportProblem,
   sendApplause,
@@ -34,10 +35,8 @@ function freshStore(): LocalStore {
 
 function adoptInput(overrides: Partial<Parameters<typeof validateAdoptInput>[0]> = {}) {
   return {
-    firstName: 'R.',
+    firstName: 'Rita',
     lastName: 'Okafor',
-    username: 'r_okafor',
-    pin: '4321',
     email: 'r.okafor@example.com',
     phone: '+1 555 010 1234',
     ...overrides,
@@ -80,11 +79,55 @@ describe('PIN hashing', () => {
     expect(await verifyPin('4322', hash)).toBe(false);
   });
 
-  it('never stores a plaintext PIN on the user record', async () => {
-    const user = await adoptBed(store, { plate: PLATE, input: adoptInput({ pin: '987654' }) });
-    expect(JSON.stringify(user)).not.toContain('987654');
-    expect(user.pinHash).not.toBeNull();
-    expect(await verifyPin('987654', user.pinHash!)).toBe(true);
+  it('stores no secret at all for a steward who adopts at the tag', async () => {
+    // The captain chose passwordless and ordered the field dropped: a
+    // forgotten secret is permanent lockout, and a cloned plaque on a public
+    // repo is a reusable secret to harvest. The form collects none, so there
+    // is none to store — and `hasSignInRoute` says so plainly, rather than
+    // leaving a null hash for somebody to read as an accident.
+    const user = await adoptBed(store, { plate: PLATE, input: adoptInput() });
+    expect(user.pinHash).toBeNull();
+    expect(user.hasSignInRoute).toBe(false);
+    // Not the pen-and-paper case: they signed themselves up and gave an email.
+    expect(user.recordHeldOnBehalf).toBe(false);
+  });
+
+  it('refuses to sign in a steward who has no secret, at the same price as any other miss', async () => {
+    await adoptBed(store, { plate: PLATE, input: adoptInput() });
+    await expect(signIn(store, { username: 'rita_o', pin: '1234' })).rejects.toMatchObject({
+      code: 'invalid-credentials',
+    });
+  });
+});
+
+describe('the handle, derived rather than typed', () => {
+  it('takes the first name and the last initial, the way the seed does', async () => {
+    // Marisol Rivera → @marisol_r, printed above M. R. — the shape the captain
+    // has been looking at across the whole review.
+    expect(deriveUsername('Marisol', 'Rivera', () => false)).toBe('marisol_r');
+    expect(deriveUsername('Rita', 'Okafor', () => false)).toBe('rita_o');
+  });
+
+  it('folds accents rather than dropping the letters under them', () => {
+    // A third of the names on this block carry one, and `jos_g` would be a
+    // worse handle than `jose_g` for the same person.
+    expect(deriveUsername('José', 'Güell', () => false)).toBe('jose_g');
+    expect(deriveUsername('Ñico', 'Peña', () => false)).toBe('nico_p');
+  });
+
+  it('still produces a handle for a name with nothing in the alphabet', () => {
+    expect(deriveUsername('王', '小', () => false)).toBe('steward');
+  });
+
+  it('walks past a handle somebody already holds', () => {
+    const taken = new Set(['marisol_r', 'marisol_r2']);
+    expect(deriveUsername('Marisol', 'Rivera', (c) => taken.has(c))).toBe('marisol_r3');
+  });
+
+  it('hands two neighbours with the same name different handles', async () => {
+    const first = await adoptBed(store, { plate: PLATE, input: adoptInput({ firstName: 'Marisol', lastName: 'Rivera' }) });
+    // marisol_r is the seeded steward, so the new one cannot have it.
+    expect(first.username).toBe('marisol_r2');
   });
 });
 
@@ -98,25 +141,16 @@ describe('two-slot cap', () => {
   it('allows a second steward, then refuses a third server-side', async () => {
     await adoptBed(store, { plate: PLATE, input: adoptInput() });
     await expect(
-      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'third_wheel', email: 't@example.com' }) }),
+      adoptBed(store, { plate: PLATE, input: adoptInput({ firstName: 'Tam', email: 't@example.com' }) }),
     ).rejects.toMatchObject({ code: 'slots-full' });
     const view = await getBedView(store, PLATE);
     expect(view?.openSlots).toBe(0);
-  });
-
-  it('refuses a taken username regardless of case or leading @', async () => {
-    // marisol_r is the seeded steward; one slot is still open.
-    await expect(
-      adoptBed(store, { plate: PLATE, input: adoptInput({ username: '@Marisol_R' }) }),
-    ).rejects.toMatchObject({ code: 'username-taken' });
   });
 
   it('validates adopt input with explicit field error codes', () => {
     const { errors } = validateAdoptInput({
       firstName: '',
       lastName: '',
-      username: 'not ok!',
-      pin: '12',
       email: 'nope',
       phone: '1',
     });
@@ -125,8 +159,6 @@ describe('two-slot cap', () => {
     expect(errors).toEqual({
       firstName: 'firstName',
       lastName: 'lastName',
-      username: 'username',
-      pin: 'pin',
       email: 'email',
       phone: 'phone',
     });
@@ -270,8 +302,8 @@ describe('concurrent taps', () => {
 
   it('holds the two-slot cap when two people adopt the last slot at once', async () => {
     const results = await Promise.allSettled([
-      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'first_one', email: 'a@example.com' }) }),
-      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'second_one', email: 'b@example.com' }) }),
+      adoptBed(store, { plate: PLATE, input: adoptInput({ firstName: 'Ada', email: 'a@example.com' }) }),
+      adoptBed(store, { plate: PLATE, input: adoptInput({ firstName: 'Bea', email: 'b@example.com' }) }),
     ]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect((await getBedView(store, PLATE))?.openSlots).toBe(0);
@@ -416,39 +448,23 @@ describe('sign in', () => {
     expect(outcomes.at(-1)).toMatchObject({ code: 'busy' });
   });
 
-  it('sheds an adoption whose PIN hash finds no slot, without touching the store', async () => {
+  it('leaves adoption alone at the PIN-hash bound, because adoption hashes nothing', async () => {
+    // /adopt used to buy a bcrypt and be shed at this bound with the rest.
+    // Passwordless removed the hash, so a saturated sign-in path no longer
+    // costs anybody a slot — which is the good half of the trade.
     const held = Array.from({ length: MAX_INFLIGHT_PIN_HASHES }, () =>
       signIn(store, { username: 'marisol_r', pin: '1234' }).catch(() => null),
     );
-    await expect(
-      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'shed_out' }) }),
-    ).rejects.toMatchObject({ code: 'busy' });
-    await Promise.all(held);
-    expect(await store.getUserByUsername('shed_out')).toBeNull();
-  });
-
-  it('answers a taken username only past the hash, so probing one still costs a bcrypt', async () => {
-    const held = Array.from({ length: MAX_INFLIGHT_PIN_HASHES }, () =>
-      signIn(store, { username: 'marisol_r', pin: '1234' }).catch(() => null),
-    );
-    // marisol_r is taken and a slot is still free: a pre-filter that read the
-    // username would answer 'username-taken' from three cheap reads, which is
-    // the free enumeration oracle signIn's constant-time compare exists to deny.
-    await expect(
-      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'marisol_r' }) }),
-    ).rejects.toMatchObject({ code: 'busy' });
+    const user = await adoptBed(store, { plate: PLATE, input: adoptInput() });
+    expect(user.username).toBe('rita_o');
     await Promise.all(held);
   });
 
-  it('refuses a full bed before the hash, which is what sheds a flood', async () => {
+  it('refuses a full bed on three cheap reads, which is what sheds a flood', async () => {
     await adoptBed(store, { plate: PLATE, input: adoptInput() });
-    const held = Array.from({ length: MAX_INFLIGHT_PIN_HASHES }, () =>
-      signIn(store, { username: 'marisol_r', pin: '1234' }).catch(() => null),
-    );
     await expect(
-      adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'third_wheel' }) }),
+      adoptBed(store, { plate: PLATE, input: adoptInput({ firstName: 'Tam' }) }),
     ).rejects.toMatchObject({ code: 'slots-full' });
-    await Promise.all(held);
   });
 });
 

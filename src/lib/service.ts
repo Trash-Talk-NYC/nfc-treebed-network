@@ -23,7 +23,6 @@ export class RuleError extends Error {
       | 'no-open-report'
       | 'already-dumping'
       | 'slots-full'
-      | 'username-taken'
       | 'invalid-credentials'
       | 'invalid-input'
       | 'busy',
@@ -56,11 +55,14 @@ export async function verifyPin(pin: string, pinHash: string): Promise<boolean> 
  * `request-body.ts` bounds the bytes, the time and the concurrency of every
  * public POST, but a body it admits costs nothing to serve until a rule turns
  * it into work — and a bcrypt is ~150–300ms of the one thread that also serves
- * every tap. `/auth` and `/adopt` are both public and unauthenticated, and a
- * read's share of `MAX_INFLIGHT_BODY_BYTES` is released before either rule
- * runs, so without this nothing at all queues the hashing: a few dozen POSTs a
- * second to `/auth` saturate the loop and every tap, report and confirm stalls
- * behind them.
+ * every tap. `/auth` is public and unauthenticated, and a read's share of
+ * `MAX_INFLIGHT_BODY_BYTES` is released before the rule runs, so without this
+ * nothing at all queues the hashing: a few dozen POSTs a second to `/auth`
+ * saturate the loop and every tap, report and applause stalls behind them.
+ *
+ * `/adopt` used to be the other one. It no longer hashes anything — the
+ * captain's passwordless decision means the form collects no secret — so the
+ * only work a flood can buy there is two slots' worth of reads.
  *
  * It sheds rather than queues, the same way an over-budget body does: waiting
  * in line for a saturated CPU is the stall, not the cure.
@@ -73,9 +75,9 @@ export async function verifyPin(pin: string, pinHash: string): Promise<boolean> 
  * flood managed to start. The plaque, the report and the confirm stay usable
  * under load; they do not stay fast.
  *
- * The other side of that trade is that a sustained flood holds `/auth` and
- * `/adopt` at their busy screens for as long as it lasts. That is deliberate:
- * auth loses to the street action. Per-IP limiting at the platform tier is the
+ * The other side of that trade is that a sustained flood holds `/auth` at its
+ * busy screen for as long as it lasts. That is deliberate: auth loses to the
+ * street action. Per-IP limiting at the platform tier is the
  * eventual remedy, alongside the per-PIN rate limiting that is still absent and
  * still owed before any real rollout (AGENTS.md) — this bounds the cost of
  * attempts, not their number.
@@ -89,9 +91,9 @@ export async function verifyPin(pin: string, pinHash: string): Promise<boolean> 
  * `TREEBED_MAX_INFLIGHT_PIN_HASHES` exists so the end-to-end suite can watch a
  * real client be shed without racing a bcrypt; it is a test seam, like the two
  * in request-body.ts, not a deployment knob. Zero is legal because that is the
- * value the suite drives the shed path with, and it disables sign-in and
- * adoption outright — which is why it is announced twice, by
- * `scripts/preflight.mjs` and by `warnIfPinHashingDisabled` below.
+ * value the suite drives the shed path with, and it disables sign-in outright
+ * — which is why it is announced twice, by `scripts/preflight.mjs` and by
+ * `warnIfPinHashingDisabled` below.
  */
 export const MAX_INFLIGHT_PIN_HASHES = boundFromEnv('TREEBED_MAX_INFLIGHT_PIN_HASHES', 4);
 
@@ -106,7 +108,7 @@ export const MAX_INFLIGHT_PIN_HASHES = boundFromEnv('TREEBED_MAX_INFLIGHT_PIN_HA
 export function warnIfPinHashingDisabled(): void {
   if (MAX_INFLIGHT_PIN_HASHES >= 1) return;
   console.warn(
-    `[service] TREEBED_MAX_INFLIGHT_PIN_HASHES=${MAX_INFLIGHT_PIN_HASHES}: sign-in and adoption are disabled, every attempt answers busy`,
+    `[service] TREEBED_MAX_INFLIGHT_PIN_HASHES=${MAX_INFLIGHT_PIN_HASHES}: sign-in is disabled, every attempt answers busy`,
   );
 }
 
@@ -402,16 +404,33 @@ export async function closeReport(
   });
 }
 
-const USERNAME_RE = /^[a-z0-9_]{2,24}$/i;
 const PIN_RE = /^\d{4,8}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+\d][\d\s().-]{6,19}$/;
 
+/**
+ * What the approved adopt form collects, and nothing more.
+ *
+ * **No secret.** The captain chose passwordless and ordered the PIN/password
+ * field dropped, for three reasons this build must not undo: a forgotten
+ * secret is permanent lockout with no recovery path; a cloned plaque on a
+ * public repo gives an attacker a reusable secret to harvest; and a short
+ * numeric code on a street object has no brute-force protection. The screen is
+ * drawn without one and is built without one.
+ *
+ * No username either. Public identity is still `@handle` — it is derived from
+ * the name (`deriveUsername`), the way the seeded steward's `@marisol_r` is
+ * derived from Marisol Rivera.
+ *
+ * What carries a steward from here is the year-long session cookie set at
+ * adoption. The tap-to-sign-in link that replaces the PIN screens belongs to
+ * `adopt-name-split-r5` and needs the org's Brevo account; until it lands, a
+ * steward who clears cookies has no way back in. That gap is stated in the PR
+ * rather than papered over with a secret the captain removed.
+ */
 export interface AdoptInput {
   firstName: string;
   lastName: string;
-  username: string;
-  pin: string;
   email: string;
   /**
    * Optional, by the captain's own note on the approved screens ("Phone is
@@ -432,14 +451,7 @@ export type AdoptField = keyof AdoptInput;
  * form that could not be Spanish. The keys match `ADOPT_ERRORS` in copy.ts, so
  * a rule without a translation is a type error.
  */
-export type AdoptErrorCode =
-  | 'firstName'
-  | 'lastName'
-  | 'username'
-  | 'usernameTaken'
-  | 'pin'
-  | 'email'
-  | 'phone';
+export type AdoptErrorCode = 'firstName' | 'lastName' | 'email' | 'phone';
 
 export type AdoptErrors = Partial<Record<AdoptField, AdoptErrorCode>>;
 
@@ -448,16 +460,12 @@ export function validateAdoptInput(raw: AdoptInput): { values: AdoptInput; error
   const values: AdoptInput = {
     firstName: raw.firstName.trim(),
     lastName: raw.lastName.trim(),
-    username: raw.username.trim().replace(/^@/, ''),
-    pin: raw.pin.trim(),
     email: raw.email.trim(),
     phone: raw.phone.trim(),
   };
   const errors: AdoptErrors = {};
   if (values.firstName.length < 1) errors.firstName = 'firstName';
   if (values.lastName.length < 1) errors.lastName = 'lastName';
-  if (!USERNAME_RE.test(values.username)) errors.username = 'username';
-  if (!PIN_RE.test(values.pin)) errors.pin = 'pin';
   if (!EMAIL_RE.test(values.email)) errors.email = 'email';
   // Given or not given; wrong only if it is there and malformed.
   if (values.phone !== '' && !PHONE_RE.test(values.phone)) errors.phone = 'phone';
@@ -465,27 +473,16 @@ export function validateAdoptInput(raw: AdoptInput): { values: AdoptInput; error
 }
 
 /**
- * The three things about stored state an adoption needs to be true, in the
- * order whose error the caller sees first: a bed that exists, a slot free on
- * it, a handle nobody has taken.
+ * The two things about stored state an adoption needs to be true: a bed that
+ * exists, and a slot free on it.
  *
- * Stated once and read twice — through `store` as a pre-filter, through `tx`
- * as the rule — so the two can't drift into telling one caller a different
- * story than the other depending on which copy fired.
- *
- * The username leg runs only when `username` is given, and the pre-filter
- * gives it none: answering "that username is taken" from three cheap reads is
- * a free enumeration oracle on a public route, where the constant-time compare
- * in `signIn` is what makes the same probe cost a bcrypt. It sheds nothing
- * either — a flood sends handles nobody holds, and those pass. What sheds a
- * flood is the bed and the slots: once both slots are taken, every further
- * POST refuses before any hash.
+ * There is no username leg any more — nobody submits one, so there is nothing
+ * to collide and nothing to answer about. That also closes the enumeration
+ * oracle this used to have to price carefully: a public route that would say
+ * "that handle is taken" is a free directory of everyone on the network, and
+ * the form no longer has a question to ask it with.
  */
-async function checkAdoptPreconditions(
-  store: Store,
-  plate: string,
-  username: string | null,
-): Promise<void> {
+async function checkAdoptPreconditions(store: Store, plate: string): Promise<void> {
   const bed = await store.getBed(plate);
   if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${plate}`);
 
@@ -493,8 +490,45 @@ async function checkAdoptPreconditions(
   if (active.length >= bed.slots) {
     throw new RuleError('slots-full', `${plate} already has ${bed.slots} stewards`);
   }
-  if (username !== null && (await store.getUserByUsername(username))) {
-    throw new RuleError('username-taken', `@${username} is taken`);
+}
+
+/** Trim to the handle alphabet: lowercase, ASCII letters/digits/underscore. */
+function handleSafe(part: string): string {
+  return part
+    .normalize('NFD')
+    // Strip the combining marks NFD just separated out, so José becomes jose
+    // rather than jos — a third of this block's names carry one.
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * The public handle, derived from the name rather than typed.
+ *
+ * The approved form collects a first and last name and nothing else, and the
+ * seeded steward shows the shape the captain has been looking at all along:
+ * Marisol Rivera → `@marisol_r`, printed above `M. R.`. So the handle is the
+ * first name and the last initial, which is exactly as much as the initials
+ * underneath it already give away.
+ *
+ * `taken` decides collisions rather than a store read, so the caller can run
+ * this inside the transaction that will write the user — two people with the
+ * same name adopting at once must not both be handed `@marisol_r`.
+ */
+export function deriveUsername(
+  firstName: string,
+  lastName: string,
+  taken: (candidate: string) => boolean,
+): string {
+  const first = handleSafe(firstName).slice(0, 20);
+  const initial = handleSafe(lastName).slice(0, 1);
+  // A name with nothing in the handle alphabet at all still needs a handle.
+  const base = first === '' ? 'steward' : initial === '' ? first : `${first}_${initial}`;
+  if (!taken(base)) return base;
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base}${n}`;
+    if (!taken(candidate)) return candidate;
   }
 }
 
@@ -509,36 +543,57 @@ export async function adoptBed(
     throw new RuleError('invalid-input', Object.values(errors).join(' '));
   }
 
-  // Cheap reads first: /adopt is public, and a bcrypt is ~150–300ms of the one
-  // thread that also serves every tap. A POST no slot can receive must not buy
-  // that CPU. Bed and slots only — the handle stays priced at a bcrypt, for the
-  // reason on `checkAdoptPreconditions`. This is a pre-filter, not the rule:
-  // the authoritative pass is inside the transaction below, so the race is
-  // unchanged and `slots-full` is still what a full bed hears.
-  await checkAdoptPreconditions(store, args.plate, null);
+  // Cheap reads first, as a pre-filter rather than the rule: a POST no slot
+  // can receive should not reach the write queue at all. The authoritative
+  // pass is inside the transaction below, so the race is unchanged and
+  // `slots-full` is still what a full bed hears.
+  //
+  // Nothing here buys CPU any more. Adoption used to cost a bcrypt, which is
+  // what `MAX_INFLIGHT_PIN_HASHES` was bounding on this route; with no secret
+  // to hash, the only thing a flood can buy is the two slots, and once they
+  // are taken every further POST refuses on three reads.
+  await checkAdoptPreconditions(store, args.plate);
 
-  // Hashed before the transaction opens: nothing about the hash depends on
-  // stored state, and holding the store's write queue for the duration of a
-  // bcrypt would stall every concurrent tap behind one adoption. Bounded for
-  // the same reason the pre-filter exists — the CPU is the scarce thing here.
-  const pinHash = await withPinHashSlot(() => hashPin(values.pin));
-
-  // Exclusive: the slot count and the username check are only worth anything
-  // if nobody can claim the last slot or the same handle in between.
+  // Exclusive: the slot count and the handle are only worth anything if nobody
+  // can claim the last slot, or the same handle, in between.
   return store.transaction(async (tx) => {
-    await checkAdoptPreconditions(tx, args.plate, values.username);
+    await checkAdoptPreconditions(tx, args.plate);
+
+    // Resolved inside the transaction, against the users it will commit
+    // alongside: two neighbours with the same name adopting at the same moment
+    // must not both be handed the same handle.
+    const existing = new Set<string>();
+    for (const other of await tx.getActiveAdoptions(args.plate)) {
+      const user = await tx.getUser(other.userId);
+      if (user) existing.add(user.username.toLowerCase());
+    }
+    const username = await (async () => {
+      let candidate = deriveUsername(values.firstName, values.lastName, (c) => existing.has(c));
+      // The set above only covers this bed; the store is the authority for
+      // every other one, and the walk is bounded by how many people share a
+      // name on one network.
+      while (await tx.getUserByUsername(candidate)) {
+        existing.add(candidate);
+        candidate = deriveUsername(values.firstName, values.lastName, (c) => existing.has(c));
+      }
+      return candidate;
+    })();
 
     const user: User = {
       id: `user-${randomUUID()}`,
       firstName: values.firstName,
       lastName: values.lastName,
-      username: values.username,
-      pinHash,
-      // Signed themselves up at the tag and picked a PIN: they can sign in,
-      // and nobody is holding the record for them. The pen-and-paper case
-      // (design-record.md, answered open question 3) is the other side of both
-      // flags, and belongs to the admin flow that is not built yet.
-      hasSignInRoute: true,
+      username,
+      // Passwordless, by the captain's decision: no secret is collected, so
+      // there is none to store.
+      pinHash: null,
+      // No way to authenticate TODAY — the tap-to-sign-in link that gives them
+      // one is `adopt-name-split-r5`. What carries them until then is the
+      // year-long session cookie the route sets on the way to the takeover.
+      // Distinct from the pen-and-paper case below it: this person signed
+      // themselves up and gave an email, so nobody is holding the record on
+      // their behalf (design-record.md, answered open question 3).
+      hasSignInRoute: false,
       recordHeldOnBehalf: false,
       email: values.email,
       phone: values.phone,
