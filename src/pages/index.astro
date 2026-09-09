@@ -16,5 +16,6 @@ await abandonBody(Astro.request);
 // only seeded bed.
 const demo = TAG_BINDINGS.find((b) => b.retiredAt === null);
 if (!demo) return new Response('No tags are live.', { status: 404 });
-return Astro.redirect(ourPlaqueLink(`/t/${demo.tagId}`), 302);
+const seeOther = Astro.request.method !== 'GET' && Astro.request.method !== 'HEAD';
+return Astro.redirect(ourPlaqueLink(`/t/${demo.tagId}`), seeOther ? 303 : 302);
 ---

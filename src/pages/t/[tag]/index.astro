@@ -39,7 +39,11 @@ if (resolved.state === 'invalid') {
 // carries. The query string rides along — it may hold our own post-action
 // flag, a decorator's UTM tags, or (later) an NTAG424's parameters.
 if (Astro.params.tag !== resolved.tag) {
-  return Astro.redirect(`/t/${resolved.tag}${url.search}`, 302);
+  // 303 for anything that arrived with a body, as every other redirect that can
+  // answer a POST does: a 302 invites a client reading RFC 9110 to repeat the
+  // POST at the canonical plaque, which is the one screen that logs a tap.
+  const seeOther = Astro.request.method !== 'GET' && Astro.request.method !== 'HEAD';
+  return Astro.redirect(`/t/${resolved.tag}${url.search}`, seeOther ? 303 : 302);
 }
 
 const tag = resolved.tag;
