@@ -16,6 +16,7 @@ import {
 } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 import { BUILD_TARGET } from '../../../lib/build-target';
+import { requireBoundTagForPost, postOnly } from '../../../lib/tag-route';
 import type { Severity } from '../../../lib/types';
 
 // A phone photo is a few MB; nothing here is stored, so the cap only has to
@@ -35,8 +36,12 @@ import type { Severity } from '../../../lib/types';
 const MAX_PHOTO_BODY_BYTES = (BUILD_TARGET === 'netlify' ? 4 : 12) * 1024 * 1024;
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
-  const plate = params.plate ?? '';
-  const base = `/b/${plate}`;
+  // Resolved before anything else, and its body accounted for either way: a
+  // POST at a tag nobody bound has no bed behind it, and a body left untouched
+  // is one Node dumps to its end for us.
+  const { bound, refused: unbound } = await requireBoundTagForPost(params.tag, request);
+  if (unbound) return unbound;
+  const { plate, base } = bound;
   const actor = getActorId(cookies);
 
   const contentType = request.headers.get('content-type')?.toLowerCase() ?? '';
@@ -105,3 +110,5 @@ function tooLarge(base: string, head: Uint8Array, refusal: Refusal): string {
   const query = params.toString();
   return `${base}/too-large${query ? `?${query}` : ''}`;
 }
+
+export const ALL = postOnly;

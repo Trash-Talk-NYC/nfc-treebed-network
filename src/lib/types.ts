@@ -6,11 +6,21 @@
 export type Severity = 'light' | 'heavy' | 'dumping';
 
 export interface Bed {
-  /** Plate-format ID, e.g. BED-HRL-0847. Also the URL segment. */
+  /**
+   * Plate-format ID, e.g. BED-HRL-0847 — how the store keys the site and how
+   * every screen names it. Display text only: the URL on a tag carries an
+   * opaque tag ID and nothing else (see tag-bindings.ts).
+   */
   plate: string;
   /** City forestry tree id shown under the plate, e.g. 08-4211. */
   treeId: string;
-  /** NFC chip serial shown under the plate, e.g. 04:A2:2F:9C. */
+  /**
+   * NFC chip serial of the tag installed with the guard, e.g. 04:A2:2F:9C.
+   * Provenance only, and not the site's tag identity: which tag speaks for a
+   * site is the binding's to answer (tag-bindings.ts), so a stolen tag retired
+   * and replaced leaves this field saying nothing anyone should read. Never
+   * rendered as the tag's ID — the plaque shows the ID out of the URL.
+   */
   tagUid: string;
   /** Displayed on adopter-facing screens; the street address is NOT displayed (spec §2). */
   crossStreets: string;

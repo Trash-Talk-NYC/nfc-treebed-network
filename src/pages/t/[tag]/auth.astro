@@ -7,12 +7,16 @@ import { RuleError, getBedView, signIn } from '../../../lib/service';
 import { getSessionUserId, setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { refuseWithBody, requireBoundTagForForm } from '../../../lib/tag-route';
 
-const { plate = '' } = Astro.params;
+const { bound, refused: notBound } = await requireBoundTagForForm(Astro.params.tag, Astro.request);
+if (notBound) return notBound;
+const { plate, base } = bound;
 const store = getStore();
 const view = await getBedView(store, plate);
-if (!view) return new Response('No bed with that plate.', { status: 404 });
-const base = `/b/${plate}`;
+if (!view) {
+  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
+}
 
 // Already signed in → straight to the guardian view.
 if (Astro.request.method === 'GET' && getSessionUserId(Astro.cookies)) {

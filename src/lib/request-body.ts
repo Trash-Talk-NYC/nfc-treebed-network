@@ -9,16 +9,26 @@
 // What bounds every publicly reachable route. "Screen" below means a styled
 // page; no bound is ever enforced by dropping the connection on a visitor.
 //
-//   GET  /                             A redirect to the seeded bed, built by
-//                                      ourPlaqueLink; no body, no buffer, and
-//                                      no store read at all.
-//   GET  /b/<plate>                    No body to read, so no size, time or
+//   GET  /                             A redirect to the first live tag, built
+//                                      by ourPlaqueLink; no body, no buffer,
+//                                      and no store read at all.
+//   GET  /t/<tag>                      No body to read, so no size, time or
 //                                      concurrency bound applies. Peak heap is
 //                                      one render's reads, no per-request
 //                                      buffer. A failed tap write is logged and
 //                                      the plaque still renders.
 //   GET  .../receipt/<id>, too-large   Same: no body, no buffer.
 //   GET  .../mine                      Same, behind a session check.
+//   Any method at those five screens   Astro renders a page for a POST as
+//                                      readily as for a tap, and none of these
+//                                      has a form behind it — so the body is
+//                                      not read but not left either:
+//                                      `abandonBody` takes SHED_DRAIN_BYTES /
+//                                      SHED_DRAIN_MS of it and stops, on the
+//                                      same MAX_SHED_READS accounting as the
+//                                      row below. Leaving it untouched is what
+//                                      would be unbounded, not the other way
+//                                      round.
 //   POST .../report  (multipart)       Size: 12MB on the node target, 4MB on
 //                                      netlify (report.ts explains why),
 //                                      counted as bytes arrive
@@ -72,6 +82,27 @@
 //                                      bounds before either is consulted, so an
 //                                      unauthenticated POST is bounded by the
 //                                      row above and writes nothing.
+//   POST at an unbound/invalid tag     Answered 404 before any rule runs, so
+//                                      nothing above it applies — but the body
+//                                      still does: `abandonBody` takes
+//                                      SHED_DRAIN_BYTES / SHED_DRAIN_MS of it
+//                                      and stops, keeping nothing beyond the
+//                                      chunk in hand and counting that against
+//                                      MAX_SHED_READS like any other refusal.
+//                                      Leaving it unread is the expensive
+//                                      answer, not the free one (see
+//                                      SHED_DRAIN_BYTES below).
+//   Any other method, any route        A route bounds only the method it
+//                                      exports; Astro answers the rest itself,
+//                                      body untouched. The five POST routes
+//                                      export `ALL` (`postOnly`, tag-route.ts)
+//                                      so that answer is a 405 rather than a
+//                                      404 with a log line per request, and
+//                                      src/middleware.ts drains once after the
+//                                      response is decided — the backstop for
+//                                      every route and every method at once,
+//                                      and a no-op wherever the body was
+//                                      already read.
 //
 // The time bounds split because the reservation is only released when one of
 // them fires, so the slowest body a route can receive is what decides how long
@@ -104,7 +135,19 @@
 // invocations sheds legitimate sign-ins at MAX_INFLIGHT_PIN_HASHES the same as
 // a flood. These are per-instance costs, not the pilot's surface-wide ceiling;
 // bounding the surface is per-IP limiting at the platform tier.
-//
+
+// One refusal on this surface is not ours, deliberately. Astro's own
+// cross-origin guard is unshifted ahead of src/middleware.ts and answers a POST
+// carrying a form-like content-type with a missing or mismatched `Origin` header
+// 403 before any app code runs — body unread, so Node dumps it, and nothing
+// above applies. Owning it would mean `security: { checkOrigin: false }` in
+// astro.config.mjs plus the same CSRF check re-implemented in our middleware
+// behind a bounded drain: taking a real security control the framework already
+// does correctly onto ourselves, to recover effort spent on requests that were
+// going to be refused anyway. Nothing here risks data — the residue is server
+// work on forged requests — so this is accepted rather than fixed. It is one
+// config line to revisit if that ever stops being the right trade.
+
 // What this sweep does NOT bound is CPU. A body admitted here is free to serve
 // until a rule turns it into work, and on /auth and /adopt that work is a
 // bcrypt — bounded separately by MAX_INFLIGHT_PIN_HASHES in service.ts, where
@@ -260,9 +303,10 @@ export const HEAD_READ_IDLE_MS = FORM_READ_IDLE_MS;
  * than the drain headroom: a refusal that costs as much ingress as an admitted
  * upload sheds nothing, which is the opposite of what a capacity bound is for.
  *
- * This budget covers admitted reads only. A shed read still holds a head and a
- * chunk while it sheds, so `MAX_SHED_READS` bounds those separately, and every
- * read that keeps anything at all is inside the two together:
+ * This budget covers admitted reads only. A shed read — and an abandoned body,
+ * which holds a chunk and nothing else — still holds something while it sheds,
+ * so `MAX_SHED_READS` bounds those separately, and every read that keeps
+ * anything at all is inside the two together:
  * `MAX_INFLIGHT_BODY_BYTES + MAX_SHED_READS × (HEAD_BYTES +
  * CHUNK_ALLOWANCE_BYTES)`, about 52MB. Past the shed count a read keeps
  * nothing, and what bounds it is `SHED_DRAIN_BYTES`/`SHED_DRAIN_MS` of ingress
@@ -759,4 +803,59 @@ export function photoAttachedFromHead(head: Uint8Array): boolean {
 /** latin1: the field names and values we look for are ASCII, and it never throws. */
 function headText(head: Uint8Array): string {
   return Buffer.from(head).toString('latin1');
+}
+
+/**
+ * Read enough of a body to mark it consumed, then stop — for a route that has
+ * already decided it wants nothing from it.
+ *
+ * Answering a POST without touching its body is not the cheap path it looks
+ * like: Node dumps the body of any request whose response finished unconsumed,
+ * reading it to its end with nothing but its own 300s timeout in the way (the
+ * 200MB measured in `tests/report-upload.e2e.test.ts`). Taking the first chunk
+ * ourselves is what puts the stopping point back in our hands, so a route that
+ * refuses before any rule runs — a POST at a tag no binding speaks for — costs
+ * the same kilobytes as a read past `MAX_SHED_READS` rather than everything the
+ * sender cares to push.
+ *
+ * Nothing is reserved out of `MAX_INFLIGHT_BODY_BYTES` and nothing is kept:
+ * the chunk in hand is the whole footprint. That is exactly what
+ * `MAX_SHED_READS` counts, so this takes one of its slots rather than sitting
+ * outside both counters — a refusal that nothing bounds is how a flood of
+ * POSTs at a tag no binding speaks for would put unaccounted megabytes back on
+ * the heap the two of them exist to bound. Past that count it does what a read
+ * past it does: keeps its answer, takes the first chunk to mark the body
+ * consumed, and stops there. The socket is left live either way, so the
+ * route's own answer still reaches whatever is on the other end.
+ */
+export async function abandonBody(request: Request): Promise<void> {
+  // A body already read is one Node has nothing left to dump, and a stream
+  // already locked would throw on a second reader — so a route may say this
+  // from any position, including after a capped read has refused.
+  if (!request.body || request.bodyUsed || request.body.locked) return;
+  const reader = request.body.getReader();
+  // Taken after the reader, so nothing between here and the `finally` can leak
+  // a slot. Past the bound the drain shrinks to a single chunk — the least that
+  // still marks the body consumed, which is what keeps Node from dumping the
+  // rest of it for us.
+  const slot = shedReads < MAX_SHED_READS;
+  if (slot) shedReads += 1;
+  const ceiling = slot ? SHED_DRAIN_BYTES : 0;
+  const deadline = Date.now() + SHED_DRAIN_MS;
+  let total = 0;
+  try {
+    for (;;) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const raced = await readWithin(reader, remaining);
+      if (raced === STALLED || raced.done) break;
+      total += raced.value.byteLength;
+      if (total > ceiling) break;
+    }
+  } catch {
+    // A body abandoned before it finished arriving is not an incident: nothing
+    // downstream wanted it, and the answer has already been decided.
+  } finally {
+    if (slot) shedReads -= 1;
+  }
 }

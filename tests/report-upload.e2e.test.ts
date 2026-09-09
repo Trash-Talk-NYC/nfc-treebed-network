@@ -19,7 +19,10 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const PLATE = 'BED-HRL-0847';
+// The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847.
+const TAG = '2mq2amhv';
+// Well-formed, and no binding speaks for it — the calm "not assigned" state.
+const UNBOUND_TAG = '7zzzzzz0';
 const BOUNDARY = '----treebede2e';
 const MEGABYTE = 1024 * 1024;
 
@@ -78,6 +81,19 @@ async function startServer(env: Record<string, string> = {}): Promise<Served> {
   child.stderr.on('data', (buf: Buffer) => {
     log += String(buf);
   });
+  // A server that dies mid-suite otherwise says nothing at all: every later
+  // test fails with ECONNREFUSED and the reason it went is lost.
+  // This is here because it happened: on one dev machine the suite flaked 2 of
+  // 7 runs, the spawned server vanishing right after the 200MB drain-ceiling
+  // case with nothing on stderr; a standalone replay of the same uploads could
+  // not reproduce it and 5 re-runs passed clean. Most likely an OS-level kill
+  // under memory pressure — corroborated, not proven, by an unrelated
+  // long-running process on the same machine being killed for low memory at
+  // the same time. So the diagnostic stays and the ceiling stays where it is;
+  // CI arbitrates.
+  child.on('exit', (code, signal) => {
+    log += `[e2e] server exited code=${code} signal=${signal}\n`;
+  });
 
   const [url, listening] = await new Promise<[string, number]>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('server never reported a port')), 30_000);
@@ -126,7 +142,7 @@ async function reportIsOpen(id: string): Promise<boolean> {
  * on. Costs one tap, so take it before counting them.
  */
 async function visitorCookie(): Promise<string> {
-  const plaque = await fetch(`${origin}/b/${PLATE}`);
+  const plaque = await fetch(`${origin}/t/${TAG}`);
   const set = plaque.headers.getSetCookie().find((cookie) => cookie.startsWith('tg_visitor='));
   if (!set) throw new Error('the plaque handed out no visitor cookie');
   return set.split(';')[0]!;
@@ -138,7 +154,7 @@ async function visitorCookie(): Promise<string> {
  * the build already sits behind. Uses the seeded adopter, and taps nothing.
  */
 async function adopterCookie(): Promise<string> {
-  const posted = await fetch(`${origin}/b/${PLATE}/auth`, {
+  const posted = await fetch(`${origin}/t/${TAG}/auth`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
     body: 'username=marisol_r&pin=1234',
@@ -151,7 +167,7 @@ async function adopterCookie(): Promise<string> {
 
 /** Close whatever report is open, the way the guardian view's button does. */
 async function clearAsAdopter(): Promise<Response> {
-  return fetch(`${origin}/b/${PLATE}/clear`, {
+  return fetch(`${origin}/t/${TAG}/clear`, {
     method: 'POST',
     headers: { origin, cookie: await adopterCookie() },
     redirect: 'manual',
@@ -231,6 +247,12 @@ interface UploadTo {
   keepAlive?: boolean;
   /** Stop writing after this long, so a server that never reads can't hang the test. */
   budgetMs?: number;
+  /** Which tag to post at; the unbound one is refused before any rule runs. */
+  tag?: string;
+  /** Which page under the tag to post at. Every one of them has a body to bound. */
+  page?: string;
+  /** Which method to send it with. A route bounds only the one it exports. */
+  method?: string;
 }
 
 /**
@@ -242,7 +264,14 @@ async function slowUpload(
   photoBytes: number,
   chunkBytes: number,
   pauseMs: number,
-  { port: target = port, keepAlive = false, budgetMs = Infinity }: UploadTo = {},
+  {
+    port: target = port,
+    keepAlive = false,
+    budgetMs = Infinity,
+    tag = TAG,
+    page = 'report',
+    method = 'POST',
+  }: UploadTo = {},
 ): Promise<Upload> {
   const head = preamble(severity);
   const length = head.byteLength + photoBytes + TRAILER.byteLength;
@@ -263,7 +292,7 @@ async function slowUpload(
   });
 
   socket.write(
-    `POST /b/${PLATE}/report HTTP/1.1\r\n` +
+    `${method} /t/${tag}/${page} HTTP/1.1\r\n` +
       `Host: 127.0.0.1:${target}\r\n` +
       // Astro rejects cross-site form POSTs; a browser on the plaque sends this.
       `Origin: http://127.0.0.1:${target}\r\n` +
@@ -329,7 +358,7 @@ async function stalledUpload(severity: string, sentBytes: number, waitMs: number
   });
 
   socket.write(
-    `POST /b/${PLATE}/report HTTP/1.1\r\n` +
+    `POST /t/${TAG}/report HTTP/1.1\r\n` +
       `Host: 127.0.0.1:${port}\r\n` +
       `Origin: http://127.0.0.1:${port}\r\n` +
       `Content-Type: multipart/form-data; boundary=${BOUNDARY}\r\n` +
@@ -380,7 +409,7 @@ describe('oversized report uploads, end to end', () => {
     expect(upload.dropped).toBeNull();
     expect(upload.written).toBe(20 * MEGABYTE);
     expect(upload.status).toBe(303);
-    expect(upload.location).toBe(`/b/${PLATE}/too-large?severity=2`);
+    expect(upload.location).toBe(`/t/${TAG}/too-large?severity=2`);
 
     const screen = await fetch(`${origin}${upload.location}`);
     expect(screen.status).toBe(200);
@@ -391,6 +420,9 @@ describe('oversized report uploads, end to end', () => {
     expect(html).toContain('FILE IT WITHOUT THE PHOTO');
   });
 
+  // 200MB is the measured number Node's own body dump reaches when the app
+  // never touches the body; lowering it to calm a flaky dev machine would
+  // quietly delete the proof. See the exit diagnostic in startServer above.
   it('drops a body that keeps streaming past the drain ceiling', async () => {
     withServerLog();
     const upload = await slowUpload('2', 200 * MEGABYTE, 4 * MEGABYTE, 10);
@@ -413,7 +445,7 @@ describe('oversized report uploads, end to end', () => {
     const upload = await stalledUpload('1', 256 * 1024, 45_000);
 
     expect(upload.status).toBe(303);
-    expect(upload.location).toBe(`/b/${PLATE}/too-large?severity=1&reason=incomplete`);
+    expect(upload.location).toBe(`/t/${TAG}/too-large?severity=1&reason=incomplete`);
 
     const screen = await fetch(`${origin}${upload.location}`);
     expect(screen.status).toBe(200);
@@ -428,7 +460,7 @@ describe('oversized report uploads, end to end', () => {
   it('still files a report a photo fits in, and records the attachment', async () => {
     withServerLog();
     const body = Buffer.concat([preamble('1'), Buffer.alloc(64 * 1024, 0x7f), TRAILER]);
-    const posted = await fetch(`${origin}/b/${PLATE}/report`, {
+    const posted = await fetch(`${origin}/t/${TAG}/report`, {
       method: 'POST',
       headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}`, origin },
       body: new Uint8Array(body),
@@ -436,7 +468,7 @@ describe('oversized report uploads, end to end', () => {
     });
     expect(posted.status).toBe(303);
     const location = posted.headers.get('location');
-    expect(location).toMatch(new RegExp(`^/b/${PLATE}/receipt/`));
+    expect(location).toMatch(new RegExp(`^/t/${TAG}/receipt/`));
 
     // The fields come off the head now, never out of a buffered body — so the
     // severity and the attachment have to survive that, not just the redirect.
@@ -451,9 +483,9 @@ describe('oversized report uploads, end to end', () => {
     // closes it, and this is what the next passer-by's refile then does.
     const cleared = await clearAsAdopter();
     expect(cleared.status).toBe(303);
-    expect(cleared.headers.get('location')).toBe(`/b/${PLATE}/mine`);
+    expect(cleared.headers.get('location')).toBe(`/t/${TAG}/mine`);
 
-    const refiled = await fetch(`${origin}/b/${PLATE}/report`, {
+    const refiled = await fetch(`${origin}/t/${TAG}/report`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
       body: 'severity=2',
@@ -461,7 +493,7 @@ describe('oversized report uploads, end to end', () => {
     });
     expect(refiled.status).toBe(303);
     const location = refiled.headers.get('location');
-    expect(location).toMatch(new RegExp(`^/b/${PLATE}/receipt/`));
+    expect(location).toMatch(new RegExp(`^/t/${TAG}/receipt/`));
 
     const filed = await storedReport(location!.split('/').at(-1)!);
     expect(filed.severity).toBe('dumping');
@@ -472,7 +504,7 @@ describe('oversized report uploads, end to end', () => {
     withServerLog();
     // Where `refusal: 'busy'` sends a visitor: the same offer, never the same
     // words as a photo they were told to shrink.
-    const screen = await fetch(`${origin}/b/${PLATE}/too-large?severity=1&reason=busy`);
+    const screen = await fetch(`${origin}/t/${TAG}/too-large?severity=1&reason=busy`);
     expect(screen.status).toBe(200);
     const html = await screen.text();
     expect(html).toContain('The tag is busy right now.');
@@ -482,7 +514,7 @@ describe('oversized report uploads, end to end', () => {
 
     // Past MAX_SHED_READS the body is never read, so there is no severity to
     // carry — the deepest a spike goes, and still a screen rather than a reset.
-    const bare = await fetch(`${origin}/b/${PLATE}/too-large?reason=busy`);
+    const bare = await fetch(`${origin}/t/${TAG}/too-large?reason=busy`);
     expect(bare.status).toBe(200);
     expect(await bare.text()).toContain('The tag is busy right now.');
   });
@@ -496,14 +528,14 @@ describe('oversized report uploads, end to end', () => {
     // A redirect of ours that does land on the plaque: a cookie-less confirm
     // writes nothing and sends the caller back — one of the redirects that
     // used to land on the bare plaque and be counted as a second visit.
-    const noop = await fetch(`${origin}/b/${PLATE}/confirm`, {
+    const noop = await fetch(`${origin}/t/${TAG}/confirm`, {
       method: 'POST',
       headers: { origin },
       redirect: 'manual',
     });
     expect(noop.status).toBe(303);
     const back = noop.headers.get('location');
-    expect(back).toBe(`/b/${PLATE}?tg_action=1`);
+    expect(back).toBe(`/t/${TAG}?tg_action=1`);
 
     const before = await storedTaps();
     const landed = await fetch(`${origin}${back}`);
@@ -511,14 +543,14 @@ describe('oversized report uploads, end to end', () => {
     expect(await storedTaps()).toBe(before);
 
     // A decorated tag URL is still somebody at the tree bed.
-    const tapped = await fetch(`${origin}/b/${PLATE}?utm_source=popl&utm_medium=nfc`);
+    const tapped = await fetch(`${origin}/t/${TAG}?utm_source=popl&utm_medium=nfc`);
     expect(tapped.status).toBe(200);
     expect(await storedTaps()).toBe(before + 1);
   });
 
   it('counts a confirm only from a caller that already had an identity', async () => {
     withServerLog();
-    const filed = await fetch(`${origin}/b/${PLATE}/report`, {
+    const filed = await fetch(`${origin}/t/${TAG}/report`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
       body: 'severity=1',
@@ -531,32 +563,32 @@ describe('oversized report uploads, end to end', () => {
     // used to mint a fresh identity per request, which let a loop like this
     // one drive the public count as high as it liked.
     for (let i = 0; i < 3; i += 1) {
-      const posted = await fetch(`${origin}/b/${PLATE}/confirm`, {
+      const posted = await fetch(`${origin}/t/${TAG}/confirm`, {
         method: 'POST',
         headers: { origin },
         redirect: 'manual',
       });
       expect(posted.status).toBe(303);
-      expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
+      expect(posted.headers.get('location')).toBe(`/t/${TAG}?tg_action=1`);
     }
     expect(await storedConfirmations(id)).toHaveLength(0);
 
     // A neighbour who tapped the tag has one — the plaque GET set it — and
     // pressing the button twice still counts them once.
-    const plaque = await fetch(`${origin}/b/${PLATE}`);
+    const plaque = await fetch(`${origin}/t/${TAG}`);
     const visitor = plaque.headers
       .getSetCookie()
       .find((cookie) => cookie.startsWith('tg_visitor='))!;
     expect(visitor).toBeDefined();
     const cookie = visitor.split(';')[0]!;
     for (let i = 0; i < 2; i += 1) {
-      const posted = await fetch(`${origin}/b/${PLATE}/confirm`, {
+      const posted = await fetch(`${origin}/t/${TAG}/confirm`, {
         method: 'POST',
         headers: { origin, cookie },
         redirect: 'manual',
       });
       expect(posted.status).toBe(303);
-      expect(posted.headers.get('location')).toBe(`/b/${PLATE}?confirmed=1`);
+      expect(posted.headers.get('location')).toBe(`/t/${TAG}?confirmed=1`);
     }
     expect(await storedConfirmations(id)).toHaveLength(1);
   });
@@ -577,27 +609,27 @@ describe('oversized report uploads, end to end', () => {
 
     for (const route of ['escalate', 'clear']) {
       for (let i = 0; i < 3; i += 1) {
-        const posted = await fetch(`${origin}/b/${PLATE}/${route}`, {
+        const posted = await fetch(`${origin}/t/${TAG}/${route}`, {
           method: 'POST',
           headers: { origin },
           redirect: 'manual',
         });
         // Answered like any other no-op action — no reset, no error screen.
         expect(posted.status).toBe(303);
-        expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
+        expect(posted.headers.get('location')).toBe(`/t/${TAG}?tg_action=1`);
       }
     }
 
     // And the cookie one plaque GET hands out is not a guardian either, which
     // is the half a cookie gate alone missed: one GET, and the loop ran on.
     for (let i = 0; i < 3; i += 1) {
-      const posted = await fetch(`${origin}/b/${PLATE}/clear`, {
+      const posted = await fetch(`${origin}/t/${TAG}/clear`, {
         method: 'POST',
         headers: { origin, cookie: await visitorCookie() },
         redirect: 'manual',
       });
       expect(posted.status).toBe(303);
-      expect(posted.headers.get('location')).toBe(`/b/${PLATE}?tg_action=1`);
+      expect(posted.headers.get('location')).toBe(`/t/${TAG}?tg_action=1`);
     }
     expect(await reportIsOpen(open.id)).toBe(true);
     const after = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
@@ -621,14 +653,14 @@ describe('oversized report uploads, end to end', () => {
     const root = await fetch(`${origin}/`, { redirect: 'manual' });
     expect(root.status).toBe(302);
     const landed = root.headers.get('location')!;
-    expect(landed).toBe(`/b/${PLATE}?tg_action=1`);
+    expect(landed).toBe(`/t/${TAG}?tg_action=1`);
     expect((await fetch(`${origin}${landed}`)).status).toBe(200);
     expect(await storedTaps()).toBe(before);
   });
 
   it('refuses an oversized sign-in body without reading a megabyte of it', async () => {
     withServerLog();
-    const posted = await fetch(`${origin}/b/${PLATE}/auth`, {
+    const posted = await fetch(`${origin}/t/${TAG}/auth`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
       body: `username=${'a'.repeat(200 * 1024)}&pin=1234`,
@@ -659,7 +691,7 @@ describe('a sign-in that arrives past the PIN-hash bound', () => {
 
   it('hands the sign-in form back with the username in it, not a bare error', async () => {
     withServerLog(() => full.log());
-    const posted = await fetch(`${full.origin}/b/${PLATE}/auth`, {
+    const posted = await fetch(`${full.origin}/t/${TAG}/auth`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
       body: 'username=marisol_r&pin=1234',
@@ -679,7 +711,7 @@ describe('a sign-in that arrives past the PIN-hash bound', () => {
 
   it('hands the adopt form back filled in, so a slot is never lost to a busy server', async () => {
     withServerLog(() => full.log());
-    const posted = await fetch(`${full.origin}/b/${PLATE}/adopt`, {
+    const posted = await fetch(`${full.origin}/t/${TAG}/adopt`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
       body: 'name=R.+Okafor&username=r_okafor&pin=4321&email=r.okafor%40example.com&phone=%2B1+555+010+1234',
@@ -744,7 +776,7 @@ describe('an upload that arrives past the shed count', () => {
     // Declared over the cap as well as unroomed, and the size is what it is
     // told: "the tag is busy" would send it to retry the same photo forever.
     // No head was kept at this depth, so no severity rides along.
-    expect(upload.location).toBe(`/b/${PLATE}/too-large`);
+    expect(upload.location).toBe(`/t/${TAG}/too-large`);
     // And the ingress stopped where we say it does, not where the sender does.
     // Left untouched instead, this body is one Node reads to its end for us.
     expect(upload.written).toBeLessThan(16 * MEGABYTE);
@@ -759,7 +791,7 @@ describe('an upload that arrives past the shed count', () => {
   it('says the tag is busy when the body itself was never the problem', async () => {
     withServerLog(() => shed.log());
     const body = Buffer.concat([preamble('1'), Buffer.alloc(16 * 1024, 0x7f), TRAILER]);
-    const posted = await fetch(`${shed.origin}/b/${PLATE}/report`, {
+    const posted = await fetch(`${shed.origin}/t/${TAG}/report`, {
       method: 'POST',
       headers: {
         'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
@@ -770,8 +802,144 @@ describe('an upload that arrives past the shed count', () => {
     });
 
     expect(posted.status).toBe(303);
-    expect(posted.headers.get('location')).toBe(`/b/${PLATE}/too-large?reason=busy`);
-    const screen = await fetch(`${shed.origin}/b/${PLATE}/too-large?reason=busy`);
+    expect(posted.headers.get('location')).toBe(`/t/${TAG}/too-large?reason=busy`);
+    const screen = await fetch(`${shed.origin}/t/${TAG}/too-large?reason=busy`);
     expect(await screen.text()).toContain('The tag is busy right now.');
   }, 60_000);
+});
+
+describe('the tag URL, end to end', () => {
+  // The URL on the chip is an opaque tag ID; the bed's plate is display text.
+  // These prove the two decisions the re-key exists for: a mistyped ID still
+  // resolves, and a tag nobody has bound yet is a calm page, never a 500.
+
+  it('redirects a mistyped tag to the canonical URL, decoration intact', async () => {
+    withServerLog();
+    // Uppercase, a legibility hyphen, and a decorated query string — the way
+    // an ID typed off a sign actually arrives.
+    const typed = await fetch(`${origin}/t/2MQ2-AMHV?utm_source=popl`, { redirect: 'manual' });
+    expect(typed.status).toBe(302);
+    expect(typed.headers.get('location')).toBe(`/t/${TAG}?utm_source=popl`);
+    expect((await fetch(`${origin}${typed.headers.get('location')}`)).status).toBe(200);
+  });
+
+  it('answers an unbound tag with a calm page, not a 500', async () => {
+    withServerLog();
+    // A freshly-encoded tag nobody has bound: a normal state — tags go into
+    // the wood before their guard exists. 404 because there is no site here,
+    // but the page is the honest answer, with the ID on it.
+    const unbound = await fetch(`${origin}/t/${UNBOUND_TAG}`);
+    expect(unbound.status).toBe(404);
+    const html = await unbound.text();
+    expect(html).toContain(UNBOUND_TAG);
+    expect(html).toContain('assigned to a bed yet');
+  });
+
+  it('sends a sub-page at an unbound tag to the calm plaque screen', async () => {
+    withServerLog();
+    // A page bookmarked before the tag was retired, or tapped between the tap
+    // and the button: an unbound tag is a normal state everywhere, not a line
+    // of unstyled text on the screens below the plaque.
+    for (const page of ['adopt', 'auth', 'mine', 'too-large', 'receipt/r_nope']) {
+      const sub = await fetch(`${origin}/t/${UNBOUND_TAG}/${page}`, { redirect: 'manual' });
+      expect(sub.status).toBe(302);
+      expect(sub.headers.get('location')).toBe(`/t/${UNBOUND_TAG}`);
+    }
+  });
+
+  it('refuses a POST at an unbound tag, and takes kilobytes of its body doing it', async () => {
+    withServerLog();
+    // Refused before any rule runs — but a body the app never touches is not a
+    // body the server never receives: Node dumps an unconsumed one to its end.
+    // So this is measured over a socket that is still writing, the same way the
+    // shed path is, because a status code alone cannot tell the two apart.
+    const upload = await slowUpload('1', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+      keepAlive: true,
+      budgetMs: 20_000,
+      tag: UNBOUND_TAG,
+    });
+
+    expect(upload.status).toBe(404);
+    expect(upload.written).toBeLessThan(16 * MEGABYTE);
+  }, 60_000);
+
+  it('takes kilobytes of a POST at an unbound tag on the form screens too', async () => {
+    withServerLog();
+    // `adopt` and `auth` answer a POST as well, and they refuse an unbound tag
+    // with the plaque redirect rather than the API routes' 404 — the same
+    // unread body either way, so the same bound has to be on it. 303 rather
+    // than 302 because this one answers a POST: a 302 invites a client that
+    // reads the spec to repeat the body at the plaque, the one screen that
+    // logs a tap.
+    for (const page of ['adopt', 'auth']) {
+      const upload = await slowUpload('1', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+        keepAlive: true,
+        budgetMs: 20_000,
+        tag: UNBOUND_TAG,
+        page,
+      });
+
+      expect(upload.status).toBe(303);
+      expect(upload.location).toBe(`/t/${UNBOUND_TAG}`);
+      expect(upload.written).toBeLessThan(16 * MEGABYTE);
+    }
+  }, 120_000);
+
+  it('takes kilobytes of a POST at the screens that have no form on them', async () => {
+    withServerLog();
+    // Astro renders a page for a POST as readily as for a tap, so the plaque,
+    // the guardian view, the too-large screen and the receipt all answer one —
+    // and an answer given without touching the body leaves Node to read it to
+    // the end. Bound tag, so nothing refuses these on the way in.
+    for (const page of ['', 'mine', 'too-large', 'receipt/r_nope']) {
+      const upload = await slowUpload('1', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+        keepAlive: true,
+        budgetMs: 20_000,
+        page,
+      });
+
+      expect(upload.status).not.toBeNull();
+      expect(upload.written).toBeLessThan(16 * MEGABYTE);
+    }
+  }, 120_000);
+
+  it('takes kilobytes of a request whose method the route does not handle', async () => {
+    withServerLog();
+    // A route bounds only the method it exports: everything else is answered
+    // by the framework, or rendered as a page, without the body being touched
+    // — and an untouched body is one Node reads to its end for us. The drain
+    // in src/middleware.ts is the backstop for all of them, so it is measured
+    // on an endpoint (405 from `postOnly`) and on a page (rendered) alike.
+    for (const page of ['report', 'confirm', '']) {
+      const upload = await slowUpload('1', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+        keepAlive: true,
+        budgetMs: 20_000,
+        method: 'PUT',
+        page,
+      });
+
+      expect(upload.status).not.toBeNull();
+      expect(upload.written).toBeLessThan(16 * MEGABYTE);
+    }
+  }, 120_000);
+
+  it('answers an unhandled method on a POST route with 405 rather than 404', async () => {
+    // Astro's own fallback logs a line per request, which would let an
+    // anonymous caller decide how much stderr it costs us. Same-origin, or the
+    // framework's own cross-origin guard answers 403 ahead of the route.
+    const answered = await fetch(`${origin}/t/${TAG}/confirm`, {
+      method: 'DELETE',
+      headers: { origin },
+    });
+    expect(answered.status).toBe(405);
+    expect(answered.headers.get('allow')).toBe('POST');
+  });
+
+  it('serves nothing at the old plate-keyed route', async () => {
+    withServerLog();
+    // The plate encodes site type and neighbourhood, which the tag URL must
+    // not carry — and it is not a near-miss the tag route should guess at.
+    expect((await fetch(`${origin}/b/BED-HRL-0847`)).status).toBe(404);
+    expect((await fetch(`${origin}/t/BED-HRL-0847`)).status).toBe(404);
+  });
 });

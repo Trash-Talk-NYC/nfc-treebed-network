@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isPostAction, ourPlaqueLink } from '../src/lib/plaque-url';
 
-const BASE = '/b/BED-HRL-0847';
+const BASE = '/t/2mq2amhv';
 const url = (path: string): URL => new URL(path, 'https://plaque.test');
 
 describe('telling our own redirects from a tap', () => {

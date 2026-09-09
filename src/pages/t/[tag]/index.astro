@@ -1,5 +1,13 @@
 ---
-// The plaque — what a tap lands on. One URL, three server-picked states:
+// The plaque — what a tap lands on. The URL carries an opaque tag ID and
+// nothing else (map decision: no meaning in the tag URL; a tag's site is
+// unknowable at encoding time). The ID resolves to a site server-side through
+// tag-bindings.ts, and everything below the resolution is keyed by the site's
+// plate, which survives only as display text.
+//
+// One URL, four server-picked states:
+//   unbound    a well-formed tag no binding speaks for — encoded but not yet
+//              assigned, or retired. A normal state, not an error.
 //   bed        clear bed, the default plaque
 //   adopted    an open report exists (someone else filed) → confirm / escalate
 //   ratelimit  the visitor already reported → severity raise only
@@ -12,16 +20,61 @@ import { getActorId } from '../../../lib/session';
 import { SEVERITIES, severityName } from '../../../lib/severity';
 import { isPostAction } from '../../../lib/plaque-url';
 import { nyCalendarDay, relativeAge, sinceLabel } from '../../../lib/format';
+import { resolveTagParam } from '../../../lib/tag-bindings';
+import { abandonBody } from '../../../lib/request-body';
 
-const { plate = '' } = Astro.params;
-const store = getStore();
-const view = await getBedView(store, plate);
-if (!view) return new Response('No bed with that plate.', { status: 404 });
-
-const actor = getActorId(Astro.cookies);
-const { bed, adopters, openSlots, openReport } = view;
+// Astro renders this for any method, so a hand-built POST lands here like a
+// tap does — and a body answered without being touched is one Node dumps to
+// its end for us. Nothing on this screen reads one, so it is stopped here,
+// before the render: a GET has no body and this costs it nothing.
+await abandonBody(Astro.request);
 
 const url = Astro.url;
+const resolved = resolveTagParam(Astro.params.tag);
+if (resolved.state === 'invalid') {
+  return new Response('Not a tag on this network.', { status: 404 });
+}
+// One canonical URL per tag: a mistyped or hand-decorated ID (case, hyphens,
+// lookalikes) lands here, then reads and shares as the address the chip
+// carries. The query string rides along — it may hold our own post-action
+// flag, a decorator's UTM tags, or (later) an NTAG424's parameters.
+if (Astro.params.tag !== resolved.tag) {
+  // 303 for anything that arrived with a body, as every other redirect that can
+  // answer a POST does: a 302 invites a client reading RFC 9110 to repeat the
+  // POST at the canonical plaque, which is the one screen that logs a tap.
+  const seeOther = Astro.request.method !== 'GET' && Astro.request.method !== 'HEAD';
+  return Astro.redirect(`/t/${resolved.tag}${url.search}`, seeOther ? 303 : 302);
+}
+
+const tag = resolved.tag;
+const base = `/t/${tag}`;
+
+const store = getStore();
+const view = resolved.state === 'bound' ? await getBedView(store, resolved.plate) : null;
+if (resolved.state === 'bound' && view === null) {
+  // A binding pointing at a plate the store has never heard of is a registry
+  // typo, not a state a visitor can act on — same honest answer as unbound,
+  // but this one is our mistake, so it is also said on stderr.
+  console.error(`[plaque] tag ${tag} is bound to unknown site ${resolved.plate}`);
+}
+
+// Unbound: a well-formed tag nobody has assigned yet — bulk-encoded tags sit
+// in the wood before a binding exists, so this is a normal state, not a 500.
+// It still answers 404: there is no site here for a crawler or a monitor to
+// believe in. No tap is logged either — sites own history, and this tag has
+// none to write to. The in-field claim flow that would start one here is a
+// later ticket.
+if (view === null) {
+  Astro.response.status = 404;
+}
+
+const bed = view?.bed ?? null;
+const adopters = view?.adopters ?? [];
+const openSlots = view?.openSlots ?? 0;
+const openReport = view?.openReport ?? null;
+
+const actor = view === null ? null : getActorId(Astro.cookies);
+
 const confirmedFlash = url.searchParams.has('confirmed');
 const raisedFlash = url.searchParams.has('raised');
 const limited = url.searchParams.has('limited');
@@ -29,44 +82,67 @@ const limited = url.searchParams.has('limited');
 // Only our own post-action redirects are page reloads rather than new taps —
 // including the ones with nothing to flash, which is why the flag set lives in
 // one place with the helper the POST routes build those redirects with.
-if (!isPostAction(url)) {
+// A tap is a person opening the URL on the chip, which is a GET and only ever
+// a GET: a hand-built POST or PUT renders this screen (Astro answers any
+// method) but is nobody standing at a tree bed, and a HEAD is the same monitor
+// case the site root already refuses to count.
+const tapShaped = Astro.request.method === 'GET';
+if (view !== null && actor !== null && tapShaped && !isPostAction(url)) {
   try {
-    await logTap(store, { plate, actorId: actor });
+    await logTap(store, { plate: view.bed.plate, actorId: actor });
   } catch (err) {
     // Telemetry fails open: a lost tap event must never cost a passer-by the
     // plaque, which every read below can still render.
-    console.error(`[plaque] tap not recorded for ${plate}:`, err);
+    console.error(`[plaque] tap not recorded for ${view.bed.plate}:`, err);
   }
 }
 
-type Variant = 'bed' | 'adopted' | 'ratelimit';
-let variant: Variant = 'bed';
+type Variant = 'unbound' | 'bed' | 'adopted' | 'ratelimit';
+let variant: Variant = view === null ? 'unbound' : 'bed';
 let limitReport = null; // the visitor's own report shown on the ratelimit screen
-if (openReport && openReport.reporterId === actor) {
-  variant = 'ratelimit';
-  limitReport = openReport;
-} else if (openReport) {
-  variant = 'adopted';
-} else if (limited && (await hasReportedToday(store, plate, actor))) {
-  // Their report today was already closed; the bed is clear again, but the
-  // one-report-per-day rule still blocks a refile until tomorrow.
-  const today = nyCalendarDay(new Date());
-  limitReport =
-    (await store.getReports(plate)).find(
-      (r) => r.reporterId === actor && nyCalendarDay(new Date(r.openedAt)) === today,
-    ) ?? null;
-  if (limitReport) variant = 'ratelimit';
+if (view !== null && actor !== null) {
+  const plate = view.bed.plate;
+  if (openReport && openReport.reporterId === actor) {
+    variant = 'ratelimit';
+    limitReport = openReport;
+  } else if (openReport) {
+    variant = 'adopted';
+  } else if (limited && (await hasReportedToday(store, plate, actor))) {
+    // Their report today was already closed; the bed is clear again, but the
+    // one-report-per-day rule still blocks a refile until tomorrow.
+    const today = nyCalendarDay(new Date());
+    limitReport =
+      (await store.getReports(plate)).find(
+        (r) => r.reporterId === actor && nyCalendarDay(new Date(r.openedAt)) === today,
+      ) ?? null;
+    if (limitReport) variant = 'ratelimit';
+  }
 }
 
 const canAdopt = openSlots > 0;
 const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slots still open`;
-const confirmedByMe = openReport?.confirmedBy.includes(actor) ?? false;
-const base = `/b/${bed.plate}`;
+const confirmedByMe = (actor !== null && openReport?.confirmedBy.includes(actor)) ?? false;
 ---
 
-<Screen title={`${bed.plate} · Trash Talk NYC`}>
+<Screen title={bed ? `${bed.plate} · Trash Talk NYC` : `Tag ${tag} · Trash Talk NYC`}>
   {
-    variant === 'bed' && (
+    variant === 'unbound' && (
+      <div class="screen">
+        <div class="kicker kicker-muted">TRASH TALK NYC</div>
+        <div class="card card-roomy">
+          <div class="unbound-title">This tag isn't assigned to a bed yet.</div>
+          <div class="unbound-meta mono">TAG {tag}</div>
+        </div>
+        <div class="body-copy">
+          The tag works — it just hasn't been matched to a spot on the street yet. If it's mounted
+          somewhere, the crew that placed it will hook it up soon.
+        </div>
+      </div>
+    )
+  }
+
+  {
+    variant === 'bed' && bed && (
       <div class="screen screen-bed">
         <a class="logo-link" href="https://trashtalknyc.org" target="_blank" rel="noopener">
           <img src="/img/trash-talk-nyc-logo.png" alt="Trash Talk NYC" class="logo" width="137" height="144" />
@@ -75,7 +151,7 @@ const base = `/b/${bed.plate}`;
           <div class="plate">{bed.plate}</div>
           <div class="plate-ids mono">
             <span>TREE ID: {bed.treeId}</span>
-            <span>TAG ID: {bed.tagUid}</span>
+            <span>TAG ID: {tag}</span>
           </div>
           <div class="plate-rule" />
           <div class="adopted-by">ADOPTED BY</div>
@@ -170,7 +246,7 @@ const base = `/b/${bed.plate}`;
   }
 
   {
-    variant === 'adopted' && openReport && (
+    variant === 'adopted' && bed && openReport && (
       <div class="screen">
         <div class="kicker">TRASH TALK NYC · TREE GUARD NETWORK</div>
         <div class="card">
@@ -220,7 +296,7 @@ const base = `/b/${bed.plate}`;
   }
 
   {
-    variant === 'ratelimit' && limitReport && (
+    variant === 'ratelimit' && bed && limitReport && (
       <div class="screen">
         <div class="kicker kicker-muted">{bed.plate}</div>
         <div class="card card-roomy">
@@ -341,6 +417,10 @@ const base = `/b/${bed.plate}`;
     background: var(--paper); color: var(--success);
   }
   .btn-file { min-height: 58px; font-size: 17px; letter-spacing: 0; }
+
+  /* ── unbound variant — a tag encoded but not yet assigned to a site ── */
+  .unbound-title { font-size: 30px; font-weight: 900; line-height: 1.15; }
+  .unbound-meta { font-size: 13px; font-weight: 700; color: var(--muted); margin-top: 12px; }
 
   /* ── adopted + ratelimit variants ── */
   .kicker-muted { color: var(--muted); }

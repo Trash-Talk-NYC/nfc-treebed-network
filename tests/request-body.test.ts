@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   BUSY_DRAIN_BYTES,
   CHUNK_ALLOWANCE_BYTES,
+  abandonBody,
   discardBody,
   FORM_READ_IDLE_MS,
   HEAD_BYTES,
@@ -37,7 +38,7 @@ function reportBody(severityIndex: string, photoBytes: number): Buffer {
 }
 
 function request(body: Buffer): Request {
-  return new Request('http://localhost/b/BED-HRL-0847/report', {
+  return new Request('http://localhost/t/2mq2amhv/report', {
     method: 'POST',
     headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
     body: new Uint8Array(body),
@@ -67,7 +68,7 @@ function streamedRequest(body: Buffer, chunkBytes: number, stallAfter = Infinity
       cancelled = true;
     },
   });
-  const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+  const req = new Request('http://localhost/t/2mq2amhv/report', {
     method: 'POST',
     headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
     body: stream,
@@ -95,7 +96,7 @@ function stalledFormRequest() {
       cancelled = true;
     },
   });
-  const req = new Request('http://localhost/b/BED-HRL-0847/confirm', {
+  const req = new Request('http://localhost/t/2mq2amhv/confirm', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: stream,
@@ -278,7 +279,7 @@ describe('capped request bodies', () => {
         controller.error(new Error('socket went away'));
       },
     });
-    const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+    const req = new Request('http://localhost/t/2mq2amhv/report', {
       method: 'POST',
       headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
       body: failing,
@@ -310,7 +311,7 @@ describe('capped request bodies', () => {
           controller.enqueue(chunk);
         },
       });
-      const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+      const req = new Request('http://localhost/t/2mq2amhv/report', {
         method: 'POST',
         headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
         body: stream,
@@ -381,6 +382,29 @@ describe('head-only reads', () => {
   });
 });
 
+describe('abandoning a body', () => {
+  it('takes an untouched body to the drain bound and stops', async () => {
+    const req = request(reportBody('1', 4 * 1024 * 1024));
+    await abandonBody(req);
+    expect(req.bodyUsed).toBe(true);
+  });
+
+  it('is a no-op once the body has been read, so any route can say it', async () => {
+    // `clear` and `photo` read their body first and can still refuse
+    // afterwards — a binding pointing at a site the store has never heard of.
+    // A second reader on a consumed stream throws, and that 404 must not
+    // become a 500.
+    const req = request(reportBody('1', 1024));
+    await discardBody(req, 'update');
+    await expect(abandonBody(req)).resolves.toBeUndefined();
+  });
+
+  it('is a no-op with no body at all, so a GET screen pays nothing', async () => {
+    const get = new Request('http://localhost/t/2mq2amhv');
+    await expect(abandonBody(get)).resolves.toBeUndefined();
+  });
+});
+
 describe('the in-flight budget', () => {
   /** A body that arrives in one chunk and then waits to be let go. */
   function gatedRequest(body: Buffer) {
@@ -399,7 +423,7 @@ describe('the in-flight budget', () => {
         controller.enqueue(new Uint8Array(body));
       },
     });
-    const req = new Request('http://localhost/b/BED-HRL-0847/report', {
+    const req = new Request('http://localhost/t/2mq2amhv/report', {
       method: 'POST',
       headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
       body: stream,

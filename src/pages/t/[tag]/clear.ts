@@ -15,23 +15,31 @@ import { RuleError, closeReport, getBedView } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { refuseWithBody, requireBoundTagForPost, postOnly } from '../../../lib/tag-route';
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
-  const plate = params.plate ?? '';
+  // Resolved before anything else, and its body accounted for either way: a
+  // POST at a tag nobody bound has no bed behind it, and a body left untouched
+  // is one Node dumps to its end for us.
+  const { bound, refused: unbound } = await requireBoundTagForPost(params.tag, request);
+  if (unbound) return unbound;
+  const { plate, base } = bound;
   const refused = await discardBody(request, 'update');
   if (refused) return refused;
   const userId = getSessionUserId(cookies);
   // The guardian's own view logs no tap; the plaque does, so the way back for
   // anyone else carries the flag that says this render is our redirect.
-  const plaque = ourPlaqueLink(`/b/${plate}`);
+  const plaque = ourPlaqueLink(base);
   if (!userId) return redirect(plaque, 303);
 
   const store = getStore();
   const view = await getBedView(store, plate);
-  if (!view) return new Response('No bed with that plate.', { status: 404 });
+  if (!view) {
+    return await refuseWithBody(request, new Response('No bed with that plate.', { status: 404 }));
+  }
   if (!view.adopters.some((a) => a.user.id === userId)) return redirect(plaque, 303);
 
-  const back = `/b/${plate}/mine`;
+  const back = `${base}/mine`;
   try {
     await closeReport(store, { plate, actorId: userId });
     return redirect(back, 303);
@@ -40,3 +48,5 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
     throw err;
   }
 };
+
+export const ALL = postOnly;

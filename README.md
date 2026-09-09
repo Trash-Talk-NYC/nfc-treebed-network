@@ -3,13 +3,16 @@
 The tap screen ("plaque") for Trash Talk NYC's NFC tree bed network.
 Tap a tag on a tree guard, get that bed's plaque: its plate, who adopted it, its condition, and two actions — report litter, or claim an open adopter slot.
 
+A tag's URL is `/t/<id>` — an opaque 8-character ID that carries no meaning at all.
+Which bed the tag speaks for is a server-side fact (`src/lib/tag-bindings.ts`); the bed's plate (`BED-HRL-0847`) is display text on the plaque, never the URL.
+
 ## Run it
 
 Requires Node >= 22.
 
 ```sh
 npm install
-npm run dev            # http://localhost:4321/b/BED-HRL-0847
+npm run dev            # http://localhost:4321/t/2mq2amhv
 ```
 
 ```sh
@@ -26,7 +29,7 @@ Generate it **once**, with `openssl rand -hex 32`, and keep that same value — 
 Generating it inside the run command is the failure the requirement exists to prevent.
 Dev needs nothing — it falls back to `.data/session-secret`.
 
-Local state lives in `.data/store.json` (gitignored), seeded on first boot with the one demo bed `BED-HRL-0847` and adopter `marisol_r` (PIN `1234`).
+Local state lives in `.data/store.json` (gitignored), seeded on first boot with the one demo bed `BED-HRL-0847` and adopter `marisol_r` (PIN `1234`); the checked-in registry binds demo tag `2mq2amhv` to it.
 Delete `.data/` to reset.
 `TREEBED_DATA_DIR` puts that directory — the store and the dev session secret both — somewhere else; the end-to-end suite uses it to give every server it spawns a fresh one.
 
@@ -38,7 +41,7 @@ See `AGENTS.md` for architecture invariants, security decisions, and what is del
 
 ## Deploy
 
-The pilot is live at <https://treebed-plaque.netlify.app/b/BED-HRL-0847>, on the Netlify site `treebed-plaque` (site id `449a9585-ae51-4e23-9614-fe5b3ac669f1` — never the org's `trashtalknyc` site, which is a different product).
+The pilot is live at <https://treebed-plaque.netlify.app/t/2mq2amhv>, on the Netlify site `treebed-plaque` (site id `449a9585-ae51-4e23-9614-fe5b3ac669f1` — never the org's `trashtalknyc` site, which is a different product).
 Deploys are CLI-driven from a checkout on Node >= 22 rather than repo-linked, so no branch deploys itself:
 
 ```sh

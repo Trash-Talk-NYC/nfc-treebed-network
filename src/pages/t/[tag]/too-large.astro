@@ -9,12 +9,16 @@ import { getStore } from '../../../lib/store';
 import { getBedView } from '../../../lib/service';
 import { SEVERITIES, severityIndexFrom } from '../../../lib/severity';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
 
-const { plate = '' } = Astro.params;
+const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
+if (notBound) return notBound;
+const { plate, base } = bound;
 const store = getStore();
 const view = await getBedView(store, plate);
-if (!view) return new Response('No bed with that plate.', { status: 404 });
-const base = `/b/${plate}`;
+if (!view) {
+  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
+}
 
 // Null when the upload was refused before the severity field arrived — then
 // the only honest offer is the picker again, not a severity we guessed.
