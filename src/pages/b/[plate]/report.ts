@@ -2,7 +2,7 @@
 // screen's single most important resilience decision (spec §3a): filing a
 // report must work with JavaScript disabled.
 import type { APIRoute } from 'astro';
-import { getStore } from '../../../lib/store-local';
+import { getStore } from '../../../lib/store';
 import { RuleError, fileReport } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
 import { severityFrom, severityFromIndex } from '../../../lib/severity';
@@ -15,11 +15,24 @@ import {
   type Refusal,
 } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { BUILD_TARGET } from '../../../lib/build-target';
 import type { Severity } from '../../../lib/types';
 
 // A phone photo is a few MB; nothing here is stored, so the cap only has to
-// leave real reports room.
-const MAX_PHOTO_BODY_BYTES = 12 * 1024 * 1024;
+// leave real reports room — and to stay under whatever the platform in front
+// of us refuses first, or the refusal stops being ours.
+//
+// Netlify caps a synchronous function's request payload at 6MB and buffers
+// the body before the function is invoked, so on that target a larger upload
+// never reaches this route at all: the platform answers a bare 413 and the
+// too-large screen — the whole point of which is handing the visitor back the
+// report they already filled in, without the attachment — never renders. The
+// cap is set below that limit there so every refusal a visitor can provoke is
+// one this route makes gracefully. The node target keeps the 12MB the
+// streaming bounds in request-body.ts are measured against; those bounds are
+// node's sockets either way, since Netlify has already buffered the body by
+// the time we read it.
+const MAX_PHOTO_BODY_BYTES = (BUILD_TARGET === 'netlify' ? 4 : 12) * 1024 * 1024;
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   const plate = params.plate ?? '';

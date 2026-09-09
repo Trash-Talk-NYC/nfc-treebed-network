@@ -8,19 +8,51 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 
 ## Stack
 
-- Astro (server-rendered, `@astrojs/node` standalone adapter) + TypeScript strict.
+- Astro (server-rendered) + TypeScript strict, with two build targets selected in `astro.config.mjs` by `TREEBED_ADAPTER`:
+  `node` (the default — `@astrojs/node` standalone server, what `npm start`, `npm run preview` and the e2e suite run) and `netlify` (`@astrojs/netlify`, what production deploys; `netlify.toml` sets the variable for every Netlify build).
+  The node target stays first-class rather than becoming a dev shim because the request-body bounds below are measured against its real sockets.
+- **`astro`, both adapters, and `@netlify/blobs` are pinned to exact versions**, and for the same reason: an adapter consumes astro's app API through a permissive peer range, so a version that satisfies the range can still break the built server at boot.
+  `@astrojs/node` is pinned to 11.1.1 because 11.1.4 calls `app.getLogger()`, which `astro` 7.2.1 does not have — measured, not hypothetical.
+  `@astrojs/netlify` is pinned to 8.2.3 against the same trap on the adapter production actually deploys with, where the break would first appear live.
+  `astro` itself is pinned to 7.2.1 because a caret is the same mismatch from the other side: `npm update` or any lockfile refresh would move astro under two adapters verified only against this version.
+  `@netlify/blobs` is pinned to 10.7.13 because production's entire data path speaks it and its emulated server is what `tests/store-blobs.test.ts` proves `onlyIfNew` against — runtime and test wire behaviour should not stay aligned by luck of a shared range.
+  The point of the policy is that moving any of the four is a deliberate act with a build behind it, not a side effect of an unrelated install. Upgrade astro and its adapters together, and re-pin rather than un-pin.
 - Requires Node >= 22 (`~/.nvm/versions/node/v22.23.1` works; the default shell Node 18.10 does not).
 - `npm run dev` / `npm run build` / `npm run preview` / `npm test` (vitest) / `npm run test:e2e` / `npm run check` (astro check).
   `npm test` is the fast suite — rules and transport handling, no build — and `npm run test:e2e` builds the app, serves `dist/server/entry.mjs`, and posts real bodies at it (`vitest.e2e.config.ts`); CI runs both (`.github/workflows/tests.yml`).
   `npm run preview` and `npm start` both serve the production build, so both need `TREEBED_SESSION_SECRET` and both are gated by `scripts/preflight.mjs`.
+  CI also runs `npm run test:netlify-build` after both suites, because every other step builds and exercises the node target only — the adapter production ships would otherwise be built for the first time by a manual deploy.
+  That script builds the netlify target *and* runs `scripts/smoke-netlify.mjs`, which imports the emitted `.netlify/v1/functions/ssr/ssr.mjs` and renders one request through it: the break this repo actually hit (`app.getLogger()`) is a load-time crash that a build alone passes green, so the build without the boot would prove only that the adapter resolves and the bundle emits.
+  The request it drives is the root redirect, the one route that reaches a rendered response without touching the store, so the gate needs no Blobs backend.
 - The plaque ships zero client JavaScript except one inline script enhancing the severity sheet — live tier name/definition on the slider, and the "photo attached" state on the file input.
   Every form is a plain HTML POST and works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
 
 ## Architecture invariants
 
 - **All persistence goes through the `Store` interface in `src/lib/store.ts`.**
-  The only implementation is `src/lib/store-local.ts` (one JSON file in `.data/`, gitignored).
-  Swapping to Supabase later means writing one new `Store` implementation and changing `getStore()` — nothing else.
+  Two implementations exist, selected at runtime by `getStore()` in `store.ts` — beside the contract, not inside either backend — on `TREEBED_STORE`: `LocalStore` (`src/lib/store-local.ts`, one JSON file in `.data/`, gitignored — dev and tests, the default) and `BlobsStore` (`src/lib/store-blobs.ts`, Netlify Blobs — the deployed pilot, `TREEBED_STORE=blobs`).
+  The dataset shape, the seed, and the operations they share live in `src/lib/store-dataset.ts`, so the backends cannot drift on what the data means.
+  Swapping to Supabase later still means writing one new `Store` implementation and changing `getStore()` — nothing else.
+  `TREEBED_STORE` is asserted rather than defaulted-through: an unrecognized value is refused instead of being read as `local`, and on the netlify target the disk store is refused outright (a function instance has no disk that outlives the request, so it would 500 on EROFS or, worse, keep a per-instance dataset that forgets between invocations).
+  Which target a bundle was built for is `BUILD_TARGET` in `src/lib/build-target.ts`, defined by `astro.config.mjs` beside the adapter it picks — the deploy-critical facts are then held by the build rather than by a platform variable that could be renamed.
+  `scripts/preflight.mjs` never runs for a function, so this assertion is what a misconfigured deploy hits, on its first request.
+- **`BlobsStore` commits by atomically creating revision keys (`rev/<n>`), never by overwriting one.**
+  Function instances scale horizontally, so its `transaction` is optimistic: read the newest revision, run the callback on a private copy, commit by creating `rev/<n+1>` with `onlyIfNew`, and re-run the whole callback on loss — a rule check made against a dataset another commit replaced never reaches the store.
+  ETag compare-and-swap (`onlyIfMatch`) was rejected because the emulated Blobs server (`@netlify/blobs/server`, which `tests/store-blobs.test.ts` runs the real wire protocol against) does not produce ETags on reads, so that path would be untestable.
+  Old revisions are pruned a safe distance behind the newest; the survivors double as a short paper trail (`netlify blobs:list treebed`).
+A commit's own expired revision is deleted by key, since arithmetic already knows which one fell out of the window; the full listing sweep runs on a failed delete and once every `KEPT_REVISIONS` commits, because an instance recycled between a commit and its prune leaves an orphan no later commit's arithmetic names.
+- **Which revision is newest is never decided by a key listing.**
+  Blobs' strong consistency covers `get`, not `list`, so a stale listing would hand a reader an older revision — the receipt a POST just redirected to would 404 — and would make `transaction` burn every attempt against a revision number somebody else already owns.
+  A read instead takes the `head` pointer (a strongly consistent `get`, moved after each commit) as a *lower bound* and walks forward one `get` at a time until a revision is missing: the pointer may lag or be moved back a revision by a racing commit, the walk cannot, because a revision that exists is one `get` must return.
+  The listing survives only as the fallback for a pointer that is missing or names a pruned revision, where being approximately right is enough to start the walk from.
+  `tests/store-blobs.test.ts` drives both a lagging pointer and no pointer at all.
+- **A request validates the dataset once, not once per read.**
+  `src/middleware.ts` runs every route inside a `runInRequestContext` (`src/lib/request-context.ts`), and `BlobsStore` memoizes its validated read there.
+  One plaque render was six or more sequential Blobs round trips awaited before first paint, on cellular, for someone standing at the tree; it is now one revalidation, and every read on the screen sees one revision instead of possibly two.
+  A commit republishes the memo, so a request always reads its own write, and a lost commit drops it, so a retry re-runs against the dataset that beat it.
+  Blobs payloads are serialized compact for the same reason (`store-local.ts` stays pretty-printed): every commit uploads the whole dataset, every tap is a commit, and `KEPT_REVISIONS` copies trail behind each one.
+  `netlify blobs:get treebed rev/<n> | jq` covers the readability.
+  Growth is still linear in lifetime taps — `events` is append-only with nothing pruning it — which is fine at pilot scale and is the thing to revisit (a separate append-only key, or sampling) before traffic accumulates.
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
   Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, escalate-to-dumping-once, one photo per NY week, PIN hashing.
   Anything in the browser is editable in devtools (spec §7).
@@ -68,6 +100,13 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - **Every public POST reads its body through `src/lib/request-body.ts`, never `request.formData()` directly** — the adapter's own default limit is 1GB of buffered memory.
   The comment block at the top of that file is the whole-surface sweep — size, time, concurrency, peak heap, and what the caller sees for every publicly reachable route — and a new route belongs in it.
   Four bounds, because three rounds of review each found one of them missing somewhere: a byte cap per body, a time bound on *both* the accepted and the refused read, an in-flight byte budget across all reads at once, and the drain headroom below.
+- **The photo cap is per target: 12MB on node, 4MB on netlify.**
+  Netlify caps a synchronous function's request payload at 6MB and buffers the body before the function is invoked, so a larger upload never reaches the route: the platform answers a bare 413 and `too-large.astro` — whose whole point is handing the visitor back the report they already filled in — never renders.
+  Set below the platform's own limit, every refusal a visitor can provoke is one this route makes gracefully.
+  The streaming bounds below are measured against the node adapter's real sockets either way; on netlify the body has already been buffered by the platform by the time we read it, so what they buy there is the graceful screen, not the heap.
+  Every bound in this section, and `MAX_INFLIGHT_PIN_HASHES` above, is a module-level counter, so it bounds one process: the whole server on the node target (what `npm start` runs and what the e2e suite measures), one function instance on netlify.
+  Fleet-wide peak heap and bcrypt concurrency there are these numbers times however many instances the platform is running, and a single warm instance serving concurrent invocations sheds legitimate sign-ins at the hash limit exactly as it sheds a flood.
+  They are per-instance costs, not the pilot's surface-wide DoS ceiling — bounding the surface is the per-IP limiting at the platform tier already noted as owed.
 - The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the severity and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
   The photo is discarded either way (spec §12) — this only stops it being copied on the way to being discarded.
   `readCappedForm` still buffers the text-only forms, where the whole body is 64KB and two copies of it are ~128KB.
@@ -123,7 +162,35 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 
 ## Seed data
 
-One hand-seeded bed `BED-HRL-0847` (created on first boot by `store-local.ts`), with seeded adopter `marisol_r`, PIN `1234` — demo credentials for driving the sign-in flow locally.
+One hand-seeded bed `BED-HRL-0847`, with seeded adopter `marisol_r`.
+On the local store it is created on first boot with PIN `1234` — demo credentials for driving the sign-in flow locally.
+
+**`BlobsStore` seeds the same adopter with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the plaque engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open guardian account on the internet — `/mine`, `/photo`, and the deliberately auth-gated `/clear`.
+`TREEBED_SEED_PIN` is a **development-only** seam, for driving the sign-in flow against a store that seeds without one.
+It is unset on the Netlify site and must never be set there: a PIN supplied to the publicly tappable store is the open guardian account this seed exists to avoid.
+That is enforced in code rather than by this paragraph — `seed()` reads the variable only on the node target (`BUILD_TARGET`, the same shape as the store-selection assertion), so a production build ignores it however it is set.
+
+The pilot store was seeded *before* this change — seeding only ever runs on first contact — so it held the `1234` hash.
+**That is remediated: `marisol_r`'s `pinHash` was rotated in place** by appending a revision copying the newest one with the hash replaced by a bcrypt of discarded random bytes.
+Signing in with `1234` on the live site now fails, and the pilot's data (report, events, adoption) came through intact.
+Rotating a hash forward is the procedure to repeat if it is ever needed again — do not wipe the store to re-seed it.
+
+If a store genuinely has to be re-seeded, **delete the `head` key alongside the `rev/*` keys.**
+A surviving `head` is the store's own proof that it has been written to, and `BlobsStore` refuses to seed once it has read one — deliberately, because a key listing is eventually consistent and a stale-empty one would otherwise fork a fresh chain over live data.
+
+## Deployment (pilot)
+
+- Production is the Netlify site **`treebed-plaque`** (site id `449a9585-ae51-4e23-9614-fe5b3ac669f1`), live at <https://treebed-plaque.netlify.app>, resolved for wayfinder ticket #8.
+  **The site `trashtalknyc` (id `77ee72e0-18f8-43b7-a338-9b5d67d40236`) is the org's public website — a different product. Never deploy this app there.**
+- Deploys are CLI-driven, not repo-linked: `NETLIFY_SITE_ID=449a9585-ae51-4e23-9614-fe5b3ac669f1 npx netlify-cli@latest deploy --build --prod` from a checkout on Node >= 22.
+  `netlify.toml` carries the build command, the publish dir, and the environment that selects the netlify adapter — the CLI applies it, so no flags beyond the site id are needed.
+- **The environment is split by when it is read, and each key lives in exactly one place.**
+  `netlify.toml`'s `[build.environment]` is the sole source for the build-time keys — `TREEBED_ADAPTER=netlify`, `NODE_VERSION=22`, and `AWS_LAMBDA_JS_RUNTIME=nodejs22.x` (functions default to an older Node than `engines` demands, and that failure shows up at request time rather than at build time) — so a recreated or duplicated site builds and runs correctly without anyone remembering an `env:set`.
+  Site-level environment carries only the runtime keys: `TREEBED_SESSION_SECRET` (secret, generated — never in the repo) and `TREEBED_STORE=blobs`.
+  **None of the three build-time keys is to be set with `netlify env:set`**: a site-level variable silently overrides `[build.environment]`, so a duplicate would leave this file documented as the source of truth while the site quietly won, and an edit here would have no effect on the deploy.
+  The earlier site-level copies of all three have been unset accordingly.
+  Checking that is itself a trap: `netlify env:list` run *inside the repo* merges `[build.environment]` into its output, so the build-time keys appear whether or not the site holds them — site-only state has to be checked from outside a checkout.
+- The custom domain (`trashtalknyc.org/t/*` proxying, per ticket #5) is deliberately not wired yet; the `/b/[plate]` → `/t/[tag]` re-key is its own ticket.
 
 ## Branching model
 
@@ -175,5 +242,5 @@ That single limitation has three consequences:
   The workflow only runs on pull requests.
 - For `pull_request` events the workflow definition is resolved from the PR merge ref, so a head branch that deletes or renames `.github/workflows/promotion-chain.yml` produces a PR with **no** promotion-chain check at all rather than a failing one — an absent check is not proof the chain was followed.
 
-Leaving the chain advisory is a **deliberate accepted risk** taken by the captain (small team, nothing deployed yet), not an oversight.
+Leaving the chain advisory is a **deliberate accepted risk** taken by the captain (small team, and no branch deploys itself — the pilot ships by CLI from a checkout), not an oversight.
 If the repo ever goes public or the org upgrades to a paid plan, replace this check with real branch protection / rulesets and mark it a required status check.

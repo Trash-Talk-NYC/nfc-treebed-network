@@ -78,6 +78,12 @@ export async function verifyPin(pin: string, pinHash: string): Promise<boolean> 
  * still owed before any real rollout (AGENTS.md) — this bounds the cost of
  * attempts, not their number.
  *
+ * The counter is module state, so all of that describes one process: the whole
+ * server on the node target, one function instance on netlify, where fleet-wide
+ * bcrypt concurrency is this number times however many instances are running
+ * and one warm instance serving concurrent invocations sheds legitimate
+ * sign-ins at the same limit. See the same note in request-body.ts.
+ *
  * `TREEBED_MAX_INFLIGHT_PIN_HASHES` exists so the end-to-end suite can watch a
  * real client be shed without racing a bcrypt; it is a test seam, like the two
  * in request-body.ts, not a deployment knob. Zero is legal because that is the

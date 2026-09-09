@@ -1,6 +1,6 @@
 // POST: "STILL THERE — CONFIRM IT". Idempotent per person, server-enforced.
 import type { APIRoute } from 'astro';
-import { getStore } from '../../../lib/store-local';
+import { getStore } from '../../../lib/store';
 import { RuleError, confirmReport } from '../../../lib/service';
 import { getExistingActorId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';

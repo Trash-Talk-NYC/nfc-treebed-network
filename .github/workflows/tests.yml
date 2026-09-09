@@ -28,3 +28,11 @@ jobs:
       - run: npm run test:e2e
         env:
           TREEBED_SESSION_SECRET: ci-secret-not-a-real-one
+      # Everything above builds and runs the node target. This builds the one
+      # production actually ships and then loads the emitted function and
+      # renders a request through it — the break this repo hit (an adapter
+      # satisfying its peer range and calling an astro API that isn't there)
+      # is a load-time crash that a build alone passes green.
+      - run: npm run test:netlify-build
+        env:
+          TREEBED_SESSION_SECRET: ci-secret-not-a-real-one

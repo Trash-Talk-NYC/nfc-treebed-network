@@ -4,5 +4,8 @@ dist/
 # Runtime data written by the local JSON store (src/lib/store-local.ts).
 # The seed is created in code on first boot; nothing here is source.
 .data/
+# Netlify CLI state (deploy cache, blob context); the site id is passed on the
+# command line rather than linked, so nothing in here is source either.
+.netlify/
 npm-debug.log*
 .DS_Store

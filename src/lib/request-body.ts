@@ -9,6 +9,9 @@
 // What bounds every publicly reachable route. "Screen" below means a styled
 // page; no bound is ever enforced by dropping the connection on a visitor.
 //
+//   GET  /                             A redirect to the seeded bed, built by
+//                                      ourPlaqueLink; no body, no buffer, and
+//                                      no store read at all.
 //   GET  /b/<plate>                    No body to read, so no size, time or
 //                                      concurrency bound applies. Peak heap is
 //                                      one render's reads, no per-request
@@ -16,7 +19,9 @@
 //                                      the plaque still renders.
 //   GET  .../receipt/<id>, too-large   Same: no body, no buffer.
 //   GET  .../mine                      Same, behind a session check.
-//   POST .../report  (multipart)       Size: 12MB, counted as bytes arrive
+//   POST .../report  (multipart)       Size: 12MB on the node target, 4MB on
+//                                      netlify (report.ts explains why),
+//                                      counted as bytes arrive
 //                                      (`readCappedHead`); nothing past the 8KB
 //                                      head is ever held, so a 12MB photo costs
 //                                      no copies of itself. Time: HEAD_READ_*
@@ -90,6 +95,16 @@
 // the body untouched instead does not avoid the cost: Node dumps the body of
 // any request whose response finished unread, which reads the whole thing.
 
+// Every counter here — and MAX_INFLIGHT_PIN_HASHES in service.ts — is module
+// state, so it bounds one process. That is the whole server on the node target,
+// which is what `npm start` runs and what the e2e suite measures. On the netlify
+// target it is one function instance: the fleet's peak heap and bcrypt
+// concurrency are these numbers multiplied by however many instances the
+// platform has running, and a single warm instance serving concurrent
+// invocations sheds legitimate sign-ins at MAX_INFLIGHT_PIN_HASHES the same as
+// a flood. These are per-instance costs, not the pilot's surface-wide ceiling;
+// bounding the surface is per-IP limiting at the platform tier.
+//
 // What this sweep does NOT bound is CPU. A body admitted here is free to serve
 // until a rule turns it into work, and on /auth and /adopt that work is a
 // bcrypt — bounded separately by MAX_INFLIGHT_PIN_HASHES in service.ts, where
