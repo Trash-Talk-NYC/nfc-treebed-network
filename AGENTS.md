@@ -47,7 +47,7 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   It logs no tap: sites own history and an unbound tag has none to write to.
   POSTs at an unbound tag 404 before any rule runs, and pay `abandonBody`'s bounded drain (`request-body.ts`) for the body on the way out:
   a body the app never touches is one Node dumps to its end for us, so refusing without reading is the expensive answer rather than the free one.
-  `requireBoundTag` / `requireBoundTagForPost` (`src/lib/tag-route.ts`) are what every route behind `/t/<tag>` resolves through, which is where that ordering is kept.
+  `requireBoundTagForPost` / `requireBoundTagForForm` / `requireBoundTagForView` (`src/lib/tag-route.ts`) are what every route behind `/t/<tag>` resolves through, which is where that ordering is kept.
   A GET at a sub-page of an unbound tag redirects to the plaque, so the calm screen lives in exactly one place.
 
 ## Architecture invariants
@@ -124,6 +124,10 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - **Every public POST reads its body through `src/lib/request-body.ts`, never `request.formData()` directly** — the adapter's own default limit is 1GB of buffered memory.
   The comment block at the top of that file is the whole-surface sweep — size, time, concurrency, peak heap, and what the caller sees for every publicly reachable route — and a new route belongs in it.
   Four bounds, because three rounds of review each found one of them missing somewhere: a byte cap per body, a time bound on *both* the accepted and the refused read, an in-flight byte budget across all reads at once, and the drain headroom below.
+  A route bounds only the method it exports, so `src/middleware.ts` drains once after `next()` returns as the backstop for every route and every method — a no-op wherever the body was already read, and what covers the `PUT` at `/report` no route handler ever sees.
+  The five POST endpoints export `ALL = postOnly` (`tag-route.ts`) so an unhandled method is answered 405 rather than by Astro's own 404, which logs a line per request and would let an anonymous caller decide how much stderr it costs us.
+  One refusal is deliberately not ours: Astro's cross-origin guard runs ahead of our middleware and answers a form-content-type POST with a missing or mismatched `Origin` header 403 with the body unread.
+  Taking that over would mean turning off `security.checkOrigin` and re-implementing CSRF ourselves to recover work spent on requests that were going to be refused anyway — accepted and recorded in the sweep comment instead.
 - **The photo cap is per target: 12MB on node, 4MB on netlify.**
   Netlify caps a synchronous function's request payload at 6MB and buffers the body before the function is invoked, so a larger upload never reaches the route: the platform answers a bare 413 and `too-large.astro` — whose whole point is handing the visitor back the report they already filled in — never renders.
   Set below the platform's own limit, every refusal a visitor can provoke is one this route makes gracefully.

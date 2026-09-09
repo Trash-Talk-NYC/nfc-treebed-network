@@ -10,6 +10,8 @@
 // touched its body leaves the body to Node, which reads it to the end
 // (`abandonBody`).
 
+import type { APIRoute } from 'astro';
+
 import { abandonBody } from './request-body';
 import { resolveTagParam } from './tag-bindings';
 
@@ -52,10 +54,17 @@ export async function requireBoundTagForForm(
 ): Promise<TagRoute> {
   const resolved = resolveTagParam(rawTag);
   if (resolved.state === 'bound') return bind(resolved.tag, resolved.plate);
+  // 303 for anything that arrived with a body, as every other post-action
+  // redirect in the build does: a 302 invites a client reading RFC 9110 to
+  // repeat the POST at the plaque, which is the one screen that logs a tap.
+  const seeOther = request.method !== 'GET' && request.method !== 'HEAD';
   const refused =
     resolved.state === 'invalid'
       ? new Response('Not a tag on this network.', { status: 404 })
-      : new Response(null, { status: 302, headers: { location: `/t/${resolved.tag}` } });
+      : new Response(null, {
+          status: seeOther ? 303 : 302,
+          headers: { location: `/t/${resolved.tag}` },
+        });
   await abandonBody(request);
   return { bound: null, refused };
 }
@@ -109,3 +118,16 @@ export async function requireBoundTagForPost(
   await abandonBody(request);
   return { bound: null, refused: new Response('No bed bound to that tag.', { status: 404 }) };
 }
+
+/**
+ * The answer to a method one of these routes does not export.
+ *
+ * Astro's own fallback is a bare 404 plus a `logger.warn` line per request,
+ * which hands an anonymous caller the same control over stderr volume that
+ * `noteShedPinHash` and the silent `busy` refusal exist to deny it. 405 with
+ * `allow` is the truthful answer anyway — the path exists, the verb doesn't —
+ * and the body that came with it is drained by `src/middleware.ts`, which
+ * accounts for every method on every route in one place.
+ */
+export const postOnly: APIRoute = () =>
+  new Response(null, { status: 405, headers: { allow: 'POST' } });

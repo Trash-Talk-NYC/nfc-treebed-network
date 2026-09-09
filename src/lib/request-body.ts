@@ -92,6 +92,17 @@
 //                                      Leaving it unread is the expensive
 //                                      answer, not the free one (see
 //                                      SHED_DRAIN_BYTES below).
+//   Any other method, any route        A route bounds only the method it
+//                                      exports; Astro answers the rest itself,
+//                                      body untouched. The five POST routes
+//                                      export `ALL` (`postOnly`, tag-route.ts)
+//                                      so that answer is a 405 rather than a
+//                                      404 with a log line per request, and
+//                                      src/middleware.ts drains once after the
+//                                      response is decided — the backstop for
+//                                      every route and every method at once,
+//                                      and a no-op wherever the body was
+//                                      already read.
 //
 // The time bounds split because the reservation is only released when one of
 // them fires, so the slowest body a route can receive is what decides how long
@@ -124,7 +135,19 @@
 // invocations sheds legitimate sign-ins at MAX_INFLIGHT_PIN_HASHES the same as
 // a flood. These are per-instance costs, not the pilot's surface-wide ceiling;
 // bounding the surface is per-IP limiting at the platform tier.
-//
+
+// One refusal on this surface is not ours, deliberately. Astro's own
+// cross-origin guard is unshifted ahead of src/middleware.ts and answers a POST
+// carrying a form-like content-type with a missing or mismatched `Origin` header
+// 403 before any app code runs — body unread, so Node dumps it, and nothing
+// above applies. Owning it would mean `security: { checkOrigin: false }` in
+// astro.config.mjs plus the same CSRF check re-implemented in our middleware
+// behind a bounded drain: taking a real security control the framework already
+// does correctly onto ourselves, to recover effort spent on requests that were
+// going to be refused anyway. Nothing here risks data — the residue is server
+// work on forged requests — so this is accepted rather than fixed. It is one
+// config line to revisit if that ever stops being the right trade.
+
 // What this sweep does NOT bound is CPU. A body admitted here is free to serve
 // until a rule turns it into work, and on /auth and /adopt that work is a
 // bcrypt — bounded separately by MAX_INFLIGHT_PIN_HASHES in service.ts, where

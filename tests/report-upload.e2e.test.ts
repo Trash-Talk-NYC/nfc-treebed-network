@@ -238,6 +238,8 @@ interface UploadTo {
   tag?: string;
   /** Which page under the tag to post at. Every one of them has a body to bound. */
   page?: string;
+  /** Which method to send it with. A route bounds only the one it exports. */
+  method?: string;
 }
 
 /**
@@ -255,6 +257,7 @@ async function slowUpload(
     budgetMs = Infinity,
     tag = TAG,
     page = 'report',
+    method = 'POST',
   }: UploadTo = {},
 ): Promise<Upload> {
   const head = preamble(severity);
@@ -276,7 +279,7 @@ async function slowUpload(
   });
 
   socket.write(
-    `POST /t/${tag}/${page} HTTP/1.1\r\n` +
+    `${method} /t/${tag}/${page} HTTP/1.1\r\n` +
       `Host: 127.0.0.1:${target}\r\n` +
       // Astro rejects cross-site form POSTs; a browser on the plaque sends this.
       `Origin: http://127.0.0.1:${target}\r\n` +
@@ -848,7 +851,10 @@ describe('the tag URL, end to end', () => {
     withServerLog();
     // `adopt` and `auth` answer a POST as well, and they refuse an unbound tag
     // with the plaque redirect rather than the API routes' 404 — the same
-    // unread body either way, so the same bound has to be on it.
+    // unread body either way, so the same bound has to be on it. 303 rather
+    // than 302 because this one answers a POST: a 302 invites a client that
+    // reads the spec to repeat the body at the plaque, the one screen that
+    // logs a tap.
     for (const page of ['adopt', 'auth']) {
       const upload = await slowUpload('1', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
         keepAlive: true,
@@ -857,7 +863,7 @@ describe('the tag URL, end to end', () => {
         page,
       });
 
-      expect(upload.status).toBe(302);
+      expect(upload.status).toBe(303);
       expect(upload.location).toBe(`/t/${UNBOUND_TAG}`);
       expect(upload.written).toBeLessThan(16 * MEGABYTE);
     }
@@ -880,6 +886,38 @@ describe('the tag URL, end to end', () => {
       expect(upload.written).toBeLessThan(16 * MEGABYTE);
     }
   }, 120_000);
+
+  it('takes kilobytes of a request whose method the route does not handle', async () => {
+    withServerLog();
+    // A route bounds only the method it exports: everything else is answered
+    // by the framework, or rendered as a page, without the body being touched
+    // — and an untouched body is one Node reads to its end for us. The drain
+    // in src/middleware.ts is the backstop for all of them, so it is measured
+    // on an endpoint (405 from `postOnly`) and on a page (rendered) alike.
+    for (const page of ['report', 'confirm', '']) {
+      const upload = await slowUpload('1', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+        keepAlive: true,
+        budgetMs: 20_000,
+        method: 'PUT',
+        page,
+      });
+
+      expect(upload.status).not.toBeNull();
+      expect(upload.written).toBeLessThan(16 * MEGABYTE);
+    }
+  }, 120_000);
+
+  it('answers an unhandled method on a POST route with 405 rather than 404', async () => {
+    // Astro's own fallback logs a line per request, which would let an
+    // anonymous caller decide how much stderr it costs us. Same-origin, or the
+    // framework's own cross-origin guard answers 403 ahead of the route.
+    const answered = await fetch(`${origin}/t/${TAG}/confirm`, {
+      method: 'DELETE',
+      headers: { origin },
+    });
+    expect(answered.status).toBe(405);
+    expect(answered.headers.get('allow')).toBe('POST');
+  });
 
   it('serves nothing at the old plate-keyed route', async () => {
     withServerLog();

@@ -16,7 +16,7 @@ import {
 } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 import { BUILD_TARGET } from '../../../lib/build-target';
-import { requireBoundTagForPost } from '../../../lib/tag-route';
+import { requireBoundTagForPost, postOnly } from '../../../lib/tag-route';
 import type { Severity } from '../../../lib/types';
 
 // A phone photo is a few MB; nothing here is stored, so the cap only has to
@@ -110,3 +110,5 @@ function tooLarge(base: string, head: Uint8Array, refusal: Refusal): string {
   const query = params.toString();
   return `${base}/too-large${query ? `?${query}` : ''}`;
 }
+
+export const ALL = postOnly;

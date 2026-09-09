@@ -5,7 +5,7 @@ import { RuleError, confirmReport } from '../../../lib/service';
 import { getExistingActorId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
-import { requireBoundTagForPost } from '../../../lib/tag-route';
+import { requireBoundTagForPost, postOnly } from '../../../lib/tag-route';
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   // Resolved before anything else, and its body accounted for either way: a
@@ -33,3 +33,5 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
     throw err;
   }
 };
+
+export const ALL = postOnly;
