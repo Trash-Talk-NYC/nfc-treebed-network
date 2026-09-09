@@ -9,6 +9,8 @@ import bcrypt from 'bcryptjs';
 import { boundFromEnv } from './bounds';
 import type { Store } from './store';
 import type { Adoption, Bed, BedEvent, Report, Severity, User } from './types';
+import type { ProblemCategory } from './problem';
+import { MAX_NOTE_CHARS } from './problem';
 import { nyCalendarDay } from './format';
 
 export class RuleError extends Error {
@@ -146,10 +148,11 @@ async function withPinHashSlot<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Everything the plaque screens need about one bed, in one read. */
+/** Everything the tap-flow screens need about one bed, in one read. */
 export interface BedView {
   bed: Bed;
-  adopters: Array<{ adoption: Adoption; user: User }>;
+  /** Active stewards, oldest first. The word is "steward", not "adopter". */
+  stewards: Array<{ adoption: Adoption; user: User }>;
   openSlots: number;
   openReport: Report | null;
 }
@@ -158,15 +161,15 @@ export async function getBedView(store: Store, plate: string): Promise<BedView |
   const bed = await store.getBed(plate);
   if (!bed) return null;
   const adoptions = await store.getActiveAdoptions(plate);
-  const adopters = [];
+  const stewards = [];
   for (const adoption of adoptions) {
     const user = await store.getUser(adoption.userId);
-    if (user) adopters.push({ adoption, user });
+    if (user) stewards.push({ adoption, user });
   }
   return {
     bed,
-    adopters,
-    openSlots: Math.max(0, bed.slots - adopters.length),
+    stewards,
+    openSlots: Math.max(0, bed.slots - stewards.length),
     openReport: (await store.getOpenReport(plate)) ?? null,
   };
 }
@@ -199,35 +202,90 @@ export async function hasReportedToday(
   );
 }
 
-export async function fileReport(
-  store: Store,
-  args: { plate: string; actorId: string; severity: Severity; photoAttached: boolean; now?: Date },
-): Promise<Report> {
-  const { plate, actorId, severity, photoAttached } = args;
+/**
+ * What one press of SEND IT on the care screen did.
+ *
+ * The approved flow has one screen after it — the "Thank you" takeover — and
+ * no receipt, no confirm button and no rate-limited screen. So the rules do not
+ * refuse a visitor here; they decide what the press is worth and the screen
+ * says thank you either way. Which one happened is still reported, because the
+ * admin surface and the events are where this has to be legible.
+ */
+export type ProblemOutcome =
+  /** Nothing was open: this opened a report. */
+  | { kind: 'filed'; report: Report }
+  /** Somebody had already reported it: this added weight to that report. */
+  | { kind: 'added-weight'; report: Report }
+  /** This person has already had their say on this bed today. */
+  | { kind: 'already-said'; report: Report | null };
+
+export interface ProblemInput {
+  plate: string;
+  actorId: string;
+  category: ProblemCategory;
+  note: string;
+  photoAttached: boolean;
+  now?: Date;
+}
+
+/**
+ * "This bed needs care", filed.
+ *
+ * One transaction covering both halves, because they are one decision: two
+ * simultaneous tappers must not both pass the single-open-report check and
+ * leave a second report nobody can ever close — `closeReport` only ever finds
+ * the first.
+ *
+ * The three rules from spec §2/§7 are unchanged, only their answers are:
+ *  - a bed carries at most one open report. A later reporter used to be sent to
+ *    a "confirm it" screen; the approved flow has no such screen, so the same
+ *    press adds their weight to the open report instead. Same record, same
+ *    bound (`MAX_CONFIRMATIONS`), one less screen between a neighbour and being
+ *    counted.
+ *  - one report per person per bed per NY calendar day. A second press the same
+ *    day writes nothing at all rather than showing somebody a rule.
+ *  - the note is capped server-side; the browser's counter is a courtesy.
+ */
+export async function reportProblem(store: Store, args: ProblemInput): Promise<ProblemOutcome> {
+  const { plate, actorId, category, photoAttached } = args;
+  const note = args.note.slice(0, MAX_NOTE_CHARS);
   const now = args.now ?? new Date();
-  // One exclusive sequence: two simultaneous tappers must not both pass the
-  // single-open-report check and leave a second report nobody can ever close.
   return store.transaction(async (tx) => {
     const bed = await tx.getBed(plate);
     if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${plate}`);
 
-    // A bed carries at most one open report; later tappers confirm or escalate
-    // it instead of filing duplicates (spec §6, screen 4).
     const open = await tx.getOpenReport(plate);
-    if (open) throw new RuleError('open-report-exists', `Report ${open.id} is already open on ${plate}`);
+    if (open) {
+      // Already theirs, or the array is at its bound: either way the press
+      // costs nothing more and the screen says the same thing.
+      if (open.reporterId === actorId || open.confirmedBy.includes(actorId)) {
+        return { kind: 'already-said', report: open };
+      }
+      if (open.confirmedBy.length >= MAX_CONFIRMATIONS) {
+        return { kind: 'already-said', report: open };
+      }
+      const weighted: Report = { ...open, confirmedBy: [...open.confirmedBy, actorId] };
+      await tx.updateReport(weighted);
+      await appendEvent(tx, plate, 'confirm', actorId, null, now);
+      return { kind: 'added-weight', report: weighted };
+    }
 
     if (await hasReportedToday(tx, plate, actorId, now)) {
-      throw new RuleError('already-reported-today', `${actorId} already reported ${plate} today`);
+      return { kind: 'already-said', report: null };
     }
 
     const number = await tx.nextReportNumber();
-    // Receipt id keys off the plate's numeric suffix, e.g. RPT-2217-0847.
+    // Report id keys off the plate's numeric suffix, e.g. RPT-2217-0847.
     const suffix = plate.split('-').at(-1) ?? '0000';
     const report: Report = {
       id: `RPT-${number}-${suffix}`,
       bedPlate: plate,
       reporterId: actorId,
-      severity,
+      category,
+      note,
+      // Nothing on the street sets this: the approved problem screen asks what
+      // is wrong, not how bad. Escalation is what writes it (`escalateReport`).
+      severity: null,
       openedAt: now.toISOString(),
       closedAt: null,
       closedBy: null,
@@ -236,8 +294,39 @@ export async function fileReport(
       photoAttached,
     };
     await tx.createReport(report);
-    await appendEvent(tx, plate, 'report', actorId, severity, now);
-    return report;
+    await appendEvent(tx, plate, 'report', actorId, null, now);
+    return { kind: 'filed', report };
+  });
+}
+
+/**
+ * "SEND APPLAUSE" — the one thing a passer-by can do for a bed that is fine.
+ *
+ * Bounded to once per person per bed per NY calendar day, for the reason every
+ * other write here is bounded: `events` is append-only with nothing pruning it,
+ * and a button anybody can press without signing in is otherwise unbounded
+ * growth keyed to whoever is holding the phone. The route gates it further, on
+ * a cookie the caller already had (`getExistingActorId`) — same trade as
+ * `/confirm`, and a neighbour standing at the tree always has one.
+ *
+ * Returns whether this press was the one that counted, so the screen can be
+ * honest without being a rule notice.
+ */
+export async function sendApplause(
+  store: Store,
+  args: { plate: string; actorId: string; now?: Date },
+): Promise<{ counted: boolean }> {
+  const now = args.now ?? new Date();
+  return store.transaction(async (tx) => {
+    const bed = await tx.getBed(args.plate);
+    if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
+    const today = nyCalendarDay(now);
+    const already = (await tx.getEvents(args.plate, 'applause')).some(
+      (e) => e.actorId === args.actorId && nyCalendarDay(new Date(e.createdAt)) === today,
+    );
+    if (already) return { counted: false };
+    await appendEvent(tx, args.plate, 'applause', args.actorId, null, now);
+    return { counted: true };
   });
 }
 
@@ -319,29 +408,59 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+\d][\d\s().-]{6,19}$/;
 
 export interface AdoptInput {
-  name: string;
+  firstName: string;
+  lastName: string;
   username: string;
   pin: string;
   email: string;
+  /**
+   * Optional, by the captain's own note on the approved screens ("Phone is
+   * required today — you asked for phone to be optional. Right now the form
+   * refuses to submit without one, which costs signups on a sidewalk").
+   * Validated only when given.
+   */
   phone: string;
 }
 
-/** Field-level validation with explicit messages; returns normalized values. */
-export function validateAdoptInput(raw: AdoptInput): { values: AdoptInput; errors: Partial<Record<keyof AdoptInput, string>> } {
+export type AdoptField = keyof AdoptInput;
+
+/**
+ * Why a field was refused, as a KEY rather than a sentence.
+ *
+ * The rules layer must not hold English: every screen renders in the visitor's
+ * language, and a message returned from here would be the one string on the
+ * form that could not be Spanish. The keys match `ADOPT_ERRORS` in copy.ts, so
+ * a rule without a translation is a type error.
+ */
+export type AdoptErrorCode =
+  | 'firstName'
+  | 'lastName'
+  | 'username'
+  | 'usernameTaken'
+  | 'pin'
+  | 'email'
+  | 'phone';
+
+export type AdoptErrors = Partial<Record<AdoptField, AdoptErrorCode>>;
+
+/** Field-level validation; returns normalized values and error codes. */
+export function validateAdoptInput(raw: AdoptInput): { values: AdoptInput; errors: AdoptErrors } {
   const values: AdoptInput = {
-    name: raw.name.trim(),
+    firstName: raw.firstName.trim(),
+    lastName: raw.lastName.trim(),
     username: raw.username.trim().replace(/^@/, ''),
     pin: raw.pin.trim(),
     email: raw.email.trim(),
     phone: raw.phone.trim(),
   };
-  const errors: Partial<Record<keyof AdoptInput, string>> = {};
-  if (values.name.length < 2) errors.name = 'Tell us your name — it goes on the plaque.';
-  if (!USERNAME_RE.test(values.username))
-    errors.username = 'Usernames are 2–24 letters, numbers, or underscores.';
-  if (!PIN_RE.test(values.pin)) errors.pin = 'PIN must be 4–8 digits.';
-  if (!EMAIL_RE.test(values.email)) errors.email = 'That email doesn’t look right.';
-  if (!PHONE_RE.test(values.phone)) errors.phone = 'That phone number doesn’t look right.';
+  const errors: AdoptErrors = {};
+  if (values.firstName.length < 1) errors.firstName = 'firstName';
+  if (values.lastName.length < 1) errors.lastName = 'lastName';
+  if (!USERNAME_RE.test(values.username)) errors.username = 'username';
+  if (!PIN_RE.test(values.pin)) errors.pin = 'pin';
+  if (!EMAIL_RE.test(values.email)) errors.email = 'email';
+  // Given or not given; wrong only if it is there and malformed.
+  if (values.phone !== '' && !PHONE_RE.test(values.phone)) errors.phone = 'phone';
   return { values, errors };
 }
 
@@ -372,7 +491,7 @@ async function checkAdoptPreconditions(
 
   const active = await store.getActiveAdoptions(plate);
   if (active.length >= bed.slots) {
-    throw new RuleError('slots-full', `${plate} already has ${bed.slots} adopters`);
+    throw new RuleError('slots-full', `${plate} already has ${bed.slots} stewards`);
   }
   if (username !== null && (await store.getUserByUsername(username))) {
     throw new RuleError('username-taken', `@${username} is taken`);
@@ -411,9 +530,16 @@ export async function adoptBed(
 
     const user: User = {
       id: `user-${randomUUID()}`,
-      name: values.name,
+      firstName: values.firstName,
+      lastName: values.lastName,
       username: values.username,
       pinHash,
+      // Signed themselves up at the tag and picked a PIN: they can sign in,
+      // and nobody is holding the record for them. The pen-and-paper case
+      // (design-record.md, answered open question 3) is the other side of both
+      // flags, and belongs to the admin flow that is not built yet.
+      hasSignInRoute: true,
+      recordHeldOnBehalf: false,
       email: values.email,
       phone: values.phone,
       points: 0,
@@ -426,6 +552,7 @@ export async function adoptBed(
       bedPlate: args.plate,
       userId: user.id,
       adoptedAt: now.toISOString(),
+      stewardKind: 'nfc',
       displayNameHidden: false,
       releasedAt: null,
     });
@@ -459,7 +586,13 @@ export async function signIn(
     // Same error AND the same timing for unknown user and wrong PIN — a short
     // circuit here would make username enumeration free, since sign-in attempts
     // are not yet rate limited (AGENTS.md).
-    const pinMatches = await verifyPin(args.pin, user?.pinHash ?? (await unmatchablePinHash()));
+    // A steward with no sign-in route (pen-and-paper) has no hash to compare,
+    // so they get the unmatchable one — the same bcrypt, the same answer, and
+    // no way to tell "no such person" from "cannot sign in" by timing it.
+    const pinMatches = await verifyPin(
+      args.pin,
+      (user?.hasSignInRoute ? user.pinHash : null) ?? (await unmatchablePinHash()),
+    );
     if (!user || !pinMatches) {
       throw new RuleError('invalid-credentials', 'Username and PIN don’t match.');
     }

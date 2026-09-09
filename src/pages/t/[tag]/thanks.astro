@@ -1,0 +1,83 @@
+---
+// The full-screen "Thank you", on the green ground.
+//
+// A takeover, per the captain (design-record.md, constraint 8): the ground
+// reaches the edges of the viewport and behind the status bar, and there is
+// nothing else on it. The final round settled what it carries — the block link
+// is dropped, and an email-signup line takes its place.
+//
+// Animation is to follow and is deliberately NOT built. The seam for it is
+// `.takeover-mark`: the headline and its sub sit inside one element that
+// exists to be animated, so whoever adds the motion has something to target
+// and nothing to restructure. `prefers-reduced-motion` is already honoured in
+// global.css, so the first animation added inherits the guard.
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store';
+import { getBedView } from '../../../lib/service';
+import { bi } from '../../../lib/bilingual';
+import { THANKS_TAKEOVER } from '../../../lib/copy';
+import { langLink, resolveLang } from '../../../lib/i18n';
+import { presentationFor } from '../../../lib/presentation';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { COMMON } from '../../../lib/copy';
+import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
+
+const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
+if (notBound) return notBound;
+const { plate, base } = bound;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) {
+  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
+}
+
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = presentationFor(view.bed);
+
+// Applause and a care report end on the same takeover with different words:
+// one thanks somebody for telling us, the other tells them the stewards will
+// hear it. Both then carry the signup line, which is the one thing the captain
+// asked this screen to do besides say thank you.
+const applauded = Astro.url.searchParams.has('applause');
+const big = applauded ? THANKS_TAKEOVER.applauded : THANKS_TAKEOVER.reported;
+---
+
+<Screen
+  title={big[lang]}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+  ground="clear"
+>
+  <div class="screen screen-clear takeover">
+    <div class="takeover-mark">
+      <div class="big" {...bi(big, lang)}>{big[lang]}</div>
+      {applauded && (
+        <p class="sub takeover-sub applause-sub" {...bi(THANKS_TAKEOVER.applaudedSub, lang)}>
+          {THANKS_TAKEOVER.applaudedSub[lang]}
+        </p>
+      )}
+      <p class="sub takeover-sub signup">
+        <span {...bi(THANKS_TAKEOVER.signupBefore, lang)}>{THANKS_TAKEOVER.signupBefore[lang]}</span>
+        <strong>{presentation.copy.signupUrl}</strong>
+      </p>
+    </div>
+    <div class="takeover-actions">
+      <a class="btn-ghost" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}>
+        {COMMON.backToBed[lang]}
+      </a>
+    </div>
+  </div>
+</Screen>
+
+<style>
+  /* The one element the animation will own. Nothing animates today. */
+  .takeover-mark {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .applause-sub { margin-bottom: -4px; }
+  .signup strong { font-weight: 700; }
+</style>

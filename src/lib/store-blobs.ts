@@ -57,7 +57,7 @@ import type { Store } from './store';
 import { BUILD_TARGET } from './build-target';
 import { getRequestContext } from './request-context';
 import type { Adoption, Bed, BedEvent, Report, User } from './types';
-import { type Data, TransactionStore, detach, ops, seedData } from './store-dataset';
+import { type Data, TransactionStore, detach, normalizeData, ops, seedData } from './store-dataset';
 
 const STORE_NAME = 'treebed';
 const REVISION_PREFIX = 'rev/';
@@ -212,7 +212,12 @@ export class BlobsStore implements Store {
   }
 
   private async readRevision(revision: number): Promise<Data | null> {
-    return (await this.blobs.get(revisionKey(revision), { type: 'json' })) as Data | null;
+    const data = (await this.blobs.get(revisionKey(revision), { type: 'json' })) as Data | null;
+    // The pilot store holds revisions written before the tap flow's fields
+    // existed, and re-seeding over live data is refused by design. The shape is
+    // reconciled here instead — additively, on the way in, for both backends
+    // (store-dataset.ts).
+    return data === null ? null : normalizeData(data);
   }
 
   /** The pointer's revision, or null when there is none to trust. */

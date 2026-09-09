@@ -1,0 +1,72 @@
+---
+// The full-screen purple "Adopted!", straight after signing up.
+//
+// A takeover on the action ground — Deep Purple is the positive ownership
+// colour, and this is the moment it exists for. Same seam for the animation
+// that is to follow as the thank-you screen: `.takeover-mark`, and nothing
+// moving today.
+//
+// Reached only by the redirect `adopt.astro` makes after a successful
+// adoption, but it is a plain GET screen: somebody who bookmarks it or presses
+// back gets the same words, which are true for as long as they are a steward.
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store';
+import { getBedView } from '../../../lib/service';
+import { bi } from '../../../lib/bilingual';
+import { ADOPTED_TAKEOVER } from '../../../lib/copy';
+import { langLink, resolveLang } from '../../../lib/i18n';
+import { presentationFor } from '../../../lib/presentation';
+import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
+
+const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
+if (notBound) return notBound;
+const { plate, base } = bound;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) {
+  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
+}
+
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = presentationFor(view.bed);
+const bed = view.bed;
+---
+
+<Screen
+  title={ADOPTED_TAKEOVER.big[lang]}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+  ground="action"
+>
+  <div class="screen screen-action takeover">
+    <div class="takeover-mark">
+      <div class="big" {...bi(ADOPTED_TAKEOVER.big, lang)}>{ADOPTED_TAKEOVER.big[lang]}</div>
+      {/* Split around the tree type, which is itself bilingual: a swap sets
+          textContent, so no bilingual node may have children. */}
+      <p class="sub takeover-sub">
+        <span {...bi(ADOPTED_TAKEOVER.subBefore, lang)}>{ADOPTED_TAKEOVER.subBefore[lang]}</span>
+        <span {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+        <span {...bi(ADOPTED_TAKEOVER.subAfter, lang)}>{ADOPTED_TAKEOVER.subAfter[lang]}</span>
+      </p>
+    </div>
+    <div class="takeover-actions">
+      <a
+        class="btn btn-on-action"
+        href={langLink(`${base}/mine`, lang)}
+        {...bi(ADOPTED_TAKEOVER.onward, lang)}
+        >{ADOPTED_TAKEOVER.onward[lang]}</a
+      >
+    </div>
+  </div>
+</Screen>
+
+<style>
+  /* The one element the animation will own. Nothing animates today. */
+  .takeover-mark {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+</style>

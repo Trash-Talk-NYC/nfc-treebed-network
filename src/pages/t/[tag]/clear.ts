@@ -1,5 +1,5 @@
 // POST: "I CLEANED IT — CLOSE THE REPORT". The guardian view's button, and
-// only that: the route is gated on a signed-in adopter of this bed.
+// only that: the route is gated on a signed-in steward of this bed.
 //
 // Spec §2 says anyone can mark clear, and `closeReport` still can — the rule
 // is untouched, the gate is here. Closing a report is what lets the next one be
@@ -27,7 +27,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   const refused = await discardBody(request, 'update');
   if (refused) return refused;
   const userId = getSessionUserId(cookies);
-  // The guardian's own view logs no tap; the plaque does, so the way back for
+  // The steward's own view logs no tap; the plaque does, so the way back for
   // anyone else carries the flag that says this render is our redirect.
   const plaque = ourPlaqueLink(base);
   if (!userId) return redirect(plaque, 303);
@@ -37,7 +37,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   if (!view) {
     return await refuseWithBody(request, new Response('No bed with that plate.', { status: 404 }));
   }
-  if (!view.adopters.some((a) => a.user.id === userId)) return redirect(plaque, 303);
+  if (!view.stewards.some((a) => a.user.id === userId)) return redirect(plaque, 303);
 
   const back = `${base}/mine`;
   try {

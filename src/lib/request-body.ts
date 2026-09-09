@@ -154,7 +154,7 @@
 // the rule that spends it lives.
 
 import { boundFromEnv } from './bounds';
-import { severityIndexFrom } from './severity';
+import { noteFrom, problemFrom, type ProblemCategory } from './problem';
 
 /**
  * Why a body was refused.
@@ -778,14 +778,39 @@ export async function readFormOrRefuse(
 }
 
 /**
- * The severity index out of a multipart body's head, or null if it isn't in
- * there. A truncated body can't go through formData(), and the report route
+ * A named text field out of a multipart body's head, or null if it isn't in
+ * there.
+ *
+ * A truncated body can't go through formData(), and the report route
  * deliberately never buffers one, so the fields it needs are read off the part
- * that precedes the file.
+ * that precedes the file. That only works while the form puts those parts
+ * FIRST — browsers send parts in DOM order, so the care screen's markup keeps
+ * the category, the note and the hidden fields ahead of the file input. Keep
+ * it that way if the screen ever gains a field.
  */
-export function severityIndexFromHead(head: Uint8Array): number | null {
-  const match = /name="severity"[^]*?\r?\n\r?\n([^\r\n]*)/.exec(headText(head));
-  return match ? severityIndexFrom(match[1]) : null;
+export function textFieldFromHead(head: Uint8Array, name: string): string | null {
+  const pattern = new RegExp(`name="${name}"[^]*?\\r?\\n\\r?\\n([^\\r\\n]*)`);
+  const match = pattern.exec(headText(head));
+  return match ? (match[1] ?? '') : null;
+}
+
+/** The problem category the care screen sent, or null if the head lacks it. */
+export function categoryFromHead(head: Uint8Array): ProblemCategory | null {
+  return problemFrom(textFieldFromHead(head, 'category'));
+}
+
+/**
+ * The free-text note, from the same head.
+ *
+ * A note is at most `MAX_NOTE_CHARS`, so it fits inside `HEAD_BYTES` several
+ * times over — but a note containing a CR or LF would be truncated at the
+ * first one by the line-oriented match above. The textarea is one sentence by
+ * design and the server caps it anyway; a note that arrives shortened is a
+ * note that still says what it says, which beats holding megabytes of body to
+ * read it exactly.
+ */
+export function noteFromHead(head: Uint8Array): string {
+  return noteFrom(textFieldFromHead(head, 'note'));
 }
 
 /**

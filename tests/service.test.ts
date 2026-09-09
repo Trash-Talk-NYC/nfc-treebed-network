@@ -3,20 +3,21 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LocalStore } from '../src/lib/store-local';
+import { MAX_NOTE_CHARS } from '../src/lib/problem';
 import {
   MAX_CONFIRMATIONS,
   MAX_INFLIGHT_PIN_HASHES,
   RuleError,
   adoptBed,
   closeReport,
-  confirmReport,
   escalateReport,
-  fileReport,
   getBedView,
   hashPin,
   hasPhotoThisWeek,
   logPhoto,
   logTap,
+  reportProblem,
+  sendApplause,
   signIn,
   validateAdoptInput,
   verifyPin,
@@ -33,11 +34,24 @@ function freshStore(): LocalStore {
 
 function adoptInput(overrides: Partial<Parameters<typeof validateAdoptInput>[0]> = {}) {
   return {
-    name: 'R. Okafor',
+    firstName: 'R.',
+    lastName: 'Okafor',
     username: 'r_okafor',
     pin: '4321',
     email: 'r.okafor@example.com',
     phone: '+1 555 010 1234',
+    ...overrides,
+  };
+}
+
+/** The care screen's submission, with only what a test cares about spelled out. */
+function careInput(overrides: Partial<Parameters<typeof reportProblem>[1]> = {}) {
+  return {
+    plate: PLATE,
+    actorId: 'visitor-1',
+    category: 'litter' as const,
+    note: '',
+    photoAttached: false,
     ...overrides,
   };
 }
@@ -69,18 +83,19 @@ describe('PIN hashing', () => {
   it('never stores a plaintext PIN on the user record', async () => {
     const user = await adoptBed(store, { plate: PLATE, input: adoptInput({ pin: '987654' }) });
     expect(JSON.stringify(user)).not.toContain('987654');
-    expect(await verifyPin('987654', user.pinHash)).toBe(true);
+    expect(user.pinHash).not.toBeNull();
+    expect(await verifyPin('987654', user.pinHash!)).toBe(true);
   });
 });
 
 describe('two-slot cap', () => {
-  it('seeds one adopter and one open slot', async () => {
+  it('seeds one steward and one open slot', async () => {
     const view = await getBedView(store, PLATE);
-    expect(view?.adopters.map((a) => a.user.username)).toEqual(['marisol_r']);
+    expect(view?.stewards.map((s) => s.user.username)).toEqual(['marisol_r']);
     expect(view?.openSlots).toBe(1);
   });
 
-  it('allows a second adopter, then refuses a third server-side', async () => {
+  it('allows a second steward, then refuses a third server-side', async () => {
     await adoptBed(store, { plate: PLATE, input: adoptInput() });
     await expect(
       adoptBed(store, { plate: PLATE, input: adoptInput({ username: 'third_wheel', email: 't@example.com' }) }),
@@ -90,98 +105,146 @@ describe('two-slot cap', () => {
   });
 
   it('refuses a taken username regardless of case or leading @', async () => {
-    // marisol_r is the seeded adopter; one slot is still open.
+    // marisol_r is the seeded steward; one slot is still open.
     await expect(
       adoptBed(store, { plate: PLATE, input: adoptInput({ username: '@Marisol_R' }) }),
     ).rejects.toMatchObject({ code: 'username-taken' });
   });
 
-  it('validates adopt input with explicit field errors', () => {
+  it('validates adopt input with explicit field error codes', () => {
     const { errors } = validateAdoptInput({
-      name: 'X',
+      firstName: '',
+      lastName: '',
       username: 'not ok!',
       pin: '12',
       email: 'nope',
       phone: '1',
     });
-    expect(Object.keys(errors).sort()).toEqual(['email', 'name', 'phone', 'pin', 'username']);
+    // Codes, not sentences: every screen renders in the visitor's language, so
+    // a message from the rules layer would be the one string that could not.
+    expect(errors).toEqual({
+      firstName: 'firstName',
+      lastName: 'lastName',
+      username: 'username',
+      pin: 'pin',
+      email: 'email',
+      phone: 'phone',
+    });
+  });
+
+  it('accepts a missing phone, which the captain asked for, and still checks a given one', () => {
+    expect(validateAdoptInput(adoptInput({ phone: '' })).errors).toEqual({});
+    expect(validateAdoptInput(adoptInput({ phone: 'nope' })).errors).toEqual({ phone: 'phone' });
   });
 });
 
-describe('one report per person per bed per day', () => {
-  it('files a report with a receipt-format id', async () => {
-    const report = await fileReport(store, {
-      plate: PLATE,
-      actorId: 'visitor-1',
-      severity: 'heavy',
-      photoAttached: false,
-    });
-    expect(report.id).toMatch(/^RPT-\d+-0847$/);
-    expect(report.severity).toBe('heavy');
+describe('what SEND IT is worth', () => {
+  it('files a report with a receipt-format id and the category the visitor picked', async () => {
+    const outcome = await reportProblem(store, careInput({ category: 'thirsty' }));
+    expect(outcome.kind).toBe('filed');
+    expect(outcome.report?.id).toMatch(/^RPT-\d+-0847$/);
+    expect(outcome.report?.category).toBe('thirsty');
+    // Nothing on the street sets severity: the problem screen asks what is
+    // wrong, not how bad.
+    expect(outcome.report?.severity).toBeNull();
   });
 
-  it('blocks a second report while one is open', async () => {
-    await fileReport(store, { plate: PLATE, actorId: 'visitor-1', severity: 'light', photoAttached: false });
-    await expect(
-      fileReport(store, { plate: PLATE, actorId: 'visitor-2', severity: 'heavy', photoAttached: false }),
-    ).rejects.toMatchObject({ code: 'open-report-exists' });
+  it('keeps the sentence behind "something else", capped', async () => {
+    const long = 'x'.repeat(MAX_NOTE_CHARS + 50);
+    const outcome = await reportProblem(store, careInput({ category: 'other', note: long }));
+    expect(outcome.report?.note).toHaveLength(MAX_NOTE_CHARS);
   });
 
-  it('blocks the same person re-reporting the same NY calendar day after a clear', async () => {
+  it("adds a second reporter's weight to the open report instead of opening a duplicate", async () => {
+    // Two open reports on one bed is unrecoverable through the UI: closeReport
+    // only ever finds the first. The approved flow has no confirm screen, so
+    // the same press counts them on the report that is already open.
+    await reportProblem(store, careInput({ actorId: 'visitor-1' }));
+    const second = await reportProblem(store, careInput({ actorId: 'visitor-2' }));
+    expect(second.kind).toBe('added-weight');
+    expect(second.report?.confirmedBy).toEqual(['visitor-2']);
+    expect(await store.getReports(PLATE)).toHaveLength(1);
+  });
+
+  it('counts each neighbour once, and stops at the cap', async () => {
+    await reportProblem(store, careInput({ actorId: 'visitor-1' }));
+    await reportProblem(store, careInput({ actorId: 'visitor-2' }));
+    const repeat = await reportProblem(store, careInput({ actorId: 'visitor-2' }));
+    expect(repeat.kind).toBe('already-said');
+    expect(repeat.report?.confirmedBy).toEqual(['visitor-2']);
+
+    // The per-person rule bounds honest use; only a caller minting a new
+    // identity per request gets here, and what it costs has to stop growing —
+    // the stored array and the event beside it alike.
+    for (let i = 0; i < MAX_CONFIRMATIONS + 5; i += 1) {
+      await reportProblem(store, careInput({ actorId: `weight-${i}` }));
+    }
+    const open = await store.getOpenReport(PLATE);
+    expect(open?.confirmedBy).toHaveLength(MAX_CONFIRMATIONS);
+    expect(await store.getEvents(PLATE, 'confirm')).toHaveLength(MAX_CONFIRMATIONS);
+  });
+
+  it('writes nothing when the same person sends again the same NY calendar day', async () => {
     const noon = new Date('2026-08-11T16:00:00Z'); // 12:00 NY
     const evening = new Date('2026-08-11T23:00:00Z'); // 19:00 NY, same day
-    await fileReport(store, { plate: PLATE, actorId: 'visitor-1', severity: 'light', photoAttached: false, now: noon });
+    await reportProblem(store, careInput({ actorId: 'visitor-1', now: noon }));
     await closeReport(store, { plate: PLATE, actorId: 'visitor-9', now: noon });
-    await expect(
-      fileReport(store, { plate: PLATE, actorId: 'visitor-1', severity: 'light', photoAttached: false, now: evening }),
-    ).rejects.toMatchObject({ code: 'already-reported-today' });
+    const again = await reportProblem(store, careInput({ actorId: 'visitor-1', now: evening }));
+    // No rule is shown to somebody standing at a tree — the screen thanks them
+    // either way. The record is where it stays legible that nothing was written.
+    expect(again).toEqual({ kind: 'already-said', report: null });
+    expect(await store.getReports(PLATE)).toHaveLength(1);
   });
 
   it('lets a different person report after a clear, and the same person the next day', async () => {
     const noon = new Date('2026-08-11T16:00:00Z');
-    await fileReport(store, { plate: PLATE, actorId: 'visitor-1', severity: 'light', photoAttached: false, now: noon });
+    await reportProblem(store, careInput({ actorId: 'visitor-1', now: noon }));
     await closeReport(store, { plate: PLATE, actorId: 'visitor-9', now: noon });
-    const second = await fileReport(store, {
-      plate: PLATE, actorId: 'visitor-2', severity: 'heavy', photoAttached: false, now: noon,
-    });
+    const second = await reportProblem(store, careInput({ actorId: 'visitor-2', now: noon }));
     await closeReport(store, { plate: PLATE, actorId: 'visitor-9', now: noon });
     const nextDay = new Date('2026-08-12T16:00:00Z');
-    const third = await fileReport(store, {
-      plate: PLATE, actorId: 'visitor-1', severity: 'light', photoAttached: false, now: nextDay,
-    });
-    expect(second.id).not.toBe(third.id);
+    const third = await reportProblem(store, careInput({ actorId: 'visitor-1', now: nextDay }));
+    expect(second.report?.id).not.toBe(third.report?.id);
   });
 });
 
-describe('confirm and escalate', () => {
+describe('applause', () => {
+  it('counts one per person per bed per NY day', async () => {
+    const noon = new Date('2026-08-11T16:00:00Z');
+    const evening = new Date('2026-08-11T23:00:00Z');
+    const nextDay = new Date('2026-08-12T16:00:00Z');
+    expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: noon })).toEqual({
+      counted: true,
+    });
+    // `events` is append-only with nothing pruning it, so a button anybody can
+    // press without signing in has to stop costing something at some point.
+    expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: evening })).toEqual({
+      counted: false,
+    });
+    expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', now: noon })).toEqual({
+      counted: true,
+    });
+    expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: nextDay })).toEqual({
+      counted: true,
+    });
+    expect(await store.getEvents(PLATE, 'applause')).toHaveLength(3);
+  });
+});
+
+describe('escalate and clear', () => {
+  // No route reaches `escalateReport` in the shipped tap flow — the approved
+  // screens have no escalate button — but the capability is intact in the
+  // service layer, exactly as `closeReport` is for anonymous clear. See
+  // AGENTS.md.
   beforeEach(async () => {
-    await fileReport(store, { plate: PLATE, actorId: 'visitor-1', severity: 'heavy', photoAttached: false });
-  });
-
-  it('counts each confirming neighbor once', async () => {
-    await confirmReport(store, { plate: PLATE, actorId: 'visitor-2' });
-    await confirmReport(store, { plate: PLATE, actorId: 'visitor-2' });
-    const report = await confirmReport(store, { plate: PLATE, actorId: 'visitor-3' });
-    expect(report.confirmedBy).toEqual(['visitor-2', 'visitor-3']);
-  });
-
-  it('stops storing confirmations at the cap', async () => {
-    // The per-person rule bounds honest use; only a caller minting a new
-    // identity per request gets here, and what it costs has to stop growing —
-    // the stored array, the event beside it, and the public count alike.
-    for (let i = 0; i < MAX_CONFIRMATIONS + 5; i += 1) {
-      await confirmReport(store, { plate: PLATE, actorId: `visitor-${i}` });
-    }
-    const report = await store.getOpenReport(PLATE);
-    expect(report?.confirmedBy).toHaveLength(MAX_CONFIRMATIONS);
-    // No write past the cap, so no event either.
-    expect(await store.getEvents(PLATE, 'confirm')).toHaveLength(MAX_CONFIRMATIONS);
+    await reportProblem(store, careInput({ actorId: 'visitor-1' }));
   });
 
   it('escalates to dumping exactly once, recording the prior severity', async () => {
     const escalated = await escalateReport(store, { plate: PLATE, actorId: 'visitor-2' });
     expect(escalated.severity).toBe('dumping');
-    expect(escalated.escalatedFrom).toBe('heavy');
+    // Nothing set a severity on the street, so there was none to escalate from.
+    expect(escalated.escalatedFrom).toBeNull();
     await expect(escalateReport(store, { plate: PLATE, actorId: 'visitor-3' })).rejects.toMatchObject({
       code: 'already-dumping',
     });
@@ -196,14 +259,11 @@ describe('confirm and escalate', () => {
 
 describe('concurrent taps', () => {
   it('opens only one report when two people file at the same moment', async () => {
-    const results = await Promise.allSettled([
-      fileReport(store, { plate: PLATE, actorId: 'visitor-1', severity: 'light', photoAttached: false }),
-      fileReport(store, { plate: PLATE, actorId: 'visitor-2', severity: 'heavy', photoAttached: false }),
+    const results = await Promise.all([
+      reportProblem(store, careInput({ actorId: 'visitor-1' })),
+      reportProblem(store, careInput({ actorId: 'visitor-2' })),
     ]);
-    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-    expect(results.find((r) => r.status === 'rejected')?.reason).toMatchObject({
-      code: 'open-report-exists',
-    });
+    expect(results.map((r) => r.kind).sort()).toEqual(['added-weight', 'filed']);
     // A second open report would be unclosable: closeReport only ever finds the first.
     expect(await store.getReports(PLATE)).toHaveLength(1);
   });
@@ -228,12 +288,12 @@ describe('concurrent taps', () => {
 
 describe('store contract', () => {
   it('hands out detached copies, so mutating a read never reaches stored state', async () => {
-    await fileReport(store, { plate: PLATE, actorId: 'visitor-1', severity: 'light', photoAttached: false });
+    await reportProblem(store, careInput({ actorId: 'visitor-1' }));
     const read = await store.getOpenReport(PLATE);
-    read!.severity = 'dumping';
+    read!.category = 'guard';
     read!.confirmedBy.push('never-happened');
     const stored = await store.getOpenReport(PLATE);
-    expect(stored?.severity).toBe('light');
+    expect(stored?.category).toBe('litter');
     expect(stored?.confirmedBy).toEqual([]);
   });
 
@@ -319,7 +379,7 @@ describe('store contract', () => {
 });
 
 describe('sign in', () => {
-  it('accepts the seeded demo adopter and rejects a wrong PIN with one generic error', async () => {
+  it('accepts the seeded demo steward and rejects a wrong PIN with one generic error', async () => {
     const user = await signIn(store, { username: '@marisol_r', pin: '1234' });
     expect(user.username).toBe('marisol_r');
     await expect(signIn(store, { username: 'marisol_r', pin: '0000' })).rejects.toMatchObject({
@@ -407,7 +467,7 @@ describe('weekly photo log', () => {
 describe('errors', () => {
   it('uses typed RuleErrors with stable codes', async () => {
     try {
-      await fileReport(store, { plate: 'BED-XX-0000', actorId: 'v', severity: 'light', photoAttached: false });
+      await reportProblem(store, careInput({ plate: 'BED-XX-0000', actorId: 'v' }));
       expect.unreachable();
     } catch (err) {
       expect(err).toBeInstanceOf(RuleError);

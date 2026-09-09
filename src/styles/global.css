@@ -1,80 +1,177 @@
-/* ── Design tokens ─────────────────────────────────────────────────────
-   These are the PROTOTYPE's rendered palette — what the captain reviewed
-   and approved — NOT the brand tokens from the production site's
-   colors.css. The divergence is known and flagged upstream; do not
-   "fix" it here. Each token notes the brand value it diverges from so a
-   future decision to snap to the brand palette is this file only.       */
-:root {
-  --paper: #f0ece4;        /* page background  (brand --off-white: #f7f4ed) */
-  --ink: #4a4850;          /* body ink         (brand --charcoal: #1c1c22)  */
-  --surface-dark: #4a4a5a; /* dark surface / secondary button (brand --charcoal: #1c1c22) */
-  --action: #f8623a;       /* primary action   (brand orange: #f35b04)      */
-  --muted: #8a867e;        /* muted label      (brand --gray: #7a7a8a)      */
-  --faint: #b0aca2;        /* placeholder text (brand --warm-gray: #b0aca2 ✓ matches) */
-  --border-soft: #d0ccc4;  /* card border      (brand --border-soft: #d0ccc4 ✓ matches) */
-  --success: #2a6b2a;      /* clear / success  (brand --green: #2a6b2a ✓ matches) */
-  --card: #ffffff;         /* plaque card surface (prototype renders a white
-                              card on warm grey — deliberately NOT spec §11's
-                              charcoal-on-off-white; the prototype wins)     */
-  --overlay: rgba(28, 28, 34, 0.45);
-}
+/* ── The tap flow's one stylesheet ─────────────────────────────────────
+   No colour is named in here. Every one is a `--theme-*` custom property
+   written onto the root element per render from the bed's own record
+   (src/lib/presentation.ts) — the captain intends a group of beds to get
+   its own look later, and this is the whole of what that costs today.
+   If you find yourself typing a hex value below, it belongs there instead.
+
+   Type is two families and nothing else (design-record.md, constraint 3):
+   Londrina Solid on headlines, the plate and buttons; Barlow underneath.
+   Barlow labels are sentence case, not all-caps — only the buttons and the
+   two kicker rules shout.                                              */
 
 /* ── Fonts ─────────────────────────────────────────────────────────────
-   Self-hosted, subset woff2 (see public/fonts/README.md for provenance).
-   Nunito ships as one variable font covering weights 700–900.           */
+   Self-hosted, subset woff2 (see public/fonts/README.md for provenance
+   and the character set). The tap screen must not pay a Google Fonts CDN
+   round-trip on cellular (spec §3a).                                   */
 @font-face {
-  font-family: 'Nunito';
-  font-style: normal;
-  font-weight: 700 900;
-  font-display: swap;
-  src: url('/fonts/nunito-vf-700-900.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Space Mono';
+  font-family: 'Londrina Solid';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/space-mono-400.woff2') format('woff2');
+  src: url('/fonts/londrina-400.woff2') format('woff2');
 }
 @font-face {
-  font-family: 'Space Mono';
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/barlow-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/barlow-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/space-mono-700.woff2') format('woff2');
+  src: url('/fonts/barlow-700.woff2') format('woff2');
 }
 
 /* ── Base ──────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: var(--paper); }
-body { font-family: 'Nunito', sans-serif; color: var(--ink); }
-a { color: var(--action); }
-button, input { font: inherit; }
+html, body { margin: 0; padding: 0; }
+html { background: var(--theme-ground); }
+body {
+  background: var(--theme-ground);
+  font-family: 'Barlow', sans-serif;
+  color: var(--theme-ink);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
 
-@keyframes ttPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.display { font-family: 'Londrina Solid', cursive; font-weight: 400; }
 
-/* Prototype is authored at 390px; wider phones get it centered. */
-.frame { max-width: 390px; margin: 0 auto; min-height: 100dvh; background: var(--paper); }
+/* Authored for a phone; wider screens get it centred rather than stretched.
+   The frame carries the ground so a takeover's colour reaches the edges of
+   the viewport, not just the column. */
+.frame {
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  position: relative;
+}
+/* A takeover's ground has to reach past the 430px column and past the
+   safe-area insets, or it stops being a takeover on a wide phone. Set on
+   the frame and on the element behind it. */
+.ground-clear { background: var(--theme-clear); }
+.ground-action { background: var(--theme-action); }
+body:has(.ground-clear), html:has(.ground-clear) { background: var(--theme-clear); }
+body:has(.ground-action), html:has(.ground-action) { background: var(--theme-action); }
 
+/* ── Safe areas ────────────────────────────────────────────────────────
+   Every screen is one of these. The insets are ADDED to the design's own
+   padding rather than replacing it, so a device that reports no inset
+   still gets real spacing and a device that reports one gets the design's
+   spacing clear of the notch, the status bar and the home indicator.
+   `viewport-fit=cover` in the layout's viewport meta is what makes
+   env(safe-area-inset-*) resolve to anything but zero — without that line
+   every calc() below silently collapses to the fallback.               */
 .screen {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
-  padding: 18px 16px 20px;
-  gap: 16px;
+  gap: 14px;
+  padding:
+    calc(16px + env(safe-area-inset-top, 0px))
+    calc(18px + env(safe-area-inset-right, 0px))
+    calc(20px + env(safe-area-inset-bottom, 0px))
+    calc(18px + env(safe-area-inset-left, 0px));
+}
+/* The toggle is pinned top-right; nothing in the flow may run under it. The
+   takeovers are exempt because their first child is the centred statement —
+   reserving the gutter there would push the whole thing off centre by half of
+   it, which on a screen whose only job is one word is the visible kind of
+   wrong. Nothing on a takeover reaches the corner anyway. */
+.screen:not(.takeover) > :first-child { padding-right: 52px; }
+
+.screen-clear { background: var(--theme-clear); color: var(--theme-on-clear); }
+.screen-action { background: var(--theme-action); color: var(--theme-on-action); }
+
+.spacer { flex: 1; }
+
+/* ── Kickers and identifiers ──────────────────────────────────────────
+   The identity names no monospace face, so IDs are Barlow 500 with wide
+   tracking (the approved screens' own note).                           */
+.kicker {
+  font-family: 'Barlow', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--theme-muted);
+}
+.screen-clear .kicker, .screen-action .kicker { color: var(--theme-on-clear-muted); }
+.screen-action .kicker { color: var(--theme-on-action); opacity: 0.8; }
+.ident {
+  font-family: 'Barlow', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  color: var(--theme-muted);
+}
+.screen-clear .ident { color: var(--theme-on-clear-muted); }
+
+/* ── Headlines ────────────────────────────────────────────────────────
+   `.hero` is the door screens' statement; `.title` the working screens'. */
+.hero {
+  font-family: 'Londrina Solid', cursive;
+  font-weight: 400;
+  font-size: clamp(34px, 10vw, 44px);
+  line-height: 1;
+  text-align: left;
+  padding-bottom: 3px;
+}
+.title {
+  font-family: 'Londrina Solid', cursive;
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1.1;
+  padding-bottom: 3px;
+}
+/* The tree type, picked out of the headline. Poster Beige on the green
+   ground with a soft glow — "still poster beige, just lit", per the captain's
+   own note on the approved screen. The glow is currentColor, so it follows
+   whatever the theme makes this ink. */
+.hl { color: var(--theme-on-clear); text-shadow: 0 0 14px color-mix(in srgb, currentColor 32%, transparent); }
+.body-copy {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--theme-muted);
+}
+.screen-clear .body-copy, .screen-action .body-copy { color: var(--theme-on-clear-muted); }
+.mid {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.card {
-  background: var(--card);
-  border: 1px solid var(--border-soft);
-  border-radius: 12px;
-  padding: 20px;
-}
-
-.kicker { font-size: 12px; font-weight: 800; letter-spacing: 0.14em; color: var(--surface-dark); }
-.mono { font-family: 'Space Mono', monospace; }
-
-/* ── Buttons ──────────────────────────────────────────────────────── */
+/* ── Buttons ──────────────────────────────────────────────────────────
+   Londrina Solid, per the type rule. `.btn-tall` is the captain's
+   oversized street button: a thumb, at arm's length, in the rain.      */
 .btn {
   display: flex;
   align-items: center;
@@ -82,71 +179,312 @@ button, input { font: inherit; }
   width: 100%;
   border: none;
   border-radius: 10px;
-  font-family: 'Nunito', sans-serif;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  cursor: pointer;
+  font-family: 'Londrina Solid', cursive;
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  font-size: 21px;
+  min-height: 56px;
+  padding: 3px 12px 0;
   text-align: center;
   text-decoration: none;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.btn-primary { background: var(--action); color: #fff; }
-.btn-primary:active { filter: brightness(0.92); }
-.btn-dark { background: var(--surface-dark); color: #fff; }
-.btn-dark:active { filter: brightness(1.15); }
-.btn-outline { background: var(--card); border: 2px solid var(--surface-dark); color: var(--surface-dark); }
-.btn-outline:active { background: var(--paper); }
-.btn-tertiary { background: var(--card); border: 2px solid var(--border-soft); color: var(--surface-dark); }
-.btn-tertiary:active { background: var(--paper); }
-.btn-ghost { background: transparent; color: var(--muted); font-size: 14px; font-weight: 800; min-height: 44px; letter-spacing: 0; }
+.btn-tall { min-height: 72px; font-size: 26px; }
+.btn:active { filter: brightness(0.94); }
 
-/* ── Forms ────────────────────────────────────────────────────────── */
-.field-label {
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  color: var(--muted);
+/* On the page ground */
+.btn-action { background: var(--theme-action); color: var(--theme-on-action); }
+.btn-alert { background: var(--theme-alert); color: var(--theme-on-alert); }
+.btn-outline {
+  background: var(--theme-surface);
+  border: 2px solid var(--theme-ink);
+  color: var(--theme-ink);
+}
+.btn-quiet {
+  background: var(--theme-surface);
+  border: 2px solid var(--theme-border);
+  color: var(--theme-ink);
+}
+/* On the green ground: Poster Beige fill, and an outline of the same. */
+.btn-on-clear { background: var(--theme-on-clear); color: var(--theme-clear); }
+.btn-on-clear-outline {
+  background: transparent;
+  border: 2px solid var(--theme-on-clear);
+  color: var(--theme-on-clear);
+}
+.btn-on-action { background: var(--theme-on-action); color: var(--theme-action); }
+
+/* Barlow, sentence case — a link that happens to sit with the buttons. */
+.btn-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  font-family: 'Barlow', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--theme-muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+.screen-clear .btn-ghost { color: var(--theme-on-clear-muted); }
+.back-link {
+  align-self: flex-start;
+  font-family: 'Barlow', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--theme-muted);
+  text-decoration: none;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Surfaces ─────────────────────────────────────────────────────── */
+.card {
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border);
+  border-radius: 12px;
+  padding: 18px;
+}
+/* Poster Beige container on the green ground. */
+.box {
+  background: var(--theme-ground);
+  color: var(--theme-ink);
+  border-radius: 11px;
+  padding: 15px;
+}
+.panel-h {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--theme-ink);
+}
+
+/* ── Stewards ─────────────────────────────────────────────────────────
+   Username first, then initials. Full name, email and phone are
+   admin-only and never reach this screen (design-record.md, 5).       */
+.stewards { display: flex; flex-direction: column; gap: 10px; }
+.steward { display: flex; align-items: center; gap: 11px; }
+.steward .av {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--theme-clear);
+  color: var(--theme-on-clear);
+  border: 2px solid var(--theme-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Barlow', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.steward .who { display: flex; flex-direction: column; min-width: 0; }
+.steward .handle { font-size: 16px; font-weight: 700; line-height: 1.25; }
+.steward .initials {
   display: block;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--theme-muted);
+  margin-top: 2px;
 }
-.field-input {
-  width: 100%;
-  border: 2px solid var(--border-soft);
-  border-radius: 8px;
-  padding: 14px;
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--ink);
-  background: var(--card);
-}
-.field-input:focus { border-color: var(--action); outline: none; }
-.field-input::placeholder { color: var(--faint); font-weight: 700; }
-.field-error { font-size: 13px; font-weight: 800; color: #b3261e; }
-
-/* ── Adopter slots ────────────────────────────────────────────────── */
-.slot-taken {
-  background: var(--paper);
-  border-radius: 8px;
-  padding: 12px 14px;
-  font-size: 15px;
-  font-weight: 900;
-  color: var(--ink);
-}
-.slot-taken .since { font-size: 12px; font-weight: 700; color: var(--muted); }
 .slot-open {
-  border: 2px dashed var(--border-soft);
+  border: 2px dashed var(--theme-border);
+  border-radius: 8px;
+  padding: 11px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--theme-faint);
+}
+
+/* ── Choice tiles: the risograph treatment ────────────────────────────
+   One flat spot ink per choice, printed slightly out of register over
+   paper grain (design-record.md, constraint 7). Two layers do it: an ink
+   block knocked off register and multiplied into the paper, and a fixed
+   noise plate over the top. The palette and the typeface are unchanged —
+   only the printing is imitated. The ink is `currentColor`, so each tile
+   is one theme role and nothing here names a colour.                   */
+.catgrid {
+  /* The hidden radios are absolutely positioned so they create no track;
+     this is what keeps them inside the grid rather than at the frame's
+     corner, where focusing one would scroll the screen to the top. */
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 11px;
+  flex: 1;
+  align-content: center;
+  min-height: 0;
+}
+.quad {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 2px solid;
+  border-radius: 4px;
+  padding: 15px 13px;
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--theme-ground);
+  font-family: 'Barlow', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.quad > span { position: relative; z-index: 3; }
+/* the ink block, knocked slightly off register */
+.quad::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  left: -14%;
+  top: -30%;
+  width: 78%;
+  height: 78%;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.3;
+  mix-blend-mode: multiply;
+  transform: translate(3px, 2px);
+}
+/* the paper grain, as a fixed noise plate */
+.quad::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.16;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+/* Chosen: the ink floods the tile. Driven by :checked on a hidden radio, so
+   the picker works with no JavaScript at all. */
+.quad-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.quad-input:checked + .quad {
+  background: currentColor;
+  box-shadow: inset 0 0 0 3px var(--theme-ground);
+}
+.quad-input:checked + .quad > span { color: var(--theme-ground); }
+.quad-input:focus-visible + .quad { outline: 3px solid var(--theme-ink); outline-offset: 2px; }
+
+/* ── Fields ───────────────────────────────────────────────────────── */
+.field-label {
+  display: block;
+  font-family: 'Barlow', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--theme-muted);
+  margin-bottom: 5px;
+}
+.field-note { font-size: 11px; font-weight: 600; color: var(--theme-faint); letter-spacing: 0.04em; }
+.field-input, .freetext {
+  width: 100%;
+  border: 2px solid var(--theme-border);
   border-radius: 8px;
   padding: 12px;
+  font-family: 'Barlow', sans-serif;
+  /* 16px or iOS zooms the whole screen on focus, which on a page with a
+     notch drags the layout out from under the safe-area padding. */
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--theme-ink);
+  background: var(--theme-surface);
+}
+.field-input:focus, .freetext:focus { outline: none; border-color: var(--theme-action); }
+.field-input::placeholder, .freetext::placeholder { color: var(--theme-faint); font-weight: 400; }
+.freetext { resize: none; line-height: 1.5; }
+.field-row { display: flex; gap: 9px; }
+.field-row > div { flex: 1; min-width: 0; }
+.field-error { font-size: 13px; font-weight: 600; color: var(--theme-action); margin-top: 5px; }
+
+.photo-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 52px;
+  border: 2px dashed var(--theme-border);
+  border-radius: 10px;
+  padding: 12px;
+  font-family: 'Barlow', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--theme-muted);
+  cursor: pointer;
   text-align: center;
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--faint);
+}
+.photo-row input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.photo-row.attached {
+  border-style: solid;
+  border-color: var(--theme-clear);
+  color: var(--theme-clear);
 }
 
-/* ── Report band ──────────────────────────────────────────────────── */
-.band { border-radius: 10px; padding: 14px 16px; color: #fff; }
-.band-open { background: var(--action); }
-.band-clear { background: var(--success); }
-.band .band-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.band .band-title { font-size: 18px; font-weight: 900; line-height: 1.2; }
-.band .band-sub { font-family: 'Space Mono', monospace; font-size: 12px; margin-top: 4px; opacity: 0.9; }
-.pulse-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #fff; animation: ttPulse 2s infinite; }
+/* ── Full-screen takeovers ────────────────────────────────────────────
+   "Adopted!" and "Thank you" are takeovers, with animation to follow
+   (design-record.md, constraint 8). The seam for it is `.takeover-mark`:
+   an element that exists only to be animated, so whoever adds the motion
+   has something to target and nothing to restructure. Nothing animates
+   today, and `prefers-reduced-motion` is already honoured below so the
+   first animation added inherits the guard rather than inventing it.  */
+.takeover {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+}
+.takeover .big {
+  font-family: 'Londrina Solid', cursive;
+  font-weight: 400;
+  font-size: clamp(54px, 17vw, 72px);
+  line-height: 0.94;
+}
+.takeover .sub {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.5;
+  max-width: 24ch;
+}
+.screen-action .takeover-sub { color: var(--theme-on-action); opacity: 0.85; }
+.screen-clear .takeover-sub { color: var(--theme-on-clear-muted); }
+.takeover-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding: 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Report band, on the steward's own view ───────────────────────── */
+.band { border-radius: 10px; padding: 13px 15px; }
+.band-alert { background: var(--theme-alert); color: var(--theme-on-alert); }
+.band-clear { background: var(--theme-clear); color: var(--theme-on-clear); }
+.band-title { font-family: 'Londrina Solid', cursive; font-size: 21px; line-height: 1.12; }
+.band-sub { font-size: 11px; font-weight: 600; letter-spacing: 0.09em; margin-top: 3px; }
+
+.logo { display: block; height: 40px; width: auto; }

@@ -1,27 +1,43 @@
 ---
-// The plaque — what a tap lands on. The URL carries an opaque tag ID and
-// nothing else (map decision: no meaning in the tag URL; a tag's site is
-// unknowable at encoding time). The ID resolves to a site server-side through
-// tag-bindings.ts, and everything below the resolution is keyed by the site's
-// plate, which survives only as display text.
+// The tap. Two doors.
 //
-// One URL, four server-picked states:
-//   unbound    a well-formed tag no binding speaks for — encoded but not yet
-//              assigned, or retired. A normal state, not an error.
-//   bed        clear bed, the default plaque
-//   adopted    an open report exists (someone else filed) → confirm / escalate
-//   ratelimit  the visitor already reported → severity raise only
-// State is decided here, server-side; the page ships no client JS beyond the
-// severity-picker enhancement script (spec §3/§3a).
+// The URL carries an opaque tag ID and nothing else (map decision: no meaning
+// in the tag URL; a tag's site is unknowable at encoding time). The ID resolves
+// to a site server-side through tag-bindings.ts, and everything below the
+// resolution is keyed by the site's plate — which is INTERNAL and is not
+// rendered: what a visitor sees is NYC Parks' planting space ID.
+//
+// The bed's state picks the screen, server-side (design-record.md — the
+// captain's Option B, closing a forty-round review):
+//
+//   unbound      a well-formed tag no binding speaks for. A normal state, not
+//                an error: bulk-encoded tags sit in the wood before anyone
+//                binds them. Calm screen, 404, no tap logged.
+//   door 1       no steward yet → "This <tree>'s bed is looking for a steward."
+//                → ADOPT THIS BED / THIS BED NEEDS CARE
+//   door 2       already stewarded → "This <tree> bed has been adopted!", the
+//                stewards shown → SEND APPLAUSE / THIS BED NEEDS CARE
+//
+// One clear question per screen. There is deliberately no third state for "a
+// report is already open": a neighbour who taps a bed somebody else has just
+// reported still gets door 2 and still presses THIS BED NEEDS CARE, and the
+// rules add their weight to the open report rather than sending them to a
+// screen about a rule (service.ts, `reportProblem`).
+//
+// Option A — the plaque-first screen this replaced — is scrapped, not flagged
+// off. Do not restore it.
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
-import { getBedView, hasReportedToday, logTap } from '../../../lib/service';
+import { getBedView, logTap } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
-import { SEVERITIES, severityName } from '../../../lib/severity';
 import { isPostAction } from '../../../lib/plaque-url';
-import { nyCalendarDay, relativeAge, sinceLabel } from '../../../lib/format';
 import { resolveTagParam } from '../../../lib/tag-bindings';
 import { abandonBody } from '../../../lib/request-body';
+import { bi } from '../../../lib/bilingual';
+import { COMMON, DOOR_STEWARDED, DOOR_UNSTEWARDED, UNBOUND } from '../../../lib/copy';
+import { langLink, resolveLang } from '../../../lib/i18n';
+import { defaultPresentation, presentationFor } from '../../../lib/presentation';
+import { publicHandle, publicInitials } from '../../../lib/types';
 
 // Astro renders this for any method, so a hand-built POST lands here like a
 // tap does — and a body answered without being touched is one Node dumps to
@@ -37,7 +53,8 @@ if (resolved.state === 'invalid') {
 // One canonical URL per tag: a mistyped or hand-decorated ID (case, hyphens,
 // lookalikes) lands here, then reads and shares as the address the chip
 // carries. The query string rides along — it may hold our own post-action
-// flag, a decorator's UTM tags, or (later) an NTAG424's parameters.
+// flag, the language, a decorator's UTM tags, or (later) an NTAG424's
+// parameters.
 if (Astro.params.tag !== resolved.tag) {
   // 303 for anything that arrived with a body, as every other redirect that can
   // answer a POST does: a 302 invites a client reading RFC 9110 to repeat the
@@ -46,6 +63,7 @@ if (Astro.params.tag !== resolved.tag) {
   return Astro.redirect(`/t/${resolved.tag}${url.search}`, seeOther ? 303 : 302);
 }
 
+const lang = resolveLang(url, Astro.cookies);
 const tag = resolved.tag;
 const base = `/t/${tag}`;
 
@@ -58,392 +76,172 @@ if (resolved.state === 'bound' && view === null) {
   console.error(`[plaque] tag ${tag} is bound to unknown site ${resolved.plate}`);
 }
 
-// Unbound: a well-formed tag nobody has assigned yet — bulk-encoded tags sit
-// in the wood before a binding exists, so this is a normal state, not a 500.
-// It still answers 404: there is no site here for a crawler or a monitor to
-// believe in. No tap is logged either — sites own history, and this tag has
-// none to write to. The in-field claim flow that would start one here is a
-// later ticket.
-if (view === null) {
-  Astro.response.status = 404;
-}
-
-const bed = view?.bed ?? null;
-const adopters = view?.adopters ?? [];
-const openSlots = view?.openSlots ?? 0;
-const openReport = view?.openReport ?? null;
+// Unbound: still 404. There is no site here for a crawler or a monitor to
+// believe in, and no tap is logged — sites own history, and this tag has none
+// to write to.
+if (view === null) Astro.response.status = 404;
 
 const actor = view === null ? null : getActorId(Astro.cookies);
 
-const confirmedFlash = url.searchParams.has('confirmed');
-const raisedFlash = url.searchParams.has('raised');
-const limited = url.searchParams.has('limited');
-
-// Only our own post-action redirects are page reloads rather than new taps —
-// including the ones with nothing to flash, which is why the flag set lives in
-// one place with the helper the POST routes build those redirects with.
-// A tap is a person opening the URL on the chip, which is a GET and only ever
-// a GET: a hand-built POST or PUT renders this screen (Astro answers any
-// method) but is nobody standing at a tree bed, and a HEAD is the same monitor
-// case the site root already refuses to count.
+// A tap is a person opening the URL on the chip: a GET, never a hand-built
+// POST or a monitor's HEAD, and never one of our own navigations back here
+// (plaque-url.ts). The language toggle rides the same rule for free — it is a
+// link with `?lang=`, which is not one of the suppressing flags, so switching
+// language on the plaque is a fresh render but not a fresh tap only because
+// `isPostAction` also sees `tg_action` on every link of ours. On the plaque
+// itself the toggle re-renders the same URL, so it does count a second view;
+// that is one visitor at one tree either way, and the alternative — treating
+// `lang` as a suppressing flag — would let any decorated URL carrying `lang`
+// silently stop counting.
 const tapShaped = Astro.request.method === 'GET';
 if (view !== null && actor !== null && tapShaped && !isPostAction(url)) {
   try {
     await logTap(store, { plate: view.bed.plate, actorId: actor });
   } catch (err) {
     // Telemetry fails open: a lost tap event must never cost a passer-by the
-    // plaque, which every read below can still render.
+    // screen, which every read below can still render.
     console.error(`[plaque] tap not recorded for ${view.bed.plate}:`, err);
   }
 }
 
-type Variant = 'unbound' | 'bed' | 'adopted' | 'ratelimit';
-let variant: Variant = view === null ? 'unbound' : 'bed';
-let limitReport = null; // the visitor's own report shown on the ratelimit screen
-if (view !== null && actor !== null) {
-  const plate = view.bed.plate;
-  if (openReport && openReport.reporterId === actor) {
-    variant = 'ratelimit';
-    limitReport = openReport;
-  } else if (openReport) {
-    variant = 'adopted';
-  } else if (limited && (await hasReportedToday(store, plate, actor))) {
-    // Their report today was already closed; the bed is clear again, but the
-    // one-report-per-day rule still blocks a refile until tomorrow.
-    const today = nyCalendarDay(new Date());
-    limitReport =
-      (await store.getReports(plate)).find(
-        (r) => r.reporterId === actor && nyCalendarDay(new Date(r.openedAt)) === today,
-      ) ?? null;
-    if (limitReport) variant = 'ratelimit';
-  }
-}
+const presentation = view ? presentationFor(view.bed) : defaultPresentation();
+const bed = view?.bed ?? null;
+const stewards = view?.stewards ?? [];
+const openSlots = view?.openSlots ?? 0;
+const stewarded = stewards.length > 0;
 
-const canAdopt = openSlots > 0;
-const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slots still open`;
-const confirmedByMe = (actor !== null && openReport?.confirmedBy.includes(actor)) ?? false;
+const care = langLink(`${base}/care`, lang);
+const adopt = langLink(`${base}/adopt`, lang);
+
+const title = bed
+  ? `${bed.treeType[lang]} · ${presentation.copy.wordmark}`
+  : `${presentation.copy.wordmark}`;
 ---
 
-<Screen title={bed ? `${bed.plate} · Trash Talk NYC` : `Tag ${tag} · Trash Talk NYC`}>
+<Screen
+  title={title}
+  lang={lang}
+  presentation={presentation}
+  url={url}
+  ground={view === null ? 'page' : 'clear'}
+>
   {
-    variant === 'unbound' && (
+    view === null && (
       <div class="screen">
-        <div class="kicker kicker-muted">TRASH TALK NYC</div>
-        <div class="card card-roomy">
-          <div class="unbound-title">This tag isn't assigned to a bed yet.</div>
-          <div class="unbound-meta mono">TAG {tag}</div>
-        </div>
-        <div class="body-copy">
-          The tag works — it just hasn't been matched to a spot on the street yet. If it's mounted
-          somewhere, the crew that placed it will hook it up soon.
-        </div>
-      </div>
-    )
-  }
-
-  {
-    variant === 'bed' && bed && (
-      <div class="screen screen-bed">
-        <a class="logo-link" href="https://trashtalknyc.org" target="_blank" rel="noopener">
-          <img src="/img/trash-talk-nyc-logo.png" alt="Trash Talk NYC" class="logo" width="137" height="144" />
-        </a>
-        <div class="card plate-card">
-          <div class="plate">{bed.plate}</div>
-          <div class="plate-ids mono">
-            <span>TREE ID: {bed.treeId}</span>
-            <span>TAG ID: {tag}</span>
-          </div>
-          <div class="plate-rule" />
-          <div class="adopted-by">ADOPTED BY</div>
-          <div class="slots">
-            {adopters.map(({ adoption, user }) => (
-              <div class="slot-taken">{adoption.displayNameHidden ? 'A neighbor' : `@${user.username}`}</div>
-            ))}
-            {Array.from({ length: openSlots }).map(() => (
-              <div class="slot-open">Open slot</div>
-            ))}
-          </div>
-          {canAdopt && (
-            <div class="invite">
-              <div class="invite-voice">
-                This tree is asking — <strong>{slotsOpenLabel}</strong>.
-              </div>
-              <a class="btn btn-tertiary invite-btn" href={`${base}/adopt`}>
-                ADOPT THIS BED
-              </a>
-            </div>
-          )}
-        </div>
-        <div class="actions">
-          <a class="btn btn-primary btn-huge" href="#report">THIS BED NEEDS CARE</a>
-          <a class="btn btn-dark btn-huge" href={`${base}/auth`}>I AM THIS BED'S TREE GUARDIAN</a>
-        </div>
-
-        {/* Severity sheet. Opens via :target so it works with JS disabled;
-            the inline script below only enhances (live tier copy, photo state). */}
-        <div class="sheet-wrap" id="report">
-          <a class="sheet-overlay" href="#" aria-label="Close"></a>
-          <div class="sheet" role="dialog" aria-label="How bad is it?">
-            <div class="sheet-head">
-              <span class="sheet-title">HOW BAD IS IT?</span>
-              <a class="sheet-close" href="#" aria-label="Close">✕</a>
-            </div>
-            <form method="POST" action={`${base}/report`} enctype="multipart/form-data">
-              <div class="sev-name" data-sev-name>{SEVERITIES[1]!.name}</div>
-              <div class="sev-def" data-sev-def>{SEVERITIES[1]!.def}</div>
-              <input
-                class="sev-range"
-                type="range"
-                name="severity"
-                min="0"
-                max="2"
-                step="1"
-                value="1"
-                aria-label="Severity"
-                list="sev-ticks"
-              />
-              <div class="sev-labels">
-                {SEVERITIES.map((s) => (
-                  <span>{s.name}</span>
-                ))}
-              </div>
-              <label class="photo-attach" data-photo-label>
-                <input type="file" name="photo" accept="image/*" capture="environment" data-photo-input />
-                <span data-photo-text>＋ Add a photo (optional)</span>
-              </label>
-              <button class="btn btn-primary btn-file" type="submit">FILE REPORT</button>
-            </form>
-          </div>
-        </div>
-        <script is:inline define:vars={{ SEV: SEVERITIES.map(({ name, def }) => ({ name, def })) }}>
-          // The severity picker's only client JS: live tier name/definition and
-          // the photo-attached state. Everything still submits without it.
-          // The copy comes from SEVERITIES via define:vars — one source for the
-          // slider, the report band, and the receipt.
-          (function () {
-            var range = document.querySelector('.sev-range');
-            var name = document.querySelector('[data-sev-name]');
-            var def = document.querySelector('[data-sev-def]');
-            if (range && name && def)
-              range.addEventListener('input', function () {
-                var s = SEV[+range.value] || SEV[1];
-                name.textContent = s.name;
-                def.textContent = s.def;
-              });
-            var input = document.querySelector('[data-photo-input]');
-            var label = document.querySelector('[data-photo-label]');
-            var text = document.querySelector('[data-photo-text]');
-            if (input && label && text)
-              input.addEventListener('change', function () {
-                var attached = input.files && input.files.length > 0;
-                label.classList.toggle('attached', !!attached);
-                text.textContent = attached ? '✓ Photo attached' : '＋ Add a photo (optional)';
-              });
-          })();
-        </script>
-      </div>
-    )
-  }
-
-  {
-    variant === 'adopted' && bed && openReport && (
-      <div class="screen">
-        <div class="kicker">TRASH TALK NYC · TREE GUARD NETWORK</div>
+        <div class="kicker">{presentation.copy.wordmark}</div>
         <div class="card">
-          <div class="plate-lg">{bed.plate}</div>
-          <div class="cross-streets">{bed.crossStreets}</div>
-          <div class="slots slots-spaced">
-            {adopters.map(({ adoption, user }) => (
-              <div class="slot-taken">
-                {adoption.displayNameHidden ? 'A neighbor' : user.name}{' '}
-                <span class="since">{sinceLabel(new Date(adoption.adoptedAt))}</span>
-              </div>
-            ))}
-            {openSlots > 0 && <div class="slot-open slot-open-sm">Open slot — {openSlots} of {bed.slots} left</div>}
+          <div class="title" {...bi(UNBOUND.title, lang)}>
+            {UNBOUND.title[lang]}
+          </div>
+          <div class="ident unbound-id">
+            <span {...bi(UNBOUND.tagLabel, lang)}>{UNBOUND.tagLabel[lang]}</span> {tag}
           </div>
         </div>
-        <div class="band band-open">
-          <div class="band-row">
-            <span class="band-title">REPORTED · {severityName(openReport.severity)}</span>
-            <span class="pulse-dot" />
-          </div>
-          <div class="band-sub">
-            FILED {relativeAge(new Date(openReport.openedAt))} · {openReport.confirmedBy.length} NEIGHBORS CONFIRMED
-          </div>
+        <div class="body-copy" {...bi(UNBOUND.body, lang)}>
+          {UNBOUND.body[lang]}
         </div>
-        <div class="body-copy">
-          A report is already open on this bed. Don't file a duplicate —{' '}
-          <span class="emph">add your weight to it.</span>
-        </div>
-        {raisedFlash && openReport.severity === 'dumping' && (
-          <div class="ok-line">✓ Severity raised to DUMPING. Bed moved up the queue.</div>
-        )}
-        {(confirmedFlash || confirmedByMe) && (
-          <div class="ok-line">✓ Confirmed. Crews see {openReport.confirmedBy.length} neighbors now.</div>
-        )}
-        <div class="actions-bottom">
-          <form method="POST" action={`${base}/confirm`}>
-            <button class="btn btn-outline btn-confirm" type="submit">STILL THERE — CONFIRM IT</button>
-          </form>
-          {openReport.severity !== 'dumping' && (
-            <form method="POST" action={`${base}/escalate`}>
-              <button class="btn btn-primary btn-escalate" type="submit">IT'S WORSE NOW → RAISE TO DUMPING</button>
-            </form>
-          )}
-        </div>
+        <div class="spacer" />
       </div>
     )
   }
 
   {
-    variant === 'ratelimit' && bed && limitReport && (
-      <div class="screen">
-        <div class="kicker kicker-muted">{bed.plate}</div>
-        <div class="card card-roomy">
-          <div class="limit-title">You already reported this.</div>
-          <div class="limit-meta mono">
-            {limitReport.id} · FILED {relativeAge(new Date(limitReport.openedAt))} ·{' '}
-            {severityName(limitReport.severity)}
+    bed && !stewarded && (
+      <div class="screen screen-clear">
+        <div>
+          <div class="kicker">
+            {presentation.copy.wordmark}
+            {presentation.copy.locality && ` · ${presentation.copy.locality}`}
+          </div>
+          {bed.plantingSpaceId && <div class="ident">#{bed.plantingSpaceId}</div>}
+        </div>
+        <div class="mid">
+          {/* Split into leaves either side of the tree type: the swap sets
+              textContent, so a bilingual node may not have children. */}
+          <h1 class="hero">
+            <span {...bi(DOOR_UNSTEWARDED.headBefore, lang)}>{DOOR_UNSTEWARDED.headBefore[lang]}</span>
+            <span class="hl" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+            <span {...bi(DOOR_UNSTEWARDED.headAfter, lang)}>{DOOR_UNSTEWARDED.headAfter[lang]}</span>
+          </h1>
+          <p class="body-copy door-sub" {...bi(DOOR_UNSTEWARDED.sub, lang)}>
+            {DOOR_UNSTEWARDED.sub[lang]}
+          </p>
+        </div>
+        {openSlots > 0 && (
+          <a class="btn btn-tall btn-on-clear" href={adopt} {...bi(DOOR_UNSTEWARDED.adopt, lang)}>
+            {DOOR_UNSTEWARDED.adopt[lang]}
+          </a>
+        )}
+        <a class="btn btn-on-clear-outline" href={care} {...bi(COMMON.needsCare, lang)}>
+          {COMMON.needsCare[lang]}
+        </a>
+      </div>
+    )
+  }
+
+  {
+    bed && stewarded && (
+      <div class="screen screen-clear">
+        <div>
+          <div class="kicker">
+            {presentation.copy.wordmark}
+            {presentation.copy.locality && ` · ${presentation.copy.locality}`}
+          </div>
+          {bed.plantingSpaceId && <div class="ident">#{bed.plantingSpaceId}</div>}
+        </div>
+        <h1 class="title adopted-head">
+          <span {...bi(DOOR_STEWARDED.headBefore, lang)}>{DOOR_STEWARDED.headBefore[lang]}</span>
+          <span class="hl" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+          <span {...bi(DOOR_STEWARDED.headAfter, lang)}>{DOOR_STEWARDED.headAfter[lang]}</span>
+        </h1>
+        <div class="box">
+          <div class="panel-h" {...bi(COMMON.stewards, lang)}>
+            {COMMON.stewards[lang]}
+          </div>
+          <div class="stewards stewards-gap">
+            {/* Username first, then initials. Full name, email and phone are
+                admin-only and never reach a public screen. */}
+            {stewards.map(({ user }) => (
+              <div class="steward">
+                <span class="av">{publicInitials(user).replace(/[.\s]/g, '')}</span>
+                <span class="who">
+                  <span class="handle">{publicHandle(user)}</span>
+                  <span class="initials">{publicInitials(user)}</span>
+                </span>
+              </div>
+            ))}
           </div>
         </div>
-        <div class="body-copy">
-          One report per bed per day keeps the queue honest. Crews rank beds by{' '}
-          <span class="emph-ink">how bad it is</span> — not by how many times one person taps the tag.
-        </div>
-        <div class="body-copy">Gotten worse since this morning? That, you can tell us.</div>
-        {limitReport.severity === 'dumping' && limitReport.escalatedFrom && (
-          <div class="raised-box">✓ Severity raised to DUMPING. Bed moved up the queue.</div>
+        <div class="spacer" />
+        {/* A plain form POST, like everything else here: applause works with
+            JavaScript disabled. */}
+        <form method="POST" action={langLink(`${base}/applause`, lang)}>
+          <button class="btn btn-tall btn-on-clear" type="submit" {...bi(DOOR_STEWARDED.applaud, lang)}>
+            {DOOR_STEWARDED.applaud[lang]}
+          </button>
+        </form>
+        <a class="btn btn-on-clear-outline" href={care} {...bi(COMMON.needsCare, lang)}>
+          {COMMON.needsCare[lang]}
+        </a>
+        {openSlots > 0 && (
+          <a class="btn-ghost" href={adopt} {...bi(DOOR_STEWARDED.joinThem, lang)}>
+            {DOOR_STEWARDED.joinThem[lang]}
+          </a>
         )}
-        <div class="actions-bottom">
-          {limitReport.closedAt === null && limitReport.severity !== 'dumping' && (
-            <form method="POST" action={`${base}/escalate`}>
-              <button class="btn btn-primary btn-raise" type="submit">RAISE SEVERITY TO DUMPING</button>
-            </form>
-          )}
-          <a class="btn btn-ghost" href={`${base}/receipt/${limitReport.id}`}>Leave it — it's in the queue</a>
-        </div>
       </div>
     )
   }
 </Screen>
 
 <style>
-  /* ── bed variant — the captain's layout override lives here: compact
-       plate banner up top, the two primary actions dominate the rest.    */
-  .screen-bed { padding: 12px 16px 16px; gap: 12px; }
-  .logo-link { align-self: center; line-height: 0; }
-  .logo { height: 44px; width: auto; display: block; }
-  .plate-card { padding: 14px 16px; }
-  .plate {
-    border: 3px solid var(--surface-dark);
-    border-radius: 8px;
-    padding: 12px 10px;
-    text-align: center;
-    font-size: 34px;
-    font-weight: 900;
-    line-height: 1;
-    letter-spacing: 0.04em;
-  }
-  .plate-ids {
-    display: flex;
-    justify-content: center;
-    gap: 16px;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    margin-top: 10px;
-  }
-  .plate-rule { border-top: 1px solid var(--paper); margin: 12px 0 10px; }
-  .adopted-by { font-size: 12px; font-weight: 800; letter-spacing: 0.14em; color: var(--muted); }
-  .slots { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-  .screen-bed .slot-taken { padding: 11px 14px; }
-  .screen-bed .slot-open { padding: 10px; }
-  .invite { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
-  .invite-voice { font-size: 14px; font-weight: 700; color: var(--surface-dark); text-align: center; }
-  .invite-voice strong { color: var(--action); font-weight: 900; }
-  .invite-btn { min-height: 44px; font-size: 14px; }
-  .actions { flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-  .btn-huge { flex: 1; font-size: 22px; letter-spacing: 0.04em; padding: 12px; }
-  .btn-huge.btn-dark { font-size: 20px; letter-spacing: 0.02em; }
-
-  /* ── severity sheet ── */
-  .sheet-wrap { display: none; }
-  .sheet-wrap:target { display: block; }
-  .sheet-overlay { position: fixed; inset: 0; background: var(--overlay); z-index: 10; }
-  .sheet {
-    position: fixed;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(100%, 390px);
-    background: var(--card);
-    border-radius: 16px 16px 0 0;
-    padding: 22px 20px 26px;
-    z-index: 11;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-  .sheet form { display: flex; flex-direction: column; gap: 16px; }
-  .sheet-head { display: flex; justify-content: space-between; align-items: center; }
-  .sheet-title { font-size: 13px; font-weight: 800; letter-spacing: 0.1em; color: var(--muted); }
-  .sheet-close {
-    font-size: 18px; font-weight: 900; color: var(--muted);
-    text-decoration: none; padding: 4px 8px;
-  }
-  .sev-name { font-size: 26px; font-weight: 900; color: var(--action); }
-  .sev-def { font-size: 15px; font-weight: 700; color: var(--surface-dark); margin-top: 2px; min-height: 44px; }
-  .sev-name + .sev-def { margin-top: -14px; }
-  .sev-range { width: 100%; accent-color: var(--action); height: 32px; cursor: pointer; margin: 0; }
-  .sev-labels {
-    display: flex; justify-content: space-between;
-    font-size: 11px; font-weight: 800; letter-spacing: 0.08em; color: var(--faint);
-    margin-top: -8px;
-  }
-  .photo-attach {
-    display: flex; align-items: center; justify-content: center;
-    min-height: 48px;
-    border: 2px dashed var(--border-soft);
-    border-radius: 10px;
-    color: var(--muted);
-    font-size: 14px; font-weight: 800;
-    cursor: pointer;
-    text-align: center;
-  }
-  .photo-attach input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-  .photo-attach.attached {
-    border-style: solid; border-color: var(--paper);
-    background: var(--paper); color: var(--success);
-  }
-  .btn-file { min-height: 58px; font-size: 17px; letter-spacing: 0; }
-
-  /* ── unbound variant — a tag encoded but not yet assigned to a site ── */
-  .unbound-title { font-size: 30px; font-weight: 900; line-height: 1.15; }
-  .unbound-meta { font-size: 13px; font-weight: 700; color: var(--muted); margin-top: 12px; }
-
-  /* ── adopted + ratelimit variants ── */
-  .kicker-muted { color: var(--muted); }
-  .plate-lg { font-size: 32px; font-weight: 900; line-height: 1.05; }
-  .cross-streets { font-size: 15px; font-weight: 800; color: var(--surface-dark); margin-top: 4px; }
-  .slots-spaced { margin-top: 14px; }
-  .slot-open-sm { padding: 11px; font-size: 14px; }
-  .body-copy { font-size: 15px; font-weight: 700; color: var(--surface-dark); line-height: 1.55; }
-  .emph { color: var(--action); font-weight: 900; }
-  .emph-ink { color: var(--ink); font-weight: 900; }
-  .ok-line { font-size: 14px; font-weight: 800; color: var(--success); }
-  .actions-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
-  .btn-confirm { min-height: 56px; font-size: 16px; letter-spacing: 0; }
-  .btn-escalate { min-height: 62px; font-size: 16px; letter-spacing: 0; }
-  .card-roomy { padding: 22px 20px; }
-  .limit-title { font-size: 30px; font-weight: 900; line-height: 1.15; }
-  .limit-meta { font-size: 13px; font-weight: 700; color: var(--action); margin-top: 12px; }
-  .raised-box {
-    background: var(--card);
-    border: 1px solid var(--success);
-    border-radius: 10px;
-    padding: 14px 16px;
-    font-size: 14px; font-weight: 800; color: var(--success);
-  }
-  .btn-raise { min-height: 62px; font-size: 17px; letter-spacing: 0; }
+  .unbound-id { margin-top: 10px; }
+  .door-sub { margin-top: 14px; }
+  /* The stewards box sits directly under the headline on door 2, which is a
+     shorter statement than door 1's — so the block is not optically centred
+     here, it is stacked and the actions take the bottom. */
+  .adopted-head { font-size: clamp(28px, 8vw, 34px); }
+  .stewards-gap { margin-top: 11px; }
+  /* Two full-width actions on the green ground, tight to each other so they
+     read as one pair rather than two decisions. */
+  .screen-clear form + .btn { margin-top: -4px; }
 </style>

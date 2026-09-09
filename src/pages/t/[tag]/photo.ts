@@ -26,11 +26,11 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   if (!view) {
     return await refuseWithBody(request, new Response('No bed with that plate.', { status: 404 }));
   }
-  // Being signed in isn't enough: only this bed's guardians can write to its
+  // Being signed in isn't enough: only this bed's stewards can write to its
   // append-only history. Mirrors the gate on mine.astro.
   // Flagged like every other POST route's way back: this render is the tail of
   // a submission, not somebody arriving at the tag.
-  if (!view.adopters.some((a) => a.user.id === userId)) {
+  if (!view.stewards.some((a) => a.user.id === userId)) {
     return redirect(ourPlaqueLink(base), 303);
   }
 

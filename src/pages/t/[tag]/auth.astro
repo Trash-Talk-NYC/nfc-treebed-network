@@ -1,11 +1,19 @@
 ---
 // Sign in — username + PIN. The PIN never appears in any response or log;
 // verification happens server-side against the bcrypt hash only.
+//
+// Not part of the tap flow the captain reviewed: nothing on either door links
+// here. It is how a steward who already put their name on a bed gets back to
+// it, and it is kept in the identity and both languages like everything else.
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { RuleError, getBedView, signIn } from '../../../lib/service';
 import { getSessionUserId, setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
+import { bi } from '../../../lib/bilingual';
+import { ADOPT, AUTH, COMMON } from '../../../lib/copy';
+import { langLink, resolveLang, type Phrase } from '../../../lib/i18n';
+import { presentationFor } from '../../../lib/presentation';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 import { refuseWithBody, requireBoundTagForForm } from '../../../lib/tag-route';
 
@@ -18,12 +26,15 @@ if (!view) {
   return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
 }
 
-// Already signed in → straight to the guardian view.
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = presentationFor(view.bed);
+
+// Already signed in → straight to the steward's view.
 if (Astro.request.method === 'GET' && getSessionUserId(Astro.cookies)) {
-  return Astro.redirect(`${base}/mine`, 303);
+  return Astro.redirect(langLink(`${base}/mine`, lang), 303);
 }
 
-let error: string | null = null;
+let error: Phrase | null = null;
 let username = '';
 if (Astro.request.method === 'POST') {
   // Public and unauthenticated, like every POST here: two short text fields
@@ -37,16 +48,19 @@ if (Astro.request.method === 'POST') {
   try {
     const user = await signIn(store, { username, pin });
     setSessionUser(Astro.cookies, user.id);
-    return Astro.redirect(`${base}/mine`, 303);
+    return Astro.redirect(langLink(`${base}/mine`, lang), 303);
   } catch (err) {
     if (err instanceof RuleError && err.code === 'invalid-credentials') {
-      error = err.message;
+      // Deliberately the same answer for an unknown handle and a wrong PIN —
+      // the constant-time compare in `signIn` is only worth anything if the
+      // screen says the same thing either way.
+      error = AUTH.bad;
     } else if (err instanceof RuleError && err.code === 'busy') {
       // Shed because too many PIN hashes are already running. Same screen with
       // the username still in it, not a bare 503: this is a retry, and the
       // visitor should have to retype nothing but the PIN — which this form
       // never re-fills anyway.
-      error = 'Too many people are signing in at once. Give it a moment and try again.';
+      error = AUTH.busy;
       Astro.response.status = 503;
       Astro.response.headers.set('retry-after', '5');
     } else {
@@ -56,13 +70,23 @@ if (Astro.request.method === 'POST') {
 }
 ---
 
-<Screen title={`Sign in · ${plate}`}>
+<Screen
+  title={`${AUTH.title[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
   <div class="screen">
-    <a class="back-link" href={ourPlaqueLink(base)}>← {plate}</a>
-    <div class="headline">Welcome back, guardian.</div>
+    <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
+      >{COMMON.backToBed[lang]}</a
+    >
+    <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
+    <p class="body-copy" {...bi(AUTH.sub, lang)}>{AUTH.sub[lang]}</p>
     <form method="POST" class="auth-form">
-      <div class="card form-card">
-        <label class="field-label" for="username">USERNAME</label>
+      <div>
+        <label class="field-label" for="username" {...bi(ADOPT.username, lang)}>
+          {ADOPT.username[lang]}
+        </label>
         <input
           class="field-input"
           id="username"
@@ -74,7 +98,9 @@ if (Astro.request.method === 'POST') {
           autocapitalize="none"
           required
         />
-        <label class="field-label label-gap" for="pin">PIN</label>
+      </div>
+      <div>
+        <label class="field-label" for="pin" {...bi(ADOPT.pin, lang)}>{ADOPT.pin[lang]}</label>
         <input
           class="field-input"
           id="pin"
@@ -84,28 +110,22 @@ if (Astro.request.method === 'POST') {
           autocomplete="current-password"
           required
         />
-        {error && <div class="field-error">{error}</div>}
       </div>
-      <div class="actions-bottom">
-        <button class="btn btn-dark btn-signin" type="submit">SIGN IN</button>
-      </div>
+      {error && <div class="field-error" {...bi(error, lang)}>{error[lang]}</div>}
+      <div class="spacer" />
+      <button class="btn btn-tall btn-action" type="submit" {...bi(AUTH.submit, lang)}>
+        {AUTH.submit[lang]}
+      </button>
     </form>
   </div>
 </Screen>
 
 <style>
-  .back-link {
-    align-self: flex-start;
-    color: var(--muted);
-    font-size: 14px;
-    font-weight: 800;
-    text-decoration: none;
-    padding: 8px 0;
+  .auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1;
+    min-height: 0;
   }
-  .headline { font-size: 28px; font-weight: 900; line-height: 1.15; }
-  .auth-form { display: flex; flex-direction: column; gap: 18px; flex: 1; }
-  .form-card { display: flex; flex-direction: column; gap: 12px; }
-  .label-gap { margin-top: 4px; }
-  .actions-bottom { margin-top: auto; }
-  .btn-signin { min-height: 62px; font-size: 17px; letter-spacing: 0; }
 </style>

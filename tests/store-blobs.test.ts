@@ -20,7 +20,7 @@ import { getStore as getBlobClientStore, type Store as BlobsClientStore } from '
 import { BlobsServer } from '@netlify/blobs/server';
 import { BlobsStore } from '../src/lib/store-blobs';
 import { runInRequestContext } from '../src/lib/request-context';
-import { fileReport, signIn } from '../src/lib/service';
+import { reportProblem, signIn } from '../src/lib/service';
 import type { BedEvent } from '../src/lib/types';
 
 const PLATE = 'BED-HRL-0847';
@@ -95,7 +95,8 @@ describe('seeding', () => {
     const adoptions = await store.getActiveAdoptions(PLATE);
     expect(adoptions).toHaveLength(1);
     const marisol = await store.getUserByUsername('marisol_r');
-    expect(marisol?.name).toBe('Marisol R.');
+    expect(marisol?.firstName).toBe('Marisol');
+    expect(marisol?.lastName).toBe('Rivera');
   });
 
   it('seeds the demo adopter with no PIN anybody knows', async () => {
@@ -368,10 +369,13 @@ describe('service rules across instances', () => {
   it('two instances racing to file keep the single-open-report rule', async () => {
     const a = instance();
     const b = instance();
-    // The production race, made deterministic: a's fileReport passes its
+    // The production race, made deterministic: a's reportProblem passes its
     // rule checks against a dataset b then commits a report into. a's commit
-    // must lose, and the re-run against b's dataset must refuse — the check
-    // that passed on stale state never reaches the store.
+    // must lose, and the re-run against b's dataset must see b's open report —
+    // the check that passed on stale state never reaches the store. What the
+    // re-run then does is add a's weight to b's report rather than open a
+    // second one, which is the whole point of the single-open-report rule: two
+    // open reports on a bed is unrecoverable through the UI.
     // (Truly simultaneous commits would exercise the same path, but the
     // emulated server's create-if-absent has a check-then-write window that
     // production does not, so the interleaving is pinned down instead.)
@@ -381,17 +385,32 @@ describe('service rules across instances', () => {
       a.transaction(async (tx) => {
         if (!raced) {
           raced = true;
-          await fileReport(b, { plate: PLATE, actorId: 'visitor-b', severity: 'heavy', photoAttached: false });
+          await reportProblem(b, {
+            plate: PLATE,
+            actorId: 'visitor-b',
+            category: 'guard',
+            note: '',
+            photoAttached: false,
+          });
         }
         return fn(tx);
       });
-    await expect(
-      fileReport(racy, { plate: PLATE, actorId: 'visitor-a', severity: 'light', photoAttached: false }),
-    ).rejects.toMatchObject({ code: 'open-report-exists' });
+    const outcome = await reportProblem(racy, {
+      plate: PLATE,
+      actorId: 'visitor-a',
+      category: 'litter',
+      note: '',
+      photoAttached: false,
+    });
+    expect(outcome.kind).toBe('added-weight');
     expect(raced).toBe(true);
-    // Whatever the interleaving, the store holds exactly one open report.
+    // Whatever the interleaving, the store holds exactly one open report — b's,
+    // carrying a's weight.
     const fresh = instance();
-    expect((await fresh.getOpenReport(PLATE))?.severity).toBe('heavy');
+    const open = await fresh.getOpenReport(PLATE);
+    expect(open?.reporterId).toBe('visitor-b');
+    expect(open?.category).toBe('guard');
+    expect(open?.confirmedBy).toEqual(['visitor-a']);
     expect((await fresh.getReports(PLATE)).length).toBe(1);
   });
 });

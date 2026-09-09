@@ -1,13 +1,25 @@
 ---
-// Where a refused upload lands. Filing is the core action on the street, so
-// an optional attachment must never cost someone the report they already
-// filled in: the severity they picked is carried here and one tap files it
-// without the photo. Plain forms and links only — no client JS, like the
-// screens it sits between.
+// Where a refused upload lands. The one screen in this build with no
+// counterpart in the approved screens, and it exists for a reason the approved
+// screens make load-bearing: telling us a bed needs care is the core street
+// action, so an OPTIONAL attachment must never cost somebody what they already
+// told us. The category they picked and the sentence they typed are carried
+// here, and one tap sends them without the photo.
+//
+// Three refusals, one screen, three sets of words: a photo to shrink, a queue
+// to retry, and an upload that stopped halfway ask different things from the
+// person holding the phone — and telling someone their photo was too large
+// when it never all arrived sends them off to fix something that was fine.
+//
+// Plain forms and links only, like the screens it sits between.
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { getBedView } from '../../../lib/service';
-import { SEVERITIES, severityIndexFrom } from '../../../lib/severity';
+import { bi } from '../../../lib/bilingual';
+import { TOO_LARGE } from '../../../lib/copy';
+import { langLink, resolveLang } from '../../../lib/i18n';
+import { presentationFor, themeVar } from '../../../lib/presentation';
+import { noteFrom, problemFor, problemFrom } from '../../../lib/problem';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
 
@@ -20,98 +32,86 @@ if (!view) {
   return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
 }
 
-// Null when the upload was refused before the severity field arrived — then
-// the only honest offer is the picker again, not a severity we guessed.
-const kept = severityIndexFrom(Astro.url.searchParams.get('severity'));
-const tier = kept === null ? null : SEVERITIES[kept]!;
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = presentationFor(view.bed);
 
-// The three ways an upload is refused land on this one screen, because the
-// offer is the same every time — the report is still theirs to send — but
-// never on the same words: a photo to shrink, a queue to retry and an upload
-// that stopped halfway ask for different things from the person holding the
-// phone. Telling someone their photo was too large when it never all arrived
-// sends them off to fix something that was fine.
+// Null when the upload was refused before the category arrived — then the only
+// honest offer is the picker again, not a category we guessed.
+const category = problemFrom(Astro.url.searchParams.get('category'));
+const picked = category === null ? null : problemFor(category);
+const note = noteFrom(Astro.url.searchParams.get('note'));
+
 const reasonParam = Astro.url.searchParams.get('reason');
 const reason = reasonParam === 'busy' || reasonParam === 'incomplete' ? reasonParam : 'over-limit';
 const COPY = {
   'over-limit': {
-    tab: 'Photo too large',
-    title: 'That photo was too large.',
-    action: 'FILE IT WITHOUT THE PHOTO',
+    tab: TOO_LARGE.tabOverLimit,
+    title: TOO_LARGE.titleOverLimit,
+    body: TOO_LARGE.bodyOverLimit,
+    action: TOO_LARGE.sendWithout,
   },
   busy: {
-    tab: 'Tag busy',
-    title: 'The tag is busy right now.',
-    action: 'SEND IT AGAIN',
+    tab: TOO_LARGE.tabBusy,
+    title: TOO_LARGE.titleBusy,
+    body: TOO_LARGE.bodyBusy,
+    action: TOO_LARGE.sendAgain,
   },
   incomplete: {
-    tab: "Upload didn't finish",
-    title: "That upload didn't finish.",
-    action: 'FILE IT WITHOUT THE PHOTO',
+    tab: TOO_LARGE.tabIncomplete,
+    title: TOO_LARGE.titleIncomplete,
+    body: TOO_LARGE.bodyIncomplete,
+    action: TOO_LARGE.sendWithout,
   },
 } as const;
 const copy = COPY[reason];
 ---
 
-<Screen title={`${copy.tab} · ${plate}`}>
+<Screen title={copy.tab[lang]} lang={lang} presentation={presentation} url={Astro.url}>
   <div class="screen">
-    <div class="kicker kicker-muted">{plate}</div>
-    <div class="card card-roomy">
-      <div class="too-large-title">{copy.title}</div>
-      <div class="too-large-meta mono">NOTHING FILED YET · THE REPORT IS STILL YOURS TO SEND</div>
+    <div class="kicker">{presentation.copy.wordmark}</div>
+    <div class="card">
+      <div class="title" {...bi(copy.title, lang)}>{copy.title[lang]}</div>
+      <div class="ident standing" {...bi(TOO_LARGE.standing, lang)}>{TOO_LARGE.standing[lang]}</div>
     </div>
-    <div class="body-copy">
-      {reason === 'busy' && (
+    <p class="body-copy" {...bi(copy.body, lang)}>{copy.body[lang]}</p>
+    <div class="spacer" />
+    {
+      picked ? (
         <>
-          Too many uploads landed on the tag at once. Nothing was lost —{' '}
-          <span class="emph">send the report and it goes into the queue.</span>
+          <p class="body-copy">
+            <span {...bi(TOO_LARGE.youPicked, lang)}>{TOO_LARGE.youPicked[lang]}</span>{' '}
+            <strong class="picked" style={`color:${themeVar(picked.ink)}`} {...bi(picked.label, lang)}>
+              {picked.label[lang]}
+            </strong>
+          </p>
+          {note !== '' && <p class="body-copy note-echo">“{note}”</p>}
+          {/* urlencoded, not multipart: there is no photo this time, and the
+              route's text-only branch is what reads it. */}
+          <form method="POST" action={langLink(`${base}/report`, lang)}>
+            <input type="hidden" name="category" value={picked.value} />
+            {note !== '' && <input type="hidden" name="note" value={note} />}
+            <button class="btn btn-tall btn-alert" type="submit" {...bi(copy.action, lang)}>
+              {copy.action[lang]}
+            </button>
+          </form>
         </>
-      )}
-      {reason === 'incomplete' && (
-        <>
-          The photo stopped coming through before all of it arrived. The photo is optional —{' '}
-          <span class="emph">the report is what the crews rank.</span>
-        </>
-      )}
-      {reason === 'over-limit' && (
-        <>
-          Photos over 12 MB don't make it through the tag. The photo is optional —{' '}
-          <span class="emph">the report is what the crews rank.</span>
-        </>
-      )}
-    </div>
-    <div class="actions-bottom">
-      {
-        tier ? (
-          <>
-            <div class="body-copy">
-              You picked <span class="emph">{tier.name}</span> — {tier.def}
-            </div>
-            <form method="POST" action={`${base}/report`}>
-              <input type="hidden" name="severity" value={kept} />
-              <button class="btn btn-primary btn-refile" type="submit">
-                {copy.action}
-              </button>
-            </form>
-          </>
-        ) : (
-          <a class="btn btn-primary btn-refile" href={`${ourPlaqueLink(base)}#report`}>
-            PICK THE SEVERITY AGAIN
-          </a>
-        )
-      }
-      <a class="btn btn-ghost" href={ourPlaqueLink(base)}>Back to the plaque</a>
-    </div>
+      ) : (
+        <a
+          class="btn btn-tall btn-alert"
+          href={langLink(`${base}/care`, lang)}
+          {...bi(TOO_LARGE.pickAgain, lang)}
+          >{TOO_LARGE.pickAgain[lang]}</a
+        >
+      )
+    }
+    <a class="btn-ghost" href={langLink(ourPlaqueLink(base), lang)} {...bi(TOO_LARGE.back, lang)}>
+      {TOO_LARGE.back[lang]}
+    </a>
   </div>
 </Screen>
 
 <style>
-  .kicker-muted { color: var(--muted); }
-  .card-roomy { padding: 22px 20px; }
-  .too-large-title { font-size: 30px; font-weight: 900; line-height: 1.15; }
-  .too-large-meta { font-size: 13px; font-weight: 700; color: var(--action); margin-top: 12px; }
-  .body-copy { font-size: 15px; font-weight: 700; color: var(--surface-dark); line-height: 1.55; }
-  .emph { color: var(--action); font-weight: 900; }
-  .actions-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
-  .btn-refile { min-height: 62px; font-size: 17px; letter-spacing: 0; }
+  .standing { margin-top: 12px; font-size: 11px; letter-spacing: 0.1em; line-height: 1.5; }
+  .picked { font-weight: 700; }
+  .note-echo { font-style: italic; margin-top: -6px; }
 </style>
