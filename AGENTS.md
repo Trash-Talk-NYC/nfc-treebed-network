@@ -155,9 +155,16 @@ One hand-seeded bed `BED-HRL-0847`, with seeded adopter `marisol_r`.
 On the local store it is created on first boot with PIN `1234` — demo credentials for driving the sign-in flow locally.
 
 **`BlobsStore` seeds the same adopter with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the plaque engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open guardian account on the internet — `/mine`, `/photo`, and the deliberately auth-gated `/clear`.
-`TREEBED_SEED_PIN` supplies a real one where the flow has to be driveable on a deployed site; unset means no PIN opens the account.
-The pilot store was seeded *before* this change, so it still holds the `1234` hash — seeding only ever runs on first contact.
-Rotate it (or clear the store's `rev/*` keys and let it re-seed) before the tag is handed to anybody.
+`TREEBED_SEED_PIN` is a **development-only** seam, for driving the sign-in flow against a store that seeds without one.
+It is unset on the Netlify site and must never be set there: a PIN supplied to the publicly tappable store is the open guardian account this seed exists to avoid.
+
+The pilot store was seeded *before* this change — seeding only ever runs on first contact — so it held the `1234` hash.
+**That is remediated: `marisol_r`'s `pinHash` was rotated in place** by appending a revision copying the newest one with the hash replaced by a bcrypt of discarded random bytes.
+Signing in with `1234` on the live site now fails, and the pilot's data (report, events, adoption) came through intact.
+Rotating a hash forward is the procedure to repeat if it is ever needed again — do not wipe the store to re-seed it.
+
+If a store genuinely has to be re-seeded, **delete the `head` key alongside the `rev/*` keys.**
+A surviving `head` is the store's own proof that it has been written to, and `BlobsStore` refuses to seed once it has read one — deliberately, because a key listing is eventually consistent and a stale-empty one would otherwise fork a fresh chain over live data.
 
 ## Deployment (pilot)
 

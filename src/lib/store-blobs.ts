@@ -40,7 +40,11 @@
 // a revision that exists is a revision `get` is required to return. The
 // listing survives only as the fallback for a pointer that is missing or
 // points at a pruned revision, where being approximately right is enough to
-// start the walk from.
+// start the walk from. What the listing is never allowed to decide is that
+// the store is *empty*: a stale-empty listing on a store whose rev/1 has long
+// since been pruned would seed a fresh chain over live data. A head that has
+// been read even once says the store has been written to, and seeding is
+// refused from there on.
 //
 // The dataset is re-downloaded only when that walk ends somewhere this
 // instance is not already holding, and the whole revalidation happens at most
@@ -135,14 +139,30 @@ export class BlobsStore implements Store {
    * confirms it is still the newest or replaces it.
    */
   private async revalidate(): Promise<Loaded> {
+    // A head that has been seen once is proof the store has been written to,
+    // and that proof outlives an attempt: seeding is only ever correct where
+    // nothing has ever committed.
+    let headSeen: number | null = null;
+    // The pointer stops being a starting point once it names a revision that
+    // is gone — pruned, or never there — and the listing takes over.
+    let trustHead = true;
     // A revision can disappear from under a read if it was named just before
     // falling KEPT_REVISIONS behind — re-derive rather than fail the read.
     for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
-      // The pointer is trusted on the first attempt only: a second attempt is
-      // here because where the first one started turned out not to exist.
-      let from = attempt === 1 ? Math.max(this.cached?.revision ?? 0, (await this.readHead()) ?? 0) : 0;
+      const head = trustHead ? await this.readHead() : null;
+      if (head !== null) headSeen = head;
+      let from = Math.max(this.cached?.revision ?? 0, head ?? 0);
       if (from === 0) from = (await this.newestRevision()) ?? 0;
       if (from === 0) {
+        // The listing is eventually consistent, so an empty one is never
+        // proof the store is new. Seeding on a stale-empty listing would
+        // write rev/1 back over a live chain whose rev/1 was pruned long ago,
+        // fork every later read onto it, and lose the pilot's data silently.
+        if (headSeen !== null) {
+          throw new Error(
+            `Blob store head names rev/${headSeen} but no revision could be read — refusing to seed over a store that already holds data.`,
+          );
+        }
         const seeded = await this.seed();
         if (seeded) return seeded;
         continue; // Lost the seeding race; the winner's revision is readable now.
@@ -154,6 +174,7 @@ export class BlobsStore implements Store {
       }
       // Where we started no longer exists: drop it and ask the listing.
       this.cached = null;
+      trustHead = false;
     }
     throw new Error(
       `Blob store read lost ${MAX_COMMIT_ATTEMPTS} races with concurrent commits — giving up rather than spinning.`,
@@ -275,22 +296,38 @@ export class BlobsStore implements Store {
   }
 
   /**
-   * Best-effort cleanup after a commit: drop revisions more than
-   * KEPT_REVISIONS behind the one just written. A failed delete is retried
-   * by whoever commits next, so errors are logged rather than surfaced —
-   * the commit they trail already succeeded.
+   * Best-effort cleanup after a commit: drop the one revision that this
+   * commit pushed past KEPT_REVISIONS. Every commit is on the critical path
+   * of somebody standing at a tree, so the steady state costs a single
+   * delete — a listing would be a whole extra round trip to rediscover a
+   * revision number arithmetic already knows. A failed delete falls back to
+   * the listing, which is also what collects anything an earlier failure
+   * left behind; errors there are logged rather than surfaced, since the
+   * commit they trail already succeeded.
    */
   private async prune(committed: number): Promise<void> {
+    const expired = committed - KEPT_REVISIONS;
+    if (expired < 1) return;
+    try {
+      await this.blobs.delete(revisionKey(expired));
+    } catch (err) {
+      console.error('[store-blobs] pruning rev/%d failed; sweeping instead:', expired, err);
+      await this.sweep(expired);
+    }
+  }
+
+  /** Delete every revision at or below `expired`, including earlier leftovers. */
+  private async sweep(expired: number): Promise<void> {
     try {
       const { blobs } = await this.blobs.list({ prefix: REVISION_PREFIX });
       for (const { key } of blobs) {
         const revision = Number(key.slice(REVISION_PREFIX.length));
-        if (Number.isInteger(revision) && revision <= committed - KEPT_REVISIONS) {
+        if (Number.isInteger(revision) && revision <= expired) {
           await this.blobs.delete(key);
         }
       }
     } catch (err) {
-      console.error('[store-blobs] pruning old revisions failed (will retry on a later commit):', err);
+      console.error('[store-blobs] sweeping old revisions failed (will retry on a later commit):', err);
     }
   }
 

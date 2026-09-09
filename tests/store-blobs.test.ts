@@ -113,6 +113,18 @@ describe('seeding', () => {
     }
   });
 
+  it('refuses to seed over a store whose head says it has been written to', async () => {
+    const a = instance();
+    await a.appendEvent(tapEvent('evt-live-data'));
+    // The state a stale listing produces on a long-lived store: rev/1 pruned
+    // long ago, the listing not yet showing what replaced it. Seeding here
+    // would fork a fresh chain over the pilot's data, so the head — which a
+    // strongly consistent get always returns — has the last word.
+    const { blobs } = await client().list({ prefix: 'rev/' });
+    for (const { key } of blobs) await client().delete(key);
+    await expect(instance().getEvents(PLATE)).rejects.toThrow(/refusing to seed/);
+  });
+
   it('a second instance arriving later sees the same seed, not a re-seed', async () => {
     const a = instance();
     await a.appendEvent(tapEvent('evt-before-b'));
@@ -228,6 +240,19 @@ describe('transactions', () => {
     );
     expect([...new Set(numbers)].sort()).toEqual(numbers.sort());
     expect(Math.max(...numbers)).toBe(2226);
+  });
+});
+
+describe('pruning', () => {
+  it('keeps a fixed window of revisions behind the newest', async () => {
+    const store = instance();
+    // Seed is rev/1 and each commit adds one, so ten taps land on rev/11.
+    for (let i = 1; i <= 10; i++) await store.appendEvent(tapEvent(`evt-${i}`));
+    const { blobs } = await client().list({ prefix: 'rev/' });
+    const kept = blobs.map(({ key }) => Number(key.slice('rev/'.length))).sort((a, b) => a - b);
+    expect(kept).toEqual([4, 5, 6, 7, 8, 9, 10, 11]);
+    // Pruning is bookkeeping behind the newest revision, never over it.
+    expect((await instance().getEvents(PLATE)).map((e) => e.id)).toHaveLength(10);
   });
 });
 

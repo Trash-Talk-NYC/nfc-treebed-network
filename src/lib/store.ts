@@ -4,10 +4,10 @@
 // narrow and storage-dumb: no business rules live here — those belong in
 // service.ts, so they survive a storage swap untouched. To move to Supabase
 // (or anything else) later, write one new implementation of `Store` and change
-// the factory in store-local.ts — nothing else in the app should need edits.
+// the factory in this file — nothing else in the app should need edits.
 //
-// Two implementations exist, selected at runtime by `getStore()` in
-// store-local.ts: LocalStore (a JSON file on disk — dev and tests) and
+// Two implementations exist, selected at runtime by `getStore()` below:
+// LocalStore (a JSON file on disk — dev and tests) and
 // BlobsStore (Netlify Blobs — the deployed pilot). Each owns only its
 // persistence; the dataset shape and operations they share live in
 // store-dataset.ts.
