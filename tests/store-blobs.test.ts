@@ -159,30 +159,6 @@ describe('seeding', () => {
   });
 });
 
-describe('pruning', () => {
-  it('sweeps an orphan that no later commit deletes by key', async () => {
-    const store = instance();
-    for (let i = 0; i < 10; i += 1) await store.appendEvent(tapEvent(`evt-prune-a-${i}`));
-    // What an instance recycled between its commit and its prune leaves
-    // behind: a revision below the window that every later commit's single
-    // targeted delete misses, and that delete-on-absent never reports.
-    await client().set('rev/2', 'orphaned');
-    for (let i = 0; i < 3; i += 1) await store.appendEvent(tapEvent(`evt-prune-b-${i}`));
-    expect(await revisionKeys()).toContain('rev/2');
-    for (let i = 0; i < 2; i += 1) await store.appendEvent(tapEvent(`evt-prune-c-${i}`));
-    expect(await revisionKeys()).not.toContain('rev/2');
-  });
-
-  it('keeps the newest revisions and drops the ones behind them', async () => {
-    const store = instance();
-    for (let i = 0; i < 12; i += 1) await store.appendEvent(tapEvent(`evt-window-${i}`));
-    const revisions = (await revisionKeys()).map((key) => Number(key.slice('rev/'.length)));
-    expect(revisions).toContain(13);
-    // KEPT_REVISIONS is 8 counting the newest, so rev/6 .. rev/13 survive.
-    expect(Math.min(...revisions)).toBe(13 - 7);
-  });
-});
-
 describe('reads', () => {
   it('hands out detached copies', async () => {
     const store = instance();
@@ -293,6 +269,19 @@ describe('transactions', () => {
 });
 
 describe('pruning', () => {
+  it('sweeps an orphan that no later commit deletes by key', async () => {
+    const store = instance();
+    for (let i = 0; i < 10; i += 1) await store.appendEvent(tapEvent(`evt-prune-a-${i}`));
+    // What an instance recycled between its commit and its prune leaves
+    // behind: a revision below the window that every later commit's single
+    // targeted delete misses, and that delete-on-absent never reports.
+    await client().set('rev/2', 'orphaned');
+    for (let i = 0; i < 3; i += 1) await store.appendEvent(tapEvent(`evt-prune-b-${i}`));
+    expect(await revisionKeys()).toContain('rev/2');
+    for (let i = 0; i < 2; i += 1) await store.appendEvent(tapEvent(`evt-prune-c-${i}`));
+    expect(await revisionKeys()).not.toContain('rev/2');
+  });
+
   it('keeps a fixed window of revisions behind the newest', async () => {
     const store = instance();
     // Seed is rev/1 and each commit adds one, so ten taps land on rev/11.

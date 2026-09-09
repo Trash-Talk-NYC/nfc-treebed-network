@@ -14,3 +14,7 @@
   TREEBED_ADAPTER = "netlify"
   # package.json engines wants Node >= 22; Netlify's default is older.
   NODE_VERSION = "22"
+  # NODE_VERSION only picks the build image's Node; the deployed functions
+  # default to an older runtime unless this is set too, and that failure
+  # shows up at request time rather than at build time.
+  AWS_LAMBDA_JS_RUNTIME = "nodejs22.x"
