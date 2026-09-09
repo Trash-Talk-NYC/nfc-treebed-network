@@ -10,14 +10,16 @@ import { RuleError, adoptBed, getBedView, validateAdoptInput } from '../../../li
 import { setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
-import { requireBoundTag } from '../../../lib/tag-route';
+import { refuseWithBody, requireBoundTag } from '../../../lib/tag-route';
 
-const { bound, refused: notBound } = requireBoundTag(Astro.params.tag);
+const { bound, refused: notBound } = await requireBoundTag(Astro.params.tag, Astro.request);
 if (notBound) return notBound;
 const { plate, base } = bound;
 const store = getStore();
 const view = await getBedView(store, plate);
-if (!view) return new Response('No bed with that plate.', { status: 404 });
+if (!view) {
+  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
+}
 
 let openSlots = view.openSlots;
 let errors: Partial<Record<'name' | 'username' | 'pin' | 'email' | 'phone', string>> = {};

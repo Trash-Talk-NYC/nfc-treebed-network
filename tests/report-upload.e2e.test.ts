@@ -236,6 +236,8 @@ interface UploadTo {
   budgetMs?: number;
   /** Which tag to post at; the unbound one is refused before any rule runs. */
   tag?: string;
+  /** Which page under the tag to post at. Every one of them has a body to bound. */
+  page?: string;
 }
 
 /**
@@ -247,7 +249,13 @@ async function slowUpload(
   photoBytes: number,
   chunkBytes: number,
   pauseMs: number,
-  { port: target = port, keepAlive = false, budgetMs = Infinity, tag = TAG }: UploadTo = {},
+  {
+    port: target = port,
+    keepAlive = false,
+    budgetMs = Infinity,
+    tag = TAG,
+    page = 'report',
+  }: UploadTo = {},
 ): Promise<Upload> {
   const head = preamble(severity);
   const length = head.byteLength + photoBytes + TRAILER.byteLength;
@@ -268,7 +276,7 @@ async function slowUpload(
   });
 
   socket.write(
-    `POST /t/${tag}/report HTTP/1.1\r\n` +
+    `POST /t/${tag}/${page} HTTP/1.1\r\n` +
       `Host: 127.0.0.1:${target}\r\n` +
       // Astro rejects cross-site form POSTs; a browser on the plaque sends this.
       `Origin: http://127.0.0.1:${target}\r\n` +
@@ -835,6 +843,25 @@ describe('the tag URL, end to end', () => {
     expect(upload.status).toBe(404);
     expect(upload.written).toBeLessThan(16 * MEGABYTE);
   }, 60_000);
+
+  it('takes kilobytes of a POST at an unbound tag on the form screens too', async () => {
+    withServerLog();
+    // `adopt` and `auth` answer a POST as well, and they refuse an unbound tag
+    // with the plaque redirect rather than the API routes' 404 — the same
+    // unread body either way, so the same bound has to be on it.
+    for (const page of ['adopt', 'auth']) {
+      const upload = await slowUpload('1', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+        keepAlive: true,
+        budgetMs: 20_000,
+        tag: UNBOUND_TAG,
+        page,
+      });
+
+      expect(upload.status).toBe(302);
+      expect(upload.location).toBe(`/t/${UNBOUND_TAG}`);
+      expect(upload.written).toBeLessThan(16 * MEGABYTE);
+    }
+  }, 120_000);
 
   it('serves nothing at the old plate-keyed route', async () => {
     withServerLog();

@@ -76,9 +76,11 @@
 //                                      nothing above it applies — but the body
 //                                      still does: `abandonBody` takes
 //                                      SHED_DRAIN_BYTES / SHED_DRAIN_MS of it
-//                                      and stops, reserving nothing and keeping
-//                                      nothing. Leaving it unread is the
-//                                      expensive answer, not the free one (see
+//                                      and stops, keeping nothing beyond the
+//                                      chunk in hand and counting that against
+//                                      MAX_SHED_READS like any other refusal.
+//                                      Leaving it unread is the expensive
+//                                      answer, not the free one (see
 //                                      SHED_DRAIN_BYTES below).
 //
 // The time bounds split because the reservation is only released when one of
@@ -268,9 +270,10 @@ export const HEAD_READ_IDLE_MS = FORM_READ_IDLE_MS;
  * than the drain headroom: a refusal that costs as much ingress as an admitted
  * upload sheds nothing, which is the opposite of what a capacity bound is for.
  *
- * This budget covers admitted reads only. A shed read still holds a head and a
- * chunk while it sheds, so `MAX_SHED_READS` bounds those separately, and every
- * read that keeps anything at all is inside the two together:
+ * This budget covers admitted reads only. A shed read — and an abandoned body,
+ * which holds a chunk and nothing else — still holds something while it sheds,
+ * so `MAX_SHED_READS` bounds those separately, and every read that keeps
+ * anything at all is inside the two together:
  * `MAX_INFLIGHT_BODY_BYTES + MAX_SHED_READS × (HEAD_BYTES +
  * CHUNK_ALLOWANCE_BYTES)`, about 52MB. Past the shed count a read keeps
  * nothing, and what bounds it is `SHED_DRAIN_BYTES`/`SHED_DRAIN_MS` of ingress
@@ -782,14 +785,26 @@ function headText(head: Uint8Array): string {
  * the same kilobytes as a read past `MAX_SHED_READS` rather than everything the
  * sender cares to push.
  *
- * Nothing is reserved and nothing is kept: the chunk in hand is the whole
- * footprint, which is why this is bounded by `SHED_DRAIN_*` and not by a share
- * of `MAX_INFLIGHT_BODY_BYTES`. The socket is left live, so the route's own
- * answer still reaches whatever is on the other end.
+ * Nothing is reserved out of `MAX_INFLIGHT_BODY_BYTES` and nothing is kept:
+ * the chunk in hand is the whole footprint. That is exactly what
+ * `MAX_SHED_READS` counts, so this takes one of its slots rather than sitting
+ * outside both counters — a refusal that nothing bounds is how a flood of
+ * POSTs at a tag no binding speaks for would put unaccounted megabytes back on
+ * the heap the two of them exist to bound. Past that count it does what a read
+ * past it does: keeps its answer, takes the first chunk to mark the body
+ * consumed, and stops there. The socket is left live either way, so the
+ * route's own answer still reaches whatever is on the other end.
  */
 export async function abandonBody(request: Request): Promise<void> {
   if (!request.body) return;
   const reader = request.body.getReader();
+  // Taken after the reader, so nothing between here and the `finally` can leak
+  // a slot. Past the bound the drain shrinks to a single chunk — the least that
+  // still marks the body consumed, which is what keeps Node from dumping the
+  // rest of it for us.
+  const slot = shedReads < MAX_SHED_READS;
+  if (slot) shedReads += 1;
+  const ceiling = slot ? SHED_DRAIN_BYTES : 0;
   const deadline = Date.now() + SHED_DRAIN_MS;
   let total = 0;
   try {
@@ -799,10 +814,12 @@ export async function abandonBody(request: Request): Promise<void> {
       const raced = await readWithin(reader, remaining);
       if (raced === STALLED || raced.done) break;
       total += raced.value.byteLength;
-      if (total > SHED_DRAIN_BYTES) break;
+      if (total > ceiling) break;
     }
   } catch {
     // A body abandoned before it finished arriving is not an incident: nothing
     // downstream wanted it, and the answer has already been decided.
+  } finally {
+    if (slot) shedReads -= 1;
   }
 }

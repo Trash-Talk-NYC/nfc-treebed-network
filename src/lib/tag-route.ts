@@ -39,19 +39,36 @@ function bind(tag: string, plate: string): TagRoute {
  * bookmarked before the tag was retired, or tapped between a visitor's tap and
  * their pressing a button, lands on that instead of a line of unstyled text.
  * The plaque answers 404 for it, so the status a crawler sees is unchanged.
+ *
+ * The request comes in because two of these screens (`adopt`, `auth`) also
+ * take a POST, and a refusal that has not touched its body is the expensive
+ * kind: Node dumps an unconsumed body to its end. Refusing goes through
+ * `abandonBody` for that reason, which is a no-op for the GET that has no body
+ * at all — so the ordering is kept here rather than in nine callers.
  */
-export function requireBoundTag(rawTag: string | undefined): TagRoute {
+export async function requireBoundTag(
+  rawTag: string | undefined,
+  request: Request,
+): Promise<TagRoute> {
   const resolved = resolveTagParam(rawTag);
-  if (resolved.state === 'invalid') {
-    return { bound: null, refused: new Response('Not a tag on this network.', { status: 404 }) };
-  }
-  if (resolved.state === 'unbound') {
-    return {
-      bound: null,
-      refused: new Response(null, { status: 302, headers: { location: `/t/${resolved.tag}` } }),
-    };
-  }
-  return bind(resolved.tag, resolved.plate);
+  if (resolved.state === 'bound') return bind(resolved.tag, resolved.plate);
+  const refused =
+    resolved.state === 'invalid'
+      ? new Response('Not a tag on this network.', { status: 404 })
+      : new Response(null, { status: 302, headers: { location: `/t/${resolved.tag}` } });
+  await abandonBody(request);
+  return { bound: null, refused };
+}
+
+/**
+ * Refuse from a screen or route that has already resolved its tag.
+ *
+ * The same reason as above: a 404 for a binding whose site has gone missing is
+ * still an answer given without reading the body that came with it.
+ */
+export async function refuseWithBody(request: Request, response: Response): Promise<Response> {
+  await abandonBody(request);
+  return response;
 }
 
 /**

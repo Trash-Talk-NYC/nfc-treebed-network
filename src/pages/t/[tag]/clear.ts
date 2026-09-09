@@ -15,7 +15,7 @@ import { RuleError, closeReport, getBedView } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
-import { requireBoundTagForPost } from '../../../lib/tag-route';
+import { refuseWithBody, requireBoundTagForPost } from '../../../lib/tag-route';
 
 export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
   // Resolved before anything else, and its body accounted for either way: a
@@ -34,7 +34,9 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
 
   const store = getStore();
   const view = await getBedView(store, plate);
-  if (!view) return new Response('No bed with that plate.', { status: 404 });
+  if (!view) {
+    return await refuseWithBody(request, new Response('No bed with that plate.', { status: 404 }));
+  }
   if (!view.adopters.some((a) => a.user.id === userId)) return redirect(plaque, 303);
 
   const back = `${base}/mine`;

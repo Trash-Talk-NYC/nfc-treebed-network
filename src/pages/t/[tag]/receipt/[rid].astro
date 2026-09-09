@@ -10,7 +10,7 @@ import { receiptTime } from '../../../../lib/format';
 import { ourPlaqueLink } from '../../../../lib/plaque-url';
 import { requireBoundTag } from '../../../../lib/tag-route';
 
-const { bound, refused: notBound } = requireBoundTag(Astro.params.tag);
+const { bound, refused: notBound } = await requireBoundTag(Astro.params.tag, Astro.request);
 if (notBound) return notBound;
 const { plate, base } = bound;
 const rid = Astro.params.rid ?? '';
