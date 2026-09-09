@@ -863,6 +863,24 @@ describe('the tag URL, end to end', () => {
     }
   }, 120_000);
 
+  it('takes kilobytes of a POST at the screens that have no form on them', async () => {
+    withServerLog();
+    // Astro renders a page for a POST as readily as for a tap, so the plaque,
+    // the guardian view, the too-large screen and the receipt all answer one —
+    // and an answer given without touching the body leaves Node to read it to
+    // the end. Bound tag, so nothing refuses these on the way in.
+    for (const page of ['', 'mine', 'too-large', 'receipt/r_nope']) {
+      const upload = await slowUpload('1', 200 * MEGABYTE, 4 * MEGABYTE, 10, {
+        keepAlive: true,
+        budgetMs: 20_000,
+        page,
+      });
+
+      expect(upload.status).not.toBeNull();
+      expect(upload.written).toBeLessThan(16 * MEGABYTE);
+    }
+  }, 120_000);
+
   it('serves nothing at the old plate-keyed route', async () => {
     withServerLog();
     // The plate encodes site type and neighbourhood, which the tag URL must

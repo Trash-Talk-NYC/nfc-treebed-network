@@ -1,6 +1,11 @@
 ---
 import { ourPlaqueLink } from '../lib/plaque-url';
 import { TAG_BINDINGS } from '../lib/tag-bindings';
+import { abandonBody } from '../lib/request-body';
+
+// Rendered for any method, and an answer given without touching its body
+// leaves Node to read that body to its end. Nothing here wants one.
+await abandonBody(Astro.request);
 
 // The root has no content of its own — a tag URL always names a tag.
 // Send strays to the first live tag for now.

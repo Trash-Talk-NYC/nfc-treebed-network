@@ -7,9 +7,9 @@ import { RuleError, getBedView, signIn } from '../../../lib/service';
 import { getSessionUserId, setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
-import { refuseWithBody, requireBoundTag } from '../../../lib/tag-route';
+import { refuseWithBody, requireBoundTagForForm } from '../../../lib/tag-route';
 
-const { bound, refused: notBound } = await requireBoundTag(Astro.params.tag, Astro.request);
+const { bound, refused: notBound } = await requireBoundTagForForm(Astro.params.tag, Astro.request);
 if (notBound) return notBound;
 const { plate, base } = bound;
 const store = getStore();

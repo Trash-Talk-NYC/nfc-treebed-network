@@ -19,6 +19,16 @@
 //                                      the plaque still renders.
 //   GET  .../receipt/<id>, too-large   Same: no body, no buffer.
 //   GET  .../mine                      Same, behind a session check.
+//   Any method at those five screens   Astro renders a page for a POST as
+//                                      readily as for a tap, and none of these
+//                                      has a form behind it — so the body is
+//                                      not read but not left either:
+//                                      `abandonBody` takes SHED_DRAIN_BYTES /
+//                                      SHED_DRAIN_MS of it and stops, on the
+//                                      same MAX_SHED_READS accounting as the
+//                                      row below. Leaving it untouched is what
+//                                      would be unbounded, not the other way
+//                                      round.
 //   POST .../report  (multipart)       Size: 12MB on the node target, 4MB on
 //                                      netlify (report.ts explains why),
 //                                      counted as bytes arrive
@@ -796,7 +806,10 @@ function headText(head: Uint8Array): string {
  * route's own answer still reaches whatever is on the other end.
  */
 export async function abandonBody(request: Request): Promise<void> {
-  if (!request.body) return;
+  // A body already read is one Node has nothing left to dump, and a stream
+  // already locked would throw on a second reader — so a route may say this
+  // from any position, including after a capped read has refused.
+  if (!request.body || request.bodyUsed || request.body.locked) return;
   const reader = request.body.getReader();
   // Taken after the reader, so nothing between here and the `finally` can leak
   // a slot. Past the bound the drain shrinks to a single chunk — the least that

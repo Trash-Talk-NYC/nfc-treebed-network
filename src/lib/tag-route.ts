@@ -31,7 +31,7 @@ function bind(tag: string, plate: string): TagRoute {
 }
 
 /**
- * Resolve the `[tag]` param for a screen.
+ * Resolve the `[tag]` param for a screen that reads its own body.
  *
  * An unbound tag goes to the plaque rather than answering here: the calm "not
  * assigned to a bed yet" screen already exists there, carries the ID, and is
@@ -46,7 +46,7 @@ function bind(tag: string, plate: string): TagRoute {
  * `abandonBody` for that reason, which is a no-op for the GET that has no body
  * at all — so the ordering is kept here rather than in nine callers.
  */
-export async function requireBoundTag(
+export async function requireBoundTagForForm(
   rawTag: string | undefined,
   request: Request,
 ): Promise<TagRoute> {
@@ -58,6 +58,25 @@ export async function requireBoundTag(
       : new Response(null, { status: 302, headers: { location: `/t/${resolved.tag}` } });
   await abandonBody(request);
   return { bound: null, refused };
+}
+
+/**
+ * The same for a screen that never reads a body at all.
+ *
+ * `mine`, `too-large` and the receipt are rendered by Astro for any method, so
+ * a hand-built POST reaches them exactly as a tap does — and one they answer
+ * without touching is one Node dumps to its end. Draining here rather than in
+ * each of them keeps that with the resolution it belongs to: a screen with no
+ * form on it has nothing to say about a body, only somewhere to stop reading
+ * it. A GET has none, so this is a no-op on every real visit.
+ */
+export async function requireBoundTagForView(
+  rawTag: string | undefined,
+  request: Request,
+): Promise<TagRoute> {
+  const route = await requireBoundTagForForm(rawTag, request);
+  await abandonBody(request);
+  return route;
 }
 
 /**

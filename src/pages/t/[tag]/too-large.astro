@@ -9,9 +9,9 @@ import { getStore } from '../../../lib/store';
 import { getBedView } from '../../../lib/service';
 import { SEVERITIES, severityIndexFrom } from '../../../lib/severity';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
-import { refuseWithBody, requireBoundTag } from '../../../lib/tag-route';
+import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
 
-const { bound, refused: notBound } = await requireBoundTag(Astro.params.tag, Astro.request);
+const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
 if (notBound) return notBound;
 const { plate, base } = bound;
 const store = getStore();

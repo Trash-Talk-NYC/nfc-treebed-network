@@ -21,6 +21,13 @@ import { SEVERITIES, severityName } from '../../../lib/severity';
 import { isPostAction } from '../../../lib/plaque-url';
 import { nyCalendarDay, relativeAge, sinceLabel } from '../../../lib/format';
 import { resolveTagParam } from '../../../lib/tag-bindings';
+import { abandonBody } from '../../../lib/request-body';
+
+// Astro renders this for any method, so a hand-built POST lands here like a
+// tap does — and a body answered without being touched is one Node dumps to
+// its end for us. Nothing on this screen reads one, so it is stopped here,
+// before the render: a GET has no body and this costs it nothing.
+await abandonBody(Astro.request);
 
 const url = Astro.url;
 const resolved = resolveTagParam(Astro.params.tag);

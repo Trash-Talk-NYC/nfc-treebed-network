@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   BUSY_DRAIN_BYTES,
   CHUNK_ALLOWANCE_BYTES,
+  abandonBody,
   discardBody,
   FORM_READ_IDLE_MS,
   HEAD_BYTES,
@@ -378,6 +379,29 @@ describe('head-only reads', () => {
     expect(photoAttachedFromHead(new Uint8Array(empty))).toBe(false);
     expect(photoAttachedFromHead(new Uint8Array())).toBe(false);
     expect(photoAttachedFromHead(new Uint8Array(reportBody('1', 16)))).toBe(true);
+  });
+});
+
+describe('abandoning a body', () => {
+  it('takes an untouched body to the drain bound and stops', async () => {
+    const req = request(reportBody('1', 4 * 1024 * 1024));
+    await abandonBody(req);
+    expect(req.bodyUsed).toBe(true);
+  });
+
+  it('is a no-op once the body has been read, so any route can say it', async () => {
+    // `clear` and `photo` read their body first and can still refuse
+    // afterwards — a binding pointing at a site the store has never heard of.
+    // A second reader on a consumed stream throws, and that 404 must not
+    // become a 500.
+    const req = request(reportBody('1', 1024));
+    await discardBody(req, 'update');
+    await expect(abandonBody(req)).resolves.toBeUndefined();
+  });
+
+  it('is a no-op with no body at all, so a GET screen pays nothing', async () => {
+    const get = new Request('http://localhost/t/2mq2amhv');
+    await expect(abandonBody(get)).resolves.toBeUndefined();
   });
 });
 
