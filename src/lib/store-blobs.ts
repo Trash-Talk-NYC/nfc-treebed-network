@@ -149,12 +149,16 @@ export class BlobsStore implements Store {
     // The pointer stops being a starting point once it names a revision that
     // is gone — pruned, or never there — and the listing takes over.
     let trustHead = true;
+    // A revision this read has proved exists, whatever the pointer and the
+    // listing say. Losing the seeding race is exactly such a proof: the
+    // conditional create only refuses because rev/1 is already there.
+    let known = 0;
     // A revision can disappear from under a read if it was named just before
     // falling out of the KEPT_REVISIONS window — re-derive rather than fail the read.
     for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
       const head = trustHead ? await this.readHead() : null;
       if (head !== null) headSeen = head;
-      let from = Math.max(this.cached?.revision ?? 0, head ?? 0);
+      let from = Math.max(this.cached?.revision ?? 0, head ?? 0, known);
       if (from === 0) from = (await this.newestRevision()) ?? 0;
       if (from === 0) {
         // The listing is eventually consistent, so an empty one is never
@@ -168,7 +172,12 @@ export class BlobsStore implements Store {
         }
         const seeded = await this.seed();
         if (seeded) return seeded;
-        continue; // Lost the seeding race; the winner's revision is readable now.
+        // Lost the seeding race. The refused create is itself strongly
+        // consistent proof that rev/1 exists, so walk from there rather than
+        // asking the listing again — which, still stale-empty, would send us
+        // back through another bcrypt-priced seed to lose again.
+        known = 1;
+        continue;
       }
       const found = await this.walkForward(from);
       if (found !== null) {

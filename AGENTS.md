@@ -11,15 +11,19 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - Astro (server-rendered) + TypeScript strict, with two build targets selected in `astro.config.mjs` by `TREEBED_ADAPTER`:
   `node` (the default — `@astrojs/node` standalone server, what `npm start`, `npm run preview` and the e2e suite run) and `netlify` (`@astrojs/netlify`, what production deploys; `netlify.toml` sets the variable for every Netlify build).
   The node target stays first-class rather than becoming a dev shim because the request-body bounds below are measured against its real sockets.
-- **Both adapters are pinned to exact versions**, and for the same reason: an adapter consumes astro's app API through a permissive peer range, so a version that satisfies the range can still break the built server at boot.
+- **`astro`, both adapters, and `@netlify/blobs` are pinned to exact versions**, and for the same reason: an adapter consumes astro's app API through a permissive peer range, so a version that satisfies the range can still break the built server at boot.
   `@astrojs/node` is pinned to 11.1.1 because 11.1.4 calls `app.getLogger()`, which `astro` 7.2.1 does not have — measured, not hypothetical.
   `@astrojs/netlify` is pinned to 8.2.3 against the same trap on the adapter production actually deploys with, where the break would first appear live.
-  Unpin both when astro itself is upgraded.
+  `astro` itself is pinned to 7.2.1 because a caret is the same mismatch from the other side: `npm update` or any lockfile refresh would move astro under two adapters verified only against this version.
+  `@netlify/blobs` is pinned to 10.7.13 because production's entire data path speaks it and its emulated server is what `tests/store-blobs.test.ts` proves `onlyIfNew` against — runtime and test wire behaviour should not stay aligned by luck of a shared range.
+  The point of the policy is that moving any of the four is a deliberate act with a build behind it, not a side effect of an unrelated install. Upgrade astro and its adapters together, and re-pin rather than un-pin.
 - Requires Node >= 22 (`~/.nvm/versions/node/v22.23.1` works; the default shell Node 18.10 does not).
 - `npm run dev` / `npm run build` / `npm run preview` / `npm test` (vitest) / `npm run test:e2e` / `npm run check` (astro check).
   `npm test` is the fast suite — rules and transport handling, no build — and `npm run test:e2e` builds the app, serves `dist/server/entry.mjs`, and posts real bodies at it (`vitest.e2e.config.ts`); CI runs both (`.github/workflows/tests.yml`).
   `npm run preview` and `npm start` both serve the production build, so both need `TREEBED_SESSION_SECRET` and both are gated by `scripts/preflight.mjs`.
-  CI also runs `TREEBED_ADAPTER=netlify npm run build` after both suites, because every other step builds and exercises the node target only — the adapter production ships would otherwise be built for the first time by a manual deploy.
+  CI also runs `npm run test:netlify-build` after both suites, because every other step builds and exercises the node target only — the adapter production ships would otherwise be built for the first time by a manual deploy.
+  That script builds the netlify target *and* runs `scripts/smoke-netlify.mjs`, which imports the emitted `.netlify/v1/functions/ssr/ssr.mjs` and renders one request through it: the break this repo actually hit (`app.getLogger()`) is a load-time crash that a build alone passes green, so the build without the boot would prove only that the adapter resolves and the bundle emits.
+  The request it drives is the root redirect, the one route that reaches a rendered response without touching the store, so the gate needs no Blobs backend.
 - The plaque ships zero client JavaScript except one inline script enhancing the severity sheet — live tier name/definition on the slider, and the "photo attached" state on the file input.
   Every form is a plain HTML POST and works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
 
@@ -182,6 +186,8 @@ A surviving `head` is the store's own proof that it has been written to, and `Bl
   `netlify.toml` carries the build command, the publish dir, and the environment that selects the netlify adapter — the CLI applies it, so no flags beyond the site id are needed.
 - Site environment variables (set via `netlify env:set`, all already in place): `TREEBED_SESSION_SECRET` (secret, generated — never in the repo) and `TREEBED_STORE=blobs`.
   `AWS_LAMBDA_JS_RUNTIME=nodejs22.x` — functions default to an older Node than `engines` demands — lives in `netlify.toml` beside `NODE_VERSION` instead, so a recreated or duplicated site gets the right functions runtime without anyone remembering an `env:set`.
+  It is **not** to be set with `netlify env:set`: a site-level variable overrides `[build.environment]`, so carrying it in both places would leave the file documented as the source of truth while the site quietly won, and an edit here would have no effect on the deploy.
+  The earlier site-level copy has been unset accordingly, so `netlify.toml` is now the sole source of truth for the functions runtime.
 - The custom domain (`trashtalknyc.org/t/*` proxying, per ticket #5) is deliberately not wired yet; the `/b/[plate]` → `/t/[tag]` re-key is its own ticket.
 
 ## Branching model

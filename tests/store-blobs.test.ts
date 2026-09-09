@@ -150,6 +150,33 @@ describe('seeding', () => {
     await expect(instance().getEvents(PLATE)).rejects.toThrow(/refusing to seed/);
   });
 
+  it('walks from rev/1 after losing the seeding race instead of re-listing', async () => {
+    const seeder = instance();
+    await seeder.appendEvent(tapEvent('evt-seeded-by-the-winner'));
+    // First contact from a second instance, with nothing to start from: no
+    // pointer yet, and a listing still stale-empty. The refused create is the
+    // only strongly consistent proof rev/1 exists, so the read has to use it
+    // rather than asking the listing again — which would answer empty again,
+    // pay another bcrypt-priced seed, and lose again until the read gives up.
+    await client().delete('head');
+    const blind = client();
+    let seedAttempts = 0;
+    const blindClient = {
+      ...blind,
+      get: blind.get.bind(blind),
+      delete: blind.delete.bind(blind),
+      list: async () => ({ blobs: [], directories: [] }),
+      set: async (key: string, value: string, options?: unknown) => {
+        if (key === 'rev/1') seedAttempts += 1;
+        return (blind.set as (k: string, v: string, o?: unknown) => Promise<unknown>)(key, value, options);
+      },
+    } as unknown as BlobsClientStore;
+
+    const events = await new BlobsStore(blindClient).getEvents(PLATE);
+    expect(events.map((e) => e.id)).toEqual(['evt-seeded-by-the-winner']);
+    expect(seedAttempts).toBe(1);
+  });
+
   it('a second instance arriving later sees the same seed, not a re-seed', async () => {
     const a = instance();
     await a.appendEvent(tapEvent('evt-before-b'));
