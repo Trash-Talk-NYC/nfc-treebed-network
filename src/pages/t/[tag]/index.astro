@@ -28,7 +28,7 @@
 // off. Do not restore it.
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
-import { getBedView, logTap } from '../../../lib/service';
+import { engravedStewards, getBedView, logTap } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
 import { isPostAction } from '../../../lib/plaque-url';
 import { resolveTagParam } from '../../../lib/tag-bindings';
@@ -108,7 +108,11 @@ const presentation = view ? presentationFor(view.bed) : defaultPresentation();
 const bed = view?.bed ?? null;
 const stewards = view?.stewards ?? [];
 const openSlots = view?.openSlots ?? 0;
+// Stewarded is the adoption count, never how many rows render: a bed whose
+// stewards have all asked not to be named is still taken, and falling through
+// to door 1 would invite a stranger to adopt it.
 const stewarded = stewards.length > 0;
+const engraved = engravedStewards(stewards);
 
 const care = langLink(`${base}/care`, lang);
 const adopt = langLink(`${base}/adopt`, lang);
@@ -194,24 +198,29 @@ const title = bed
           <span class="hl" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
           <span {...bi(DOOR_STEWARDED.headAfter, lang)}>{DOOR_STEWARDED.headAfter[lang]}</span>
         </h1>
-        <div class="box">
-          <div class="panel-h" {...bi(COMMON.stewards, lang)}>
-            {COMMON.stewards[lang]}
+        {/* No box at all when every steward has asked not to be named: an
+            empty panel under its heading would read as a bug. The screen still
+            says the bed is adopted, and still offers both actions. */}
+        {engraved.length > 0 && (
+          <div class="box">
+            <div class="panel-h" {...bi(COMMON.stewards, lang)}>
+              {COMMON.stewards[lang]}
+            </div>
+            <div class="stewards stewards-gap">
+              {/* Username first, then initials. Full name, email and phone are
+                  admin-only and never reach a public screen. */}
+              {engraved.map(({ user }) => (
+                <div class="steward">
+                  <span class="av">{publicInitials(user).replace(/[.\s]/g, '')}</span>
+                  <span class="who">
+                    <span class="handle">{publicHandle(user)}</span>
+                    <span class="initials">{publicInitials(user)}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div class="stewards stewards-gap">
-            {/* Username first, then initials. Full name, email and phone are
-                admin-only and never reach a public screen. */}
-            {stewards.map(({ user }) => (
-              <div class="steward">
-                <span class="av">{publicInitials(user).replace(/[.\s]/g, '')}</span>
-                <span class="who">
-                  <span class="handle">{publicHandle(user)}</span>
-                  <span class="initials">{publicInitials(user)}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
         <div class="spacer" />
         {/* A plain form POST, like everything else here: applause works with
             JavaScript disabled. */}

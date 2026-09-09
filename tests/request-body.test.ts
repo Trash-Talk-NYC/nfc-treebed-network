@@ -332,6 +332,34 @@ describe('capped request bodies', () => {
     }
   });
 
+  it('reads a Spanish note off the head as the visitor typed it', async () => {
+    // The block is heavily Spanish-speaking, so the note is routinely
+    // non-ASCII. Read as latin1 — as this once was — "está dañado" is stored,
+    // echoed to the steward and carried back to the too-large screen as
+    // "estÃ¡ daÃ±ado", and each accent costs two of the 300 characters.
+    const note = 'La reja está dañada — hay basura y vidrios rotos aquí.';
+    const body = Buffer.concat([
+      Buffer.from(
+        `--${BOUNDARY}\r\n` +
+          'Content-Disposition: form-data; name="category"\r\n\r\nguard\r\n' +
+          `--${BOUNDARY}\r\n` +
+          'Content-Disposition: form-data; name="note"\r\n\r\n' +
+          `${note}\r\n` +
+          `--${BOUNDARY}\r\n` +
+          'Content-Disposition: form-data; name="photo"; filename="árbol.jpg"\r\n' +
+          'Content-Type: image/jpeg\r\n\r\n',
+        'utf8',
+      ),
+      Buffer.alloc(4 * 1024 * 1024, 0x7f),
+      Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
+    ]);
+    const capped = await readCappedHead(request(body), 12 * 1024 * 1024);
+    expect(capped.refusal).toBeNull();
+    expect(noteFromHead(capped.head)).toBe(note);
+    expect(categoryFromHead(capped.head)).toBe('guard');
+    expect(photoAttachedFromHead(capped.head)).toBe(true);
+  });
+
   it('reports no category rather than guessing one', async () => {
     expect(categoryFromHead(new Uint8Array())).toBeNull();
     const noField = Buffer.from(

@@ -10,6 +10,7 @@ import {
   RuleError,
   adoptBed,
   closeReport,
+  engravedStewards,
   escalateReport,
   getBedView,
   hashPin,
@@ -136,6 +137,18 @@ describe('two-slot cap', () => {
     const view = await getBedView(store, PLATE);
     expect(view?.stewards.map((s) => s.user.username)).toEqual(['marisol_r']);
     expect(view?.openSlots).toBe(1);
+  });
+
+  it('drops a steward who asked not to be named from the public list only', async () => {
+    const view = await getBedView(store, PLATE);
+    const stewards = view!.stewards;
+    expect(engravedStewards(stewards)).toEqual(stewards);
+
+    const hidden = stewards.map((s) => ({ ...s, adoption: { ...s.adoption, displayNameHidden: true } }));
+    expect(engravedStewards(hidden)).toEqual([]);
+    // The bed is still adopted: what a screen keys "stewarded" on is the
+    // adoption count, never how many rows it ends up rendering.
+    expect(hidden.length).toBe(1);
   });
 
   it('allows a second steward, then refuses a third server-side', async () => {

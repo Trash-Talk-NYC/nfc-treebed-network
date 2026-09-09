@@ -95,6 +95,13 @@ export interface ThemeColors {
 /** Everything a screen needs about a bed's presentation. */
 export interface Presentation {
   colors: ThemeColors;
+  /**
+   * The bed owner's mark. Deliberately kept though no approved screen renders
+   * one yet: it is half of the seam this file exists for — a sponsor's or a
+   * block's own logo has to be a lookup here rather than a rewrite across
+   * every screen. It and `public/img/trash-talk-nyc-logo.png` are NOT dead
+   * weight; do not delete them in a cleanup.
+   */
   logo: {
     src: string;
     /** Alt text is copy, so it is bilingual like the rest. */

@@ -204,10 +204,8 @@ if (Astro.request.method === 'POST') {
 
           <div>
             <label class="field-label" for="phone">
-              <span {...bi(ADOPT.phone, lang)}>{ADOPT.phone[lang]}</span>{' '}
-              <span class="field-note" {...bi(COMMON.optional, lang)}>
-                · {COMMON.optional[lang]}
-              </span>
+              <span {...bi(ADOPT.phone, lang)}>{ADOPT.phone[lang]}</span> ·{' '}
+              <span class="field-note" {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span>
             </label>
             <input
               class="field-input"

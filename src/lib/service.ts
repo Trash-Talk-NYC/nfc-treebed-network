@@ -159,6 +159,23 @@ export interface BedView {
   openReport: Report | null;
 }
 
+/**
+ * The stewards a PUBLIC screen may engrave.
+ *
+ * `Adoption.displayNameHidden` is a person asking not to have their name on a
+ * screen bolted to a sidewalk, so it is read here rather than at each screen:
+ * one predicate, in the rules layer, that every public render goes through.
+ *
+ * Whether a bed reads as stewarded is deliberately NOT this list's length —
+ * it is the adoption count. A bed whose only steward is hidden is still taken,
+ * and door 1 inviting a stranger to adopt it would be the worse mistake.
+ * The steward's own view (`mine.astro`) applies its own rule: hiding is about
+ * the public screen, not about hiding a bed from the person tending it.
+ */
+export function engravedStewards(stewards: BedView['stewards']): BedView['stewards'] {
+  return stewards.filter(({ adoption }) => !adoption.displayNameHidden);
+}
+
 export async function getBedView(store: Store, plate: string): Promise<BedView | null> {
   const bed = await store.getBed(plate);
   if (!bed) return null;
@@ -343,26 +360,6 @@ export async function sendApplause(
  */
 export const MAX_CONFIRMATIONS = 200;
 
-/** "STILL THERE — CONFIRM IT". Idempotent per person, and bounded per report. */
-export async function confirmReport(
-  store: Store,
-  args: { plate: string; actorId: string; now?: Date },
-): Promise<Report> {
-  return store.transaction(async (tx) => {
-    const open = await tx.getOpenReport(args.plate);
-    if (!open) throw new RuleError('no-open-report', `No open report on ${args.plate}`);
-    if (open.confirmedBy.includes(args.actorId)) return open;
-    // Full: answered like the repeat confirm above — the screen a visitor
-    // lands on is the same either way, and there is nothing here worth an
-    // error message about a limit no real neighbourhood reaches.
-    if (open.confirmedBy.length >= MAX_CONFIRMATIONS) return open;
-    const confirmed: Report = { ...open, confirmedBy: [...open.confirmedBy, args.actorId] };
-    await tx.updateReport(confirmed);
-    await appendEvent(tx, args.plate, 'confirm', args.actorId, null, args.now);
-    return confirmed;
-  });
-}
-
 /** Raise the open report to dumping. Anyone may escalate; only upward, only once. */
 export async function escalateReport(
   store: Store,
@@ -404,7 +401,6 @@ export async function closeReport(
   });
 }
 
-const PIN_RE = /^\d{4,8}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+\d][\d\s().-]{6,19}$/;
 

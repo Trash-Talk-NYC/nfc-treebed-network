@@ -25,6 +25,7 @@ Adoption lands on the full-screen purple "Adopted!" (`adopted.astro`).
 **Option A — the old plaque-first screen — is scrapped, not flagged off. Do not restore it.**
 With it went the visitor-facing confirm, escalate, receipt and rate-limited screens, which the approved flow has no place for.
 Their RULES are untouched in `service.ts` (`escalateReport`, `closeReport`), the same way anonymous clear is kept as a capability behind a closed route; only the routes are gone.
+**`escalateReport` and `closeReport` are deliberately kept with no visitor route — they are not dead code, and re-raising them as such is re-litigating this decision.** (`confirmReport` was NOT one of them: `reportProblem` absorbed its logic inline, and it is gone.)
 
 Two consequences worth knowing before you "fix" something:
 - **A second neighbour reporting an open problem is not refused.**
@@ -53,6 +54,7 @@ Washington Heights is heavily Spanish-speaking.
 **No colour, logo or wordmark is named anywhere but `src/lib/presentation.ts`.** Every bed returns the same defaults today and grouping is deliberately NOT built; what this buys is that giving a block or a sponsor its own look later is a new lookup rather than an unpicking job across every screen.
 `themeStyle` writes the roles onto the root element as `--theme-*` custom properties and the stylesheet reads them.
 `tests/presentation.test.ts` fails the build on a hex value anywhere else under `src/`, and holds every text/background pair to WCAG AA.
+`Presentation.logo` and `public/img/trash-talk-nyc-logo.png` are part of that seam and are kept on purpose although no approved screen renders a logo yet: a sponsor's or a block's mark must be a lookup here, not a rewrite. Do not delete them as dead weight.
 
 ## Stack
 

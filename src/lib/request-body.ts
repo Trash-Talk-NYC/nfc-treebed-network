@@ -825,9 +825,23 @@ export function photoAttachedFromHead(head: Uint8Array): boolean {
   return match !== null && match[1]!.length > 0;
 }
 
-/** latin1: the field names and values we look for are ASCII, and it never throws. */
+/**
+ * The head as text.
+ *
+ * UTF-8, not latin1: the structure we match on is ASCII, but the note carried
+ * beside it is a sentence a neighbour typed, and on this block that is
+ * routinely Spanish — "está dañado" read as latin1 is stored, echoed and
+ * carried back to the too-large screen as "estÃ¡ daÃ±ado".
+ *
+ * Non-fatal by construction, which the callers rely on: the head is the first
+ * `HEAD_BYTES` of a body and so is normally cut mid-anything, and a decoder
+ * that threw would cost a visitor the screen. A codepoint split by that cut
+ * degrades to U+FFFD instead.
+ */
+const HEAD_DECODER = new TextDecoder('utf-8');
+
 function headText(head: Uint8Array): string {
-  return Buffer.from(head).toString('latin1');
+  return HEAD_DECODER.decode(head);
 }
 
 /**
