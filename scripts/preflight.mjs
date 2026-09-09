@@ -7,6 +7,22 @@
 // build, so it is under the same requirement and gets the same one-line
 // explanation instead of a stack trace. Servers started some other way still
 // hit the assertion in src/middleware.ts on their first request.
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+// Both scripts serve the node target's build, and `npm run test:netlify-build`
+// empties dist/ to write a netlify one — so the entry can be missing on a
+// checkout that has been built, which reads as a broken install rather than
+// the wrong target.
+const NODE_ENTRY = new URL('../dist/server/entry.mjs', import.meta.url);
+if (!existsSync(NODE_ENTRY)) {
+  console.error(
+    `${fileURLToPath(NODE_ENTRY)} is missing — run \`npm run build\` to build the node target ` +
+      '(a netlify-target build empties dist/ and emits its function under .netlify/ instead).',
+  );
+  process.exit(1);
+}
+
 if (!process.env.TREEBED_SESSION_SECRET) {
   console.error(
     'TREEBED_SESSION_SECRET must be set to start the server — refusing to sign cookies with a generated secret.',

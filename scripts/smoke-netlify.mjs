@@ -31,7 +31,16 @@ const handler = typeof createHandler === 'function' ? createHandler : null;
 if (handler === null) fail('the built function has no default export to invoke.');
 
 // The adapter reads `context.ip` for Astro's clientAddress.
-const response = await handler(new Request('https://treebed-plaque.test/'), { ip: '127.0.0.1' });
+// A handler that loads and then throws while rendering — the middleware's own
+// session-secret assertion is the likeliest one locally — is this script's
+// failure to report, not node's: an unhandled rejection reads as a broken
+// gate rather than a missing variable.
+let response;
+try {
+  response = await handler(new Request('https://treebed-plaque.test/'), { ip: '127.0.0.1' });
+} catch (err) {
+  fail(`the built function loaded but threw while rendering GET / — ${err}`);
+}
 
 if (response.status !== 302) {
   fail(`GET / answered ${response.status}, expected the 302 redirect to the seeded bed.`);

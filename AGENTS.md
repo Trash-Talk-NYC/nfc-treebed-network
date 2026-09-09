@@ -184,10 +184,12 @@ A surviving `head` is the store's own proof that it has been written to, and `Bl
   **The site `trashtalknyc` (id `77ee72e0-18f8-43b7-a338-9b5d67d40236`) is the org's public website — a different product. Never deploy this app there.**
 - Deploys are CLI-driven, not repo-linked: `NETLIFY_SITE_ID=449a9585-ae51-4e23-9614-fe5b3ac669f1 npx netlify-cli@latest deploy --build --prod` from a checkout on Node >= 22.
   `netlify.toml` carries the build command, the publish dir, and the environment that selects the netlify adapter — the CLI applies it, so no flags beyond the site id are needed.
-- Site environment variables (set via `netlify env:set`, all already in place): `TREEBED_SESSION_SECRET` (secret, generated — never in the repo) and `TREEBED_STORE=blobs`.
-  `AWS_LAMBDA_JS_RUNTIME=nodejs22.x` — functions default to an older Node than `engines` demands — lives in `netlify.toml` beside `NODE_VERSION` instead, so a recreated or duplicated site gets the right functions runtime without anyone remembering an `env:set`.
-  It is **not** to be set with `netlify env:set`: a site-level variable overrides `[build.environment]`, so carrying it in both places would leave the file documented as the source of truth while the site quietly won, and an edit here would have no effect on the deploy.
-  The earlier site-level copy has been unset accordingly, so `netlify.toml` is now the sole source of truth for the functions runtime.
+- **The environment is split by when it is read, and each key lives in exactly one place.**
+  `netlify.toml`'s `[build.environment]` is the sole source for the build-time keys — `TREEBED_ADAPTER=netlify`, `NODE_VERSION=22`, and `AWS_LAMBDA_JS_RUNTIME=nodejs22.x` (functions default to an older Node than `engines` demands, and that failure shows up at request time rather than at build time) — so a recreated or duplicated site builds and runs correctly without anyone remembering an `env:set`.
+  Site-level environment carries only the runtime keys: `TREEBED_SESSION_SECRET` (secret, generated — never in the repo) and `TREEBED_STORE=blobs`.
+  **None of the three build-time keys is to be set with `netlify env:set`**: a site-level variable silently overrides `[build.environment]`, so a duplicate would leave this file documented as the source of truth while the site quietly won, and an edit here would have no effect on the deploy.
+  The earlier site-level copies of all three have been unset accordingly.
+  Checking that is itself a trap: `netlify env:list` run *inside the repo* merges `[build.environment]` into its output, so the build-time keys appear whether or not the site holds them — site-only state has to be checked from outside a checkout.
 - The custom domain (`trashtalknyc.org/t/*` proxying, per ticket #5) is deliberately not wired yet; the `/b/[plate]` → `/t/[tag]` re-key is its own ticket.
 
 ## Branching model
