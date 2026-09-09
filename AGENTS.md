@@ -36,7 +36,7 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   The format also has to tolerate NTAG424 query parameters later (map decision 4): route logic must ignore unknown query params, which is also why tap suppression matches only our own flags (`plaque-url.ts`).
 - **ID format (issue #5, decided): 8 chars of Crockford base32, lowercase, alphabet `0-9a-z` minus `i l o u`.**
   `src/lib/tag-id.ts` normalizes lookups — case-insensitive, strips hyphens/spaces, maps `i`/`l`→`1` and `o`→`0` — so an ID typed off a sign still resolves; `u` has no mapping and is simply invalid.
-  The plaque route 302s a non-canonical spelling to the canonical URL, query string intact.
+  The plaque route redirects a non-canonical spelling to the canonical URL, query string intact — 302 for a GET or HEAD, 303 for anything that arrived with a body, so a client reading RFC 9110 doesn't repeat a POST at the one screen that logs a tap.
 - **Tag → site is a binding, and only `src/lib/tag-bindings.ts` knows it.**
   A tag is a physical object, a site is a place; theft is expected.
   Retiring a stolen tag (`retiredAt`) and binding a replacement to the same plate loses no history, because reports and events are keyed by the plate, never the tag.
@@ -45,10 +45,12 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - **An unbound tag is a normal state, not an error.**
   A well-formed ID with no active binding renders the calm "not assigned to a bed yet" screen (with the ID on it) at 404 — never a 500.
   It logs no tap: sites own history and an unbound tag has none to write to.
-  POSTs at an unbound tag 404 before any rule runs, and pay `abandonBody`'s bounded drain (`request-body.ts`) for the body on the way out:
+  POSTs at an unbound tag are answered before any rule runs, and pay `abandonBody`'s bounded drain (`request-body.ts`) for the body on the way out:
   a body the app never touches is one Node dumps to its end for us, so refusing without reading is the expensive answer rather than the free one.
   `requireBoundTagForPost` / `requireBoundTagForForm` / `requireBoundTagForView` (`src/lib/tag-route.ts`) are what every route behind `/t/<tag>` resolves through, which is where that ordering is kept.
-  A GET at a sub-page of an unbound tag redirects to the plaque, so the calm screen lives in exactly one place.
+  The five POST endpoints (`requireBoundTagForPost`) answer 404 in plain text — nothing is submitting a form there.
+  The screens (`requireBoundTagForForm` / `requireBoundTagForView`) send the visitor to the plaque instead, which answers 404 itself, so the calm screen lives in exactly one place: 302 for a GET, 303 for a POST at `adopt` or `auth`.
+  An invalid ID — one no normalization can resolve — is 404 plain text everywhere, screens included: it is not on this network at all.
 
 ## Architecture invariants
 
@@ -124,7 +126,8 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - **Every public POST reads its body through `src/lib/request-body.ts`, never `request.formData()` directly** — the adapter's own default limit is 1GB of buffered memory.
   The comment block at the top of that file is the whole-surface sweep — size, time, concurrency, peak heap, and what the caller sees for every publicly reachable route — and a new route belongs in it.
   Four bounds, because three rounds of review each found one of them missing somewhere: a byte cap per body, a time bound on *both* the accepted and the refused read, an in-flight byte budget across all reads at once, and the drain headroom below.
-  A route bounds only the method it exports, so `src/middleware.ts` drains once after `next()` returns as the backstop for every route and every method — a no-op wherever the body was already read, and what covers the `PUT` at `/report` no route handler ever sees.
+  A route bounds only the method it exports, so `src/middleware.ts` drains once after `next()` settles as the backstop for every route and every method — a no-op wherever the body was already read, and what covers the `PUT` at `/report` no route handler ever sees.
+  It drains in a `finally`, so a route that throws is covered too: Astro turns the rejection into a 500 of its own, and the unread body has to be accounted for before that answer is written.
   The five POST endpoints export `ALL = postOnly` (`tag-route.ts`) so an unhandled method is answered 405 rather than by Astro's own 404, which logs a line per request and would let an anonymous caller decide how much stderr it costs us.
   One refusal is deliberately not ours: Astro's cross-origin guard runs ahead of our middleware and answers a form-content-type POST with a missing or mismatched `Origin` header 403 with the body unread.
   Taking that over would mean turning off `security.checkOrigin` and re-implementing CSRF ourselves to recover work spent on requests that were going to be refused anyway — accepted and recorded in the sweep comment instead.
@@ -166,6 +169,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Suppressing on "the URL has a query string" would drop every tap from a decorated tag URL (UTM, Popl, a link shortener); matching only the flags that flash something counted one visit twice every time a rule sent a visitor back with nothing to say.
   A link back counts as ours for the same reason a redirect does — somebody already on the receipt or the sign-in form had their tap counted when they arrived — and it is the commonest flow of all: tap, file, read the receipt, press "just passing through".
   The site root redirects through `ourPlaqueLink` too: a tag never sends anyone to `/`, so what does is an uptime check, a crawler, or somebody typing the domain, and a monitor polling it once a minute would be 1,440 taps a day on the only seeded bed.
+  It also counts only a `GET`: Astro renders the plaque for any method, but a tap is a person opening the URL on the chip, and a hand-built POST or PUT — or a monitor's HEAD — is nobody standing at a tree bed.
   Known residual, accepted rather than fixed: because the flag rides the URL, a visitor who uses an in-app back-link is left with `?tg_action=1` in the address bar, so a later return through history, a bookmark or a shared link renders the plaque without logging a tap — a small under-count in the opposite direction. The NFC tag always sends the bare URL, so the primary metric path is unaffected, and the alternatives (a Referer check, a short-lived nav cookie) are each less reliable and less legible than one flag in one place.
 - Email and phone are PII: stored on the user record, never rendered on any public screen, never included in any client-visible payload. Only name/username is engraved, and only while `displayNameHidden` is false.
 
