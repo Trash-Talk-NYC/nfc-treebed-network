@@ -17,9 +17,10 @@
 //                                      one render's reads, no per-request
 //                                      buffer. A failed tap write is logged and
 //                                      the plaque still renders.
-//   GET  .../receipt/<id>, too-large   Same: no body, no buffer.
+//   GET  .../care, adopt, auth,        Same: no body, no buffer.
+//        thanks, adopted, too-large
 //   GET  .../mine                      Same, behind a session check.
-//   Any method at those five screens   Astro renders a page for a POST as
+//   Any method at those screens        Astro renders a page for a POST as
 //                                      readily as for a tap, and none of these
 //                                      has a form behind it — so the body is
 //                                      not read but not left either:
@@ -69,15 +70,15 @@
 //                                      copy, the chunk in hand). Refused → a
 //                                      plain short answer, the same shape these
 //                                      forms already give a rejected field.
-//   POST .../confirm, .../escalate     One button each, so `discardBody` reads
-//                                      the body to its end under MAX_FORM_BYTES
-//                                      and keeps nothing: the same short time
+//   POST .../applause                  One button, so `discardBody` reads the
+//                                      body to its end under MAX_FORM_BYTES and
+//                                      keeps nothing: the same short time
 //                                      bounds, the head-only reservation, same
 //                                      peak. Refused → a plain short answer.
 //                                      Leaving it unread would cost heap nothing
 //                                      and could cost the caller this route's
 //                                      redirect.
-//   POST .../clear, .../photo          The same, behind session and adopter
+//   POST .../clear, .../photo          The same, behind session and steward
 //                                      checks — the body is read on the same
 //                                      bounds before either is consulted, so an
 //                                      unauthenticated POST is bounded by the
@@ -94,8 +95,9 @@
 //                                      SHED_DRAIN_BYTES below).
 //   Any other method, any route        A route bounds only the method it
 //                                      exports; Astro answers the rest itself,
-//                                      body untouched. The five POST routes
-//                                      export `ALL` (`postOnly`, tag-route.ts)
+//                                      body untouched. The four POST routes
+//                                      (report, applause, clear, photo) export
+//                                      `ALL` (`postOnly`, tag-route.ts)
 //                                      so that answer is a 405 rather than a
 //                                      404 with a log line per request, and
 //                                      src/middleware.ts drains once after the

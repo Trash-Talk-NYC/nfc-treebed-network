@@ -78,9 +78,9 @@ export function problemFor(value: ProblemCategory): Problem {
 /**
  * The category a submitted value names, or null if it names none.
  *
- * Strict, like `severityFrom`: an absent field must not resolve to the first
- * tile. Whoever comes to look reads this, and a category nobody picked sends
- * them for the wrong thing.
+ * Strict on purpose: an absent field must not resolve to the first tile.
+ * Whoever comes to look reads this, and a category nobody picked sends them for
+ * the wrong thing.
  */
 export function problemFrom(raw: unknown): ProblemCategory | null {
   if (typeof raw !== 'string') return null;

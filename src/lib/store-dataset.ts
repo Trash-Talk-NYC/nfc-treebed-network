@@ -75,6 +75,10 @@ function normalizeUser(user: User): void {
 
 function normalizeAdoption(adoption: Adoption): void {
   adoption.stewardKind ??= 'nfc';
+  // A row written before the flag existed belongs to somebody who was never
+  // offered the choice, and the screen engraved them — so `false` records what
+  // is already true on the plaque rather than hiding a steward who never asked.
+  adoption.displayNameHidden ??= false;
 }
 
 function normalizeReport(report: Report): void {

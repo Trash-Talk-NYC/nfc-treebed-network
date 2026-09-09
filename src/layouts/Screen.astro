@@ -88,14 +88,21 @@ const chrome = {
               el.setAttribute(name, el.getAttribute('data-' + lang + '-' + name));
             });
           });
-          // Our own links carry the language so a cookie-less browser keeps it.
-          document.querySelectorAll('a[href]').forEach(function (a) {
-            var href = a.getAttribute('href');
-            if (!href || href.indexOf('/') !== 0) return;
-            var url = new URL(href, location.origin);
-            if (lang === 'en') url.searchParams.delete('lang');
-            else url.searchParams.set('lang', lang);
-            a.setAttribute('href', url.pathname + url.search + url.hash);
+          // Our own links and forms carry the language so a cookie-less
+          // browser keeps it — a form left behind would post to the language
+          // the server rendered and land the visitor on the wrong thank-you.
+          [
+            ['a[href]', 'href'],
+            ['form[action]', 'action'],
+          ].forEach(function (pair) {
+            document.querySelectorAll(pair[0]).forEach(function (el) {
+              var value = el.getAttribute(pair[1]);
+              if (!value || value.indexOf('/') !== 0) return;
+              var url = new URL(value, location.origin);
+              if (lang === 'en') url.searchParams.delete('lang');
+              else url.searchParams.set('lang', lang);
+              el.setAttribute(pair[1], url.pathname + url.search + url.hash);
+            });
           });
           var self = new URL(location.href);
           self.searchParams.set('lang', other);

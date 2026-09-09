@@ -21,8 +21,9 @@
 //
 // Sister-property parity: trashtalknyc-website renders both languages into
 // `data-en` / `data-es` attributes and swaps them in the browser. Screens here
-// emit the same attributes (see `src/components/T.astro`), so the instant,
-// no-reload swap works the same way — the server render is what makes it
+// emit the same attributes (`src/lib/bilingual.ts`, with the control in
+// `src/components/LangToggle.astro`), so the instant, no-reload swap works the
+// same way — the server render is what makes it
 // correct before any script has run, and what makes it correct with no script
 // at all.
 

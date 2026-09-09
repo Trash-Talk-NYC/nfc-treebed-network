@@ -190,7 +190,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Four bounds, because three rounds of review each found one of them missing somewhere: a byte cap per body, a time bound on *both* the accepted and the refused read, an in-flight byte budget across all reads at once, and the drain headroom below.
   A route bounds only the method it exports, so `src/middleware.ts` drains once after `next()` settles as the backstop for every route and every method — a no-op wherever the body was already read, and what covers the `PUT` at `/report` no route handler ever sees.
   It drains in a `finally`, so a route that throws is covered too: Astro turns the rejection into a 500 of its own, and the unread body has to be accounted for before that answer is written.
-  The five POST endpoints export `ALL = postOnly` (`tag-route.ts`) so an unhandled method is answered 405 rather than by Astro's own 404, which logs a line per request and would let an anonymous caller decide how much stderr it costs us.
+  The four POST endpoints export `ALL = postOnly` (`tag-route.ts`) so an unhandled method is answered 405 rather than by Astro's own 404, which logs a line per request and would let an anonymous caller decide how much stderr it costs us.
   One refusal is deliberately not ours: Astro's cross-origin guard runs ahead of our middleware and answers a form-content-type POST with a missing or mismatched `Origin` header 403 with the body unread.
   Taking that over would mean turning off `security.checkOrigin` and re-implementing CSRF ourselves to recover work spent on requests that were going to be refused anyway — accepted and recorded in the sweep comment instead.
 - **The photo cap is per target: 12MB on node, 4MB on netlify.**

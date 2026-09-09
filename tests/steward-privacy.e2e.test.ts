@@ -81,7 +81,9 @@ describe('a steward who asked not to be named', () => {
     // Neither the handle nor the initials, in either language's attribute.
     expect(html).not.toContain('marisol_r');
     expect(html).not.toContain('M. R.');
-    expect(html).not.toContain('MR');
+    // Anchored to the element that carries the initials: a bare `MR` would be
+    // matched against the whole document, script and stylesheet included.
+    expect(html).not.toContain('class="av">MR<');
     // And no empty stewards panel left standing over nobody.
     expect(html).not.toContain(COMMON.stewards.en);
 

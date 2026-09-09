@@ -17,15 +17,17 @@ describe('telling our own redirects from a tap', () => {
     expect(isPostAction(url(`${BASE}?done=1&from=somewhere`))).toBe(false);
   });
 
-  it('does not count the redirects that flash something', () => {
-    expect(isPostAction(url(`${BASE}?confirmed=1`))).toBe(true);
-    expect(isPostAction(url(`${BASE}?raised=1`))).toBe(true);
-    expect(isPostAction(url(`${BASE}?limited=1`))).toBe(true);
+  it('counts a tap carrying a readable word an Option A screen once used', () => {
+    // Those routes went with Option A, and the words are ones any link
+    // decoration could set. Nothing of ours produces them any more.
+    expect(isPostAction(url(`${BASE}?confirmed=1`))).toBe(false);
+    expect(isPostAction(url(`${BASE}?raised=1`))).toBe(false);
+    expect(isPostAction(url(`${BASE}?limited=1`))).toBe(false);
   });
 
-  it('does not count the redirects with nothing to flash either', () => {
-    // The report someone else already filed, a confirm on a report that has
-    // since been closed, an anonymous clear: one visit, one tap.
+  it('does not count the redirects with nothing to flash', () => {
+    // The report someone else already filed, a second applause the same day,
+    // the link back from the thank-you: one visit, one tap.
     expect(isPostAction(url(ourPlaqueLink(BASE)))).toBe(true);
     expect(isPostAction(url(`${ourPlaqueLink(BASE)}&utm_source=popl`))).toBe(true);
   });
