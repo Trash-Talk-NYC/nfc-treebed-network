@@ -242,5 +242,5 @@ That single limitation has three consequences:
   The workflow only runs on pull requests.
 - For `pull_request` events the workflow definition is resolved from the PR merge ref, so a head branch that deletes or renames `.github/workflows/promotion-chain.yml` produces a PR with **no** promotion-chain check at all rather than a failing one — an absent check is not proof the chain was followed.
 
-Leaving the chain advisory is a **deliberate accepted risk** taken by the captain (small team, nothing deployed yet), not an oversight.
+Leaving the chain advisory is a **deliberate accepted risk** taken by the captain (small team, and no branch deploys itself — the pilot ships by CLI from a checkout), not an oversight.
 If the repo ever goes public or the org upgrades to a paid plan, replace this check with real branch protection / rulesets and mark it a required status check.

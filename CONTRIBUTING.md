@@ -55,4 +55,4 @@ Branch protection, rulesets, and required status checks are all unavailable on t
 So the check marks an out-of-chain PR red, but the merge button stays enabled and anyone with write access can merge past it; it also never sees direct pushes to `qa`, `stage`, `prod`, or `main`.
 
 Please treat a red promotion-chain check as blocking, and please don't push to those branches directly.
-This is a deliberate accepted risk while the team is small and nothing is deployed; if the repo goes public or the org upgrades, real branch protection replaces it.
+This is a deliberate accepted risk while the team is small and no branch deploys itself — the pilot ships by CLI from a checkout; if the repo goes public or the org upgrades, real branch protection replaces it.
