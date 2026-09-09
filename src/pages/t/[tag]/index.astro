@@ -82,7 +82,12 @@ const limited = url.searchParams.has('limited');
 // Only our own post-action redirects are page reloads rather than new taps —
 // including the ones with nothing to flash, which is why the flag set lives in
 // one place with the helper the POST routes build those redirects with.
-if (view !== null && actor !== null && !isPostAction(url)) {
+// A tap is a person opening the URL on the chip, which is a GET and only ever
+// a GET: a hand-built POST or PUT renders this screen (Astro answers any
+// method) but is nobody standing at a tree bed, and a HEAD is the same monitor
+// case the site root already refuses to count.
+const tapShaped = Astro.request.method === 'GET';
+if (view !== null && actor !== null && tapShaped && !isPostAction(url)) {
   try {
     await logTap(store, { plate: view.bed.plate, actorId: actor });
   } catch (err) {
