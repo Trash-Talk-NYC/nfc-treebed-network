@@ -54,6 +54,7 @@
 
 import { getStore as getBlobStore, type Store as BlobsClientStore } from '@netlify/blobs';
 import type { Store } from './store';
+import { BUILD_TARGET } from './build-target';
 import { getRequestContext } from './request-context';
 import type { Adoption, Bed, BedEvent, Report, User } from './types';
 import { type Data, TransactionStore, detach, ops, seedData } from './store-dataset';
@@ -231,11 +232,15 @@ export class BlobsStore implements Store {
    * The seeded adopter gets no demo PIN here. This store is the deployed,
    * publicly tappable one, its plaque engraves `@marisol_r`, and sign-in has
    * no rate limiting yet — a PIN everybody knows would be an open guardian
-   * account on the internet. TREEBED_SEED_PIN can supply a real one where the
-   * flow has to be driveable; unset means no PIN opens the account.
+   * account on the internet. TREEBED_SEED_PIN is a development-only seam for
+   * driving the sign-in flow against this backend locally, and the netlify
+   * target ignores it outright: a production build that cannot honour the
+   * variable cannot be talked into an open guardian account by a stray
+   * `netlify env:set`. Unset — and on netlify, always — no PIN opens it.
    */
   private async seed(): Promise<Loaded | null> {
-    const data = await seedData(process.env.TREEBED_SEED_PIN || null);
+    const seedPin = BUILD_TARGET === 'netlify' ? null : process.env.TREEBED_SEED_PIN || null;
+    const data = await seedData(seedPin);
     const write = await this.blobs.set(revisionKey(1), serialize(data), { onlyIfNew: true });
     if (!write.modified) return null;
     await this.setHead(1);
@@ -300,14 +305,24 @@ export class BlobsStore implements Store {
    * commit pushed past KEPT_REVISIONS. Every commit is on the critical path
    * of somebody standing at a tree, so the steady state costs a single
    * delete — a listing would be a whole extra round trip to rediscover a
-   * revision number arithmetic already knows. A failed delete falls back to
-   * the listing, which is also what collects anything an earlier failure
-   * left behind; errors there are logged rather than surfaced, since the
-   * commit they trail already succeeded.
+   * revision number arithmetic already knows.
+   *
+   * The listing is what collects what the arithmetic cannot: a delete that
+   * threw, and a delete that never ran at all because the instance was
+   * recycled between the commit and this call — later commits each drop only
+   * their own expired revision, so an orphan below the window would otherwise
+   * be a full copy of the dataset nothing ever reclaims. So it sweeps on a
+   * failure and once every KEPT_REVISIONS commits, which keeps the extra
+   * round trip off all but one commit in eight. Errors are logged rather than
+   * surfaced, since the commit they trail already succeeded.
    */
   private async prune(committed: number): Promise<void> {
     const expired = committed - KEPT_REVISIONS;
     if (expired < 1) return;
+    if (committed % KEPT_REVISIONS === 0) {
+      await this.sweep(expired);
+      return;
+    }
     try {
       await this.blobs.delete(revisionKey(expired));
     } catch (err) {

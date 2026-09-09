@@ -12,7 +12,7 @@
 // where the cross-instance story — read-your-writes, conflict retry, rule
 // enforcement — is actually held to.
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -70,6 +70,11 @@ function instance(): BlobsStore {
   return new BlobsStore(client());
 }
 
+async function revisionKeys(): Promise<string[]> {
+  const { blobs } = await client().list({ prefix: 'rev/' });
+  return blobs.map(({ key }) => key);
+}
+
 function tapEvent(id: string): BedEvent {
   return {
     id,
@@ -113,6 +118,26 @@ describe('seeding', () => {
     }
   });
 
+  it('ignores TREEBED_SEED_PIN on the netlify target', async () => {
+    // The seam is development-only, and this store is the deployed one: a
+    // production build must not honour the variable however it gets set.
+    process.env.TREEBED_SEED_PIN = '918273';
+    vi.resetModules();
+    vi.doMock('../src/lib/build-target', () => ({ BUILD_TARGET: 'netlify' }));
+    try {
+      const { BlobsStore: NetlifyTargetStore } = await import('../src/lib/store-blobs');
+      const { signIn: signInOnTarget } = await import('../src/lib/service');
+      const store = new NetlifyTargetStore(client());
+      await expect(signInOnTarget(store, { username: 'marisol_r', pin: '918273' })).rejects.toMatchObject({
+        code: 'invalid-credentials',
+      });
+    } finally {
+      delete process.env.TREEBED_SEED_PIN;
+      vi.doUnmock('../src/lib/build-target');
+      vi.resetModules();
+    }
+  });
+
   it('refuses to seed over a store whose head says it has been written to', async () => {
     const a = instance();
     await a.appendEvent(tapEvent('evt-live-data'));
@@ -131,6 +156,29 @@ describe('seeding', () => {
     const b = instance();
     const events = await b.getEvents(PLATE);
     expect(events.map((e) => e.id)).toContain('evt-before-b');
+  });
+});
+
+describe('pruning', () => {
+  it('sweeps an orphan that no later commit deletes by key', async () => {
+    const store = instance();
+    for (let i = 0; i < 10; i += 1) await store.appendEvent(tapEvent(`evt-prune-a-${i}`));
+    // What an instance recycled between its commit and its prune leaves
+    // behind: a revision below the window that every later commit's single
+    // targeted delete misses, and that delete-on-absent never reports.
+    await client().set('rev/2', 'orphaned');
+    for (let i = 0; i < 3; i += 1) await store.appendEvent(tapEvent(`evt-prune-b-${i}`));
+    expect(await revisionKeys()).toContain('rev/2');
+    for (let i = 0; i < 2; i += 1) await store.appendEvent(tapEvent(`evt-prune-c-${i}`));
+    expect(await revisionKeys()).not.toContain('rev/2');
+  });
+
+  it('keeps the newest revisions and drops the ones behind them', async () => {
+    const store = instance();
+    for (let i = 0; i < 12; i += 1) await store.appendEvent(tapEvent(`evt-window-${i}`));
+    const revisions = (await revisionKeys()).map((key) => Number(key.slice('rev/'.length)));
+    expect(revisions).toContain(13);
+    expect(Math.min(...revisions)).toBeGreaterThan(13 - 9);
   });
 });
 

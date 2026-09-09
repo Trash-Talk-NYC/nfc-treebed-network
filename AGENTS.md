@@ -33,6 +33,7 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   Function instances scale horizontally, so its `transaction` is optimistic: read the newest revision, run the callback on a private copy, commit by creating `rev/<n+1>` with `onlyIfNew`, and re-run the whole callback on loss — a rule check made against a dataset another commit replaced never reaches the store.
   ETag compare-and-swap (`onlyIfMatch`) was rejected because the emulated Blobs server (`@netlify/blobs/server`, which `tests/store-blobs.test.ts` runs the real wire protocol against) does not produce ETags on reads, so that path would be untestable.
   Old revisions are pruned a safe distance behind the newest; the survivors double as a short paper trail (`netlify blobs:list treebed`).
+A commit's own expired revision is deleted by key, since arithmetic already knows which one fell out of the window; the full listing sweep runs on a failed delete and once every `KEPT_REVISIONS` commits, because an instance recycled between a commit and its prune leaves an orphan no later commit's arithmetic names.
 - **Which revision is newest is never decided by a key listing.**
   Blobs' strong consistency covers `get`, not `list`, so a stale listing would hand a reader an older revision — the receipt a POST just redirected to would 404 — and would make `transaction` burn every attempt against a revision number somebody else already owns.
   A read instead takes the `head` pointer (a strongly consistent `get`, moved after each commit) as a *lower bound* and walks forward one `get` at a time until a revision is missing: the pointer may lag or be moved back a revision by a racing commit, the walk cannot, because a revision that exists is one `get` must return.
@@ -157,6 +158,7 @@ On the local store it is created on first boot with PIN `1234` — demo credenti
 **`BlobsStore` seeds the same adopter with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the plaque engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open guardian account on the internet — `/mine`, `/photo`, and the deliberately auth-gated `/clear`.
 `TREEBED_SEED_PIN` is a **development-only** seam, for driving the sign-in flow against a store that seeds without one.
 It is unset on the Netlify site and must never be set there: a PIN supplied to the publicly tappable store is the open guardian account this seed exists to avoid.
+That is enforced in code rather than by this paragraph — `seed()` reads the variable only on the node target (`BUILD_TARGET`, the same shape as the store-selection assertion), so a production build ignores it however it is set.
 
 The pilot store was seeded *before* this change — seeding only ever runs on first contact — so it held the `1234` hash.
 **That is remediated: `marisol_r`'s `pinHash` was rotated in place** by appending a revision copying the newest one with the hash replaced by a bcrypt of discarded random bytes.
