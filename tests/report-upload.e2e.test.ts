@@ -81,6 +81,19 @@ async function startServer(env: Record<string, string> = {}): Promise<Served> {
   child.stderr.on('data', (buf: Buffer) => {
     log += String(buf);
   });
+  // A server that dies mid-suite otherwise says nothing at all: every later
+  // test fails with ECONNREFUSED and the reason it went is lost.
+  // This is here because it happened: on one dev machine the suite flaked 2 of
+  // 7 runs, the spawned server vanishing right after the 200MB drain-ceiling
+  // case with nothing on stderr; a standalone replay of the same uploads could
+  // not reproduce it and 5 re-runs passed clean. Most likely an OS-level kill
+  // under memory pressure — corroborated, not proven, by an unrelated
+  // long-running process on the same machine being killed for low memory at
+  // the same time. So the diagnostic stays and the ceiling stays where it is;
+  // CI arbitrates.
+  child.on('exit', (code, signal) => {
+    log += `[e2e] server exited code=${code} signal=${signal}\n`;
+  });
 
   const [url, listening] = await new Promise<[string, number]>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('server never reported a port')), 30_000);
@@ -407,6 +420,9 @@ describe('oversized report uploads, end to end', () => {
     expect(html).toContain('FILE IT WITHOUT THE PHOTO');
   });
 
+  // 200MB is the measured number Node's own body dump reaches when the app
+  // never touches the body; lowering it to calm a flaky dev machine would
+  // quietly delete the proof. See the exit diagnostic in startServer above.
   it('drops a body that keeps streaming past the drain ceiling', async () => {
     withServerLog();
     const upload = await slowUpload('2', 200 * MEGABYTE, 4 * MEGABYTE, 10);
