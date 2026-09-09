@@ -20,7 +20,7 @@ import { getStore as getBlobClientStore, type Store as BlobsClientStore } from '
 import { BlobsServer } from '@netlify/blobs/server';
 import { BlobsStore } from '../src/lib/store-blobs';
 import { runInRequestContext } from '../src/lib/request-context';
-import { RuleError, fileReport, signIn } from '../src/lib/service';
+import { fileReport, signIn } from '../src/lib/service';
 import type { BedEvent } from '../src/lib/types';
 
 const PLATE = 'BED-HRL-0847';
