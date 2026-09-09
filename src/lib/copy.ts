@@ -140,10 +140,6 @@ export const CARE = {
 export const THANKS_TAKEOVER = {
   reported: { en: 'Thank you.', es: 'Gracias.' },
   applauded: { en: 'Applause sent.', es: 'Aplauso enviado.' },
-  signupBefore: {
-    en: 'Want to hear about tree guard builds and neighborhood cleanups? Sign up at ',
-    es: '¿Quieres enterarte de los armados de protectores y las limpiezas del barrio? Apúntate en ',
-  },
   applaudedSub: {
     en: 'They will hear that somebody noticed.',
     es: 'Sabrán que alguien se dio cuenta.',

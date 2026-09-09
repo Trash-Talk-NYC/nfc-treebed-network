@@ -260,7 +260,8 @@ export interface ProblemInput {
  *    a "confirm it" screen; the approved flow has no such screen, so the same
  *    press adds their weight to the open report instead. Same record, same
  *    bound (`MAX_CONFIRMATIONS`), one less screen between a neighbour and being
- *    counted.
+ *    counted — and what they picked and typed rides on the `confirm` event,
+ *    because the screen thanks them for telling us either way.
  *  - one report per person per bed per NY calendar day. A second press the same
  *    day writes nothing at all rather than showing somebody a rule.
  *  - the note is capped server-side; the browser's counter is a courtesy.
@@ -283,9 +284,21 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
       if (open.confirmedBy.length >= MAX_CONFIRMATIONS) {
         return { kind: 'already-said', report: open };
       }
-      const weighted: Report = { ...open, confirmedBy: [...open.confirmedBy, actorId] };
+      // Their category and their sentence ride on the `confirm` event: the
+      // report already belongs to the first reporter, but what the second
+      // neighbour said has to reach the steward rather than be thanked for and
+      // dropped. The photo flag moves onto the report, because it is true of
+      // the bed's open problem that somebody attached one.
+      // No new growth concern: the note is capped at `MAX_NOTE_CHARS` above and
+      // the confirmations this rides alongside are bounded by
+      // `MAX_CONFIRMATIONS`, so both the array and the events it adds stop.
+      const weighted: Report = {
+        ...open,
+        confirmedBy: [...open.confirmedBy, actorId],
+        photoAttached: open.photoAttached || photoAttached,
+      };
       await tx.updateReport(weighted);
-      await appendEvent(tx, plate, 'confirm', actorId, null, now);
+      await appendEvent(tx, plate, 'confirm', actorId, null, now, { category, note });
       return { kind: 'added-weight', report: weighted };
     }
 
@@ -313,7 +326,7 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
       photoAttached,
     };
     await tx.createReport(report);
-    await appendEvent(tx, plate, 'report', actorId, null, now);
+    await appendEvent(tx, plate, 'report', actorId, null, now, { category, note });
     return { kind: 'filed', report };
   });
 }
@@ -696,12 +709,15 @@ async function appendEvent(
   actorId: string | null,
   severity: Severity | null,
   now?: Date,
+  said?: { category: ProblemCategory | null; note: string },
 ): Promise<void> {
   await store.appendEvent({
     id: `event-${randomUUID()}`,
     bedPlate,
     eventType,
     severity,
+    category: said?.category ?? null,
+    note: said?.note ?? '',
     actorId,
     createdAt: (now ?? new Date()).toISOString(),
   });

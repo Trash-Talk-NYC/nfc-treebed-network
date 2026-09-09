@@ -62,6 +62,8 @@ function tapEvent(id: string) {
     bedPlate: PLATE,
     eventType: 'tap' as const,
     severity: null,
+    category: null,
+    note: '',
     actorId: 'visitor-1',
     createdAt: new Date().toISOString(),
   };
@@ -209,6 +211,35 @@ describe('what SEND IT is worth', () => {
     expect(second.kind).toBe('added-weight');
     expect(second.report?.confirmedBy).toEqual(['visitor-2']);
     expect(await store.getReports(PLATE)).toHaveLength(1);
+  });
+
+  it("keeps what the second neighbour said, and their photo", async () => {
+    // The screen thanks them either way, so what they picked and typed has to
+    // survive somewhere a steward reads it — the `confirm` event.
+    await reportProblem(store, careInput({ actorId: 'visitor-1', category: 'litter', note: '' }));
+    const second = await reportProblem(
+      store,
+      careInput({
+        actorId: 'visitor-2',
+        category: 'guard',
+        note: 'la reja está doblada y hay un clavo suelto',
+        photoAttached: true,
+      }),
+    );
+    expect(second.kind).toBe('added-weight');
+    const [confirm] = await store.getEvents(PLATE, 'confirm');
+    expect(confirm?.category).toBe('guard');
+    expect(confirm?.note).toBe('la reja está doblada y hay un clavo suelto');
+    // A photo attached to the second press is still a photo of the bed's open
+    // problem.
+    expect((await store.getOpenReport(PLATE))?.photoAttached).toBe(true);
+  });
+
+  it('records the category and the note on the report event too', async () => {
+    await reportProblem(store, careInput({ category: 'thirsty', note: 'la tierra está seca' }));
+    const [filed] = await store.getEvents(PLATE, 'report');
+    expect(filed?.category).toBe('thirsty');
+    expect(filed?.note).toBe('la tierra está seca');
   });
 
   it('counts each neighbour once, and stops at the cap', async () => {

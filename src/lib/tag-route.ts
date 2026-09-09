@@ -63,7 +63,10 @@ export async function requireBoundTagForForm(
       ? new Response('Not a tag on this network.', { status: 404 })
       : new Response(null, {
           status: seeOther ? 303 : 302,
-          headers: { location: `/t/${resolved.tag}` },
+          // The query string rides along, as the plaque's own canonical
+          // redirect does: it may hold the language a cookie-refusing visitor
+          // picked, or our post-action flag.
+          headers: { location: `/t/${resolved.tag}${new URL(request.url).search}` },
         });
   await abandonBody(request);
   return { bound: null, refused };

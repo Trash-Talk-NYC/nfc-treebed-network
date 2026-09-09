@@ -113,8 +113,6 @@ export interface Presentation {
   copy: {
     /** The wordmark in the kicker. A name, so it is not translated. */
     wordmark: string;
-    /** Where the thank-you takeover sends someone who wants the mailing list. */
-    signupUrl: string;
     /** Displayed after the wordmark on the door screens, e.g. "W 171ST". */
     locality: string;
   };
@@ -139,6 +137,25 @@ const DEFAULT_COLORS: ThemeColors = {
 };
 
 /**
+ * The mark and the brand copy every bed answers with today.
+ *
+ * Single-sourced rather than spelled out in each lookup below: a block's or a
+ * sponsor's own mark should be one literal to change here, which is the whole
+ * premise of this file.
+ */
+const DEFAULT_LOGO: Presentation['logo'] = {
+  src: '/img/trash-talk-nyc-logo.png',
+  alt: { en: 'Trash Talk NYC', es: 'Trash Talk NYC' },
+  width: 137,
+  height: 144,
+};
+
+const DEFAULT_COPY: Presentation['copy'] = {
+  wordmark: 'TRASH TALK NYC',
+  locality: '',
+};
+
+/**
  * The short locality a door screen prints beside the wordmark.
  *
  * Taken off the bed's cross streets rather than typed a second time, so the two
@@ -158,17 +175,8 @@ function localityFrom(bed: Bed): string {
 export function presentationFor(bed: Bed): Presentation {
   return {
     colors: { ...DEFAULT_COLORS },
-    logo: {
-      src: '/img/trash-talk-nyc-logo.png',
-      alt: { en: 'Trash Talk NYC', es: 'Trash Talk NYC' },
-      width: 137,
-      height: 144,
-    },
-    copy: {
-      wordmark: 'TRASH TALK NYC',
-      signupUrl: 'trashtalknyc.org/xxx',
-      locality: localityFrom(bed),
-    },
+    logo: { ...DEFAULT_LOGO, alt: { ...DEFAULT_LOGO.alt } },
+    copy: { ...DEFAULT_COPY, locality: localityFrom(bed) },
   };
 }
 
@@ -179,17 +187,8 @@ export function presentationFor(bed: Bed): Presentation {
 export function defaultPresentation(): Presentation {
   return {
     colors: { ...DEFAULT_COLORS },
-    logo: {
-      src: '/img/trash-talk-nyc-logo.png',
-      alt: { en: 'Trash Talk NYC', es: 'Trash Talk NYC' },
-      width: 137,
-      height: 144,
-    },
-    copy: {
-      wordmark: 'TRASH TALK NYC',
-      signupUrl: 'trashtalknyc.org/xxx',
-      locality: '',
-    },
+    logo: { ...DEFAULT_LOGO, alt: { ...DEFAULT_LOGO.alt } },
+    copy: { ...DEFAULT_COPY, locality: '' },
   };
 }
 

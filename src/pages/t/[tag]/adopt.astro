@@ -135,7 +135,7 @@ if (Astro.request.method === 'POST') {
           >
         </>
       ) : (
-        <form method="POST" class="adopt-form">
+        <form method="POST" action={langLink(`${base}/adopt`, lang)} class="adopt-form">
           {formError && (
             <p class="field-error" {...bi(formError, lang)}>
               {formError[lang]}

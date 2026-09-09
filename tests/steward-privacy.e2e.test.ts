@@ -1,4 +1,5 @@
-// A steward who asked not to be named, against the real rendered screen.
+// The steward's screens, against the real rendered HTML: a steward who asked
+// not to be named, and what a second neighbour's press reaches them as.
 //
 // `Adoption.displayNameHidden` is a person asking not to have their name on a
 // screen bolted to a sidewalk, so the proof has to be the HTML a passer-by
@@ -16,6 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { seedData } from '../src/lib/store-dataset';
 import { DOOR_STEWARDED, DOOR_UNSTEWARDED, COMMON } from '../src/lib/copy';
+import { problemFor } from '../src/lib/problem';
 
 /** The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847. */
 const TAG = '2mq2amhv';
@@ -118,5 +120,36 @@ describe('a steward who asked not to be named', () => {
     const html = await mine.text();
     expect(html).toContain('marisol_r');
     expect(html).toContain('M. R.');
+  });
+
+  it("reads what a second neighbour said about the open report", async () => {
+    // Two cookie-less presses are two identities (`/report` mints), so the
+    // second adds weight rather than opening a duplicate. Their category and
+    // their sentence must reach the person who has to go and fix it.
+    const send = (body: string) =>
+      fetch(`${origin}/t/${TAG}/report`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+        body,
+        redirect: 'manual',
+      });
+    expect((await send('category=litter&note=bolsas+en+la+esquina')).status).toBe(303);
+    expect((await send('category=guard&note=la+reja+est%C3%A1+doblada')).status).toBe(303);
+
+    const signedIn = await fetch(`${origin}/t/${TAG}/auth`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: 'username=marisol_r&pin=1234',
+      redirect: 'manual',
+    });
+    const cookie = signedIn.headers
+      .getSetCookie()
+      .find((c) => c.startsWith('tg_session='))
+      ?.split(';')[0];
+    const mine = await fetch(`${origin}/t/${TAG}/mine`, { headers: { cookie: cookie! } });
+    const html = await mine.text();
+    expect(html).toContain('bolsas en la esquina');
+    expect(html).toContain('la reja está doblada');
+    expect(html).toContain(problemFor('guard').label.en);
   });
 });

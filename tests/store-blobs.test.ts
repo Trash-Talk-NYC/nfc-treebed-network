@@ -81,6 +81,8 @@ function tapEvent(id: string): BedEvent {
     bedPlate: PLATE,
     eventType: 'tap',
     severity: null,
+    category: null,
+    note: '',
     actorId: 'visitor-1',
     createdAt: new Date().toISOString(),
   };

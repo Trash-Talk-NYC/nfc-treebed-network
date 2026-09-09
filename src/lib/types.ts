@@ -193,6 +193,17 @@ export interface BedEvent {
   bedPlate: string;
   eventType: EventType;
   severity: Severity | null;
+  /**
+   * What the person said, where the event was somebody saying something: the
+   * problem they picked and the sentence they typed.
+   *
+   * A `confirm` carries these because the second neighbour on an open report
+   * writes nothing else — their category and their words would otherwise reach
+   * nobody, on a screen that thanked them for telling us. Null and empty
+   * everywhere else.
+   */
+  category: ProblemCategory | null;
+  note: string;
   /** User id or anonymous visitor id. */
   actorId: string | null;
   createdAt: string;

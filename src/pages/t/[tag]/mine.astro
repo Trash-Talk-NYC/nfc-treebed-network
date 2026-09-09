@@ -46,6 +46,18 @@ const photoLogged = await hasPhotoThisWeek(store, plate, me.id);
 const openProblem = openReport ? problemFor(openReport.category) : null;
 const openAge = openReport ? relativeAge(new Date(openReport.openedAt)) : null;
 
+// What the neighbours who added their weight to the open report said. The
+// report itself belongs to whoever filed it, so their category and their
+// sentence live on the `confirm` events (service.ts, `reportProblem`) and this
+// is where a steward reads them. Bounded by `MAX_CONFIRMATIONS`, so the list
+// cannot run away.
+const alsoSaid = openReport
+  ? (await store.getEvents(plate, 'confirm'))
+      .filter((e) => e.createdAt >= openReport.openedAt && (e.category !== null || e.note !== ''))
+      .reverse()
+      .map((e) => ({ problem: e.category ? problemFor(e.category) : null, note: e.note }))
+  : [];
+
 // Green "you sorted it" band: the most recent report was closed by me,
 // recently enough to still be news (12h).
 const lastReport = (await store.getReports(plate))[0] ?? null;
@@ -120,6 +132,22 @@ const visibleStewards = stewards.filter(
     }
     {openReport?.note && <p class="body-copy note-echo">“{openReport.note}”</p>}
     {
+      alsoSaid.length > 0 && (
+        <ul class="also-said">
+          {alsoSaid.map(({ problem, note }) => (
+            <li>
+              {problem && (
+                <span class="also-label" {...bi(problem.label, lang)}>
+                  {problem.label[lang]}
+                </span>
+              )}
+              {note && <span class="also-note">“{note}”</span>}
+            </li>
+          ))}
+        </ul>
+      )
+    }
+    {
       clearedByMe && clearedAge && (
         <div class="band band-clear">
           <div class="band-title" {...bi(MINE.cleared, lang)}>
@@ -168,6 +196,19 @@ const visibleStewards = stewards.filter(
   .bed-ident { margin-top: 6px; }
   .stewards-gap { margin-top: 14px; }
   .note-echo { font-style: italic; }
+  .also-said {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--theme-muted);
+  }
+  .also-said .also-label { font-weight: 600; color: var(--theme-ink); }
+  .also-said .also-label + .also-note { margin-left: 6px; }
+  .also-said .also-note { font-style: italic; }
   .stats {
     display: flex;
     justify-content: center;

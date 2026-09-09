@@ -198,8 +198,11 @@ describe('the rendered surface', () => {
   const ALLOWED = new Map<string, string>([
     // The dictionary itself — every value is a Phrase, and checked above.
     ['copy.ts', 'the Phrase table, held to both languages by the checks above'],
-    // Wordmark and locality are names. "Trash Talk NYC" is not translated.
-    ['presentation.ts', 'names and colour roles, not copy'],
+    // What is left there is `wordmark`, a brand name that is deliberately not
+    // translated, and `locality`, derived from the bed's cross streets. No
+    // rendered sentence lives there any more; anything else added has to argue
+    // for itself rather than inherit this exemption.
+    ['presentation.ts', 'a brand name, a derived locality, and colour roles — no copy'],
     // Plain-text refusals for machine callers, deliberately English-only
     // (AGENTS.md): nothing renders those to a person.
     ['request-body.ts', 'transport refusals, English-only by decision'],

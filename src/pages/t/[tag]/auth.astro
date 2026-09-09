@@ -82,7 +82,7 @@ if (Astro.request.method === 'POST') {
     >
     <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
     <p class="body-copy" {...bi(AUTH.sub, lang)}>{AUTH.sub[lang]}</p>
-    <form method="POST" class="auth-form">
+    <form method="POST" action={langLink(`${base}/auth`, lang)} class="auth-form">
       <div>
         <label class="field-label" for="username" {...bi(AUTH.username, lang)}>
           {AUTH.username[lang]}

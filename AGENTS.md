@@ -30,6 +30,9 @@ Their RULES are untouched in `service.ts` (`escalateReport`, `closeReport`), the
 Two consequences worth knowing before you "fix" something:
 - **A second neighbour reporting an open problem is not refused.**
   `reportProblem` adds their weight to the open report (the `confirmedBy` array, same `MAX_CONFIRMATIONS` bound) instead of opening a duplicate — two open reports on one bed is unrecoverable through the UI, because `closeReport` only ever finds the first.
+  What they said is carried, not dropped: their category and their note ride on the `confirm` event (`BedEvent.category` / `BedEvent.note`), and a photo they attached sets `photoAttached` on the open report.
+  The steward reads them under the open-report band on `mine.astro`.
+  The note is capped at `MAX_NOTE_CHARS` and the confirmations are bounded, so carrying the payload reopens no growth concern.
 - **Nobody standing at a tree is shown a rule.**
   A second send the same NY day writes nothing and still lands on the thank-you takeover.
   What the press was worth is legible in the record and the events, not in a notice.
@@ -254,6 +257,9 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - **Do not render a privacy policy link.**
   There is no policy yet, and a dead link on a form collecting an email and a phone number is worse than none (design-record.md, answered open question 1).
   `ADOPT.privacy` is the plain sentence, and `adopt.astro` marks the single obvious place the link goes when there is one.
+- **Do not render the mailing-list signup line either, for the same reason.**
+  There is no real signup URL, and the approved takeover's `trashtalknyc.org/xxx` was a placeholder shown to every visitor at the end of the core street action.
+  It is removed rather than guessed at; `thanks.astro` marks the one place it goes back, and putting it back needs one real URL on `Presentation.copy` plus its sentence in `copy.ts`.
 - **A steward may be held without an email**, because the sidewalk case needs it (answered open question 3).
   `User.hasSignInRoute` and `User.recordHeldOnBehalf` record that explicitly, and `pinHash` is nullable; `signIn` gives such a user the unmatchable hash so the refusal costs the same bcrypt as any other.
   The two flags are distinct on purpose: a steward who adopts at the tag today also has `hasSignInRoute: false` (there is no secret and no link yet), but `recordHeldOnBehalf: false` — they signed themselves up and gave an email, and nobody is holding the record for them.

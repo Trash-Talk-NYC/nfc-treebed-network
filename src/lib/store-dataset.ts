@@ -41,6 +41,7 @@ export function normalizeData(data: Data): Data {
   for (const user of Object.values(data.users)) normalizeUser(user);
   for (const adoption of data.adoptions) normalizeAdoption(adoption);
   for (const report of data.reports) normalizeReport(report);
+  for (const event of data.events) normalizeEvent(event);
   return data;
 }
 
@@ -79,6 +80,14 @@ function normalizeAdoption(adoption: Adoption): void {
   // offered the choice, and the screen engraved them — so `false` records what
   // is already true on the plaque rather than hiding a steward who never asked.
   adoption.displayNameHidden ??= false;
+}
+
+function normalizeEvent(event: BedEvent): void {
+  // Events written before a `confirm` carried what the second neighbour said
+  // have nothing to say; `events` is append-only, so this fills the shape in
+  // on the way past rather than rewriting the row.
+  event.category ??= null;
+  event.note ??= '';
 }
 
 function normalizeReport(report: Report): void {

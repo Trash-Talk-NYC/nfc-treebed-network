@@ -4,7 +4,7 @@
 // A takeover, per the captain (design-record.md, constraint 8): the ground
 // reaches the edges of the viewport and behind the status bar, and there is
 // nothing else on it. The final round settled what it carries — the block link
-// is dropped, and an email-signup line takes its place.
+// is dropped.
 //
 // Animation is to follow and is deliberately NOT built. The seam for it is
 // `.takeover-mark`: the headline and its sub sit inside one element that
@@ -36,8 +36,7 @@ const presentation = presentationFor(view.bed);
 
 // Applause and a care report end on the same takeover with different words:
 // one thanks somebody for telling us, the other tells them the stewards will
-// hear it. Both then carry the signup line, which is the one thing the captain
-// asked this screen to do besides say thank you.
+// hear it.
 const applauded = Astro.url.searchParams.has('applause');
 const big = applauded ? THANKS_TAKEOVER.applauded : THANKS_TAKEOVER.reported;
 ---
@@ -57,10 +56,14 @@ const big = applauded ? THANKS_TAKEOVER.applauded : THANKS_TAKEOVER.reported;
           {THANKS_TAKEOVER.applaudedSub[lang]}
         </p>
       )}
-      <p class="sub takeover-sub signup">
-        <span {...bi(THANKS_TAKEOVER.signupBefore, lang)}>{THANKS_TAKEOVER.signupBefore[lang]}</span>
-        <strong>{presentation.copy.signupUrl}</strong>
-      </p>
+      {/*
+        The mailing-list line went here and is deliberately absent: there is no
+        real signup URL yet, and sending a neighbour to an address that does not
+        exist is worse than a clean thank-you — the same reasoning the captain
+        used to refuse a dead privacy-policy link. Putting it back needs one
+        real URL on `Presentation.copy` in presentation.ts, rendered from the
+        bed's record like everything else, plus its sentence in copy.ts.
+      */}
     </div>
     <div class="takeover-actions">
       <a class="btn-ghost" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}>
@@ -79,5 +82,4 @@ const big = applauded ? THANKS_TAKEOVER.applauded : THANKS_TAKEOVER.reported;
     gap: 14px;
   }
   .applause-sub { margin-bottom: -4px; }
-  .signup strong { font-weight: 700; }
 </style>
