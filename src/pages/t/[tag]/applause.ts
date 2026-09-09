@@ -19,8 +19,8 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
   const lang = readLang(url, cookies);
   const refused = await discardBody(request, 'applause');
   if (refused) return refused;
-  // The same gate as `/confirm` had, for the same reason: a write a cookie-less
-  // caller can repeat costs an append-only event apiece and bounds nothing.
+  // A write a cookie-less caller can repeat costs an append-only event apiece
+  // and bounds nothing.
   // Minting here would hand a caller that discards cookies a fresh identity
   // every request, and "once a day per person" would bound nothing at all. A
   // neighbour standing at the tree always has one — the door screen they

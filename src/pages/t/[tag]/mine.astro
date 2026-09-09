@@ -49,11 +49,14 @@ const openAge = openReport ? relativeAge(new Date(openReport.openedAt)) : null;
 // What the neighbours who added their weight to the open report said. The
 // report itself belongs to whoever filed it, so their category and their
 // sentence live on the `confirm` events (service.ts, `reportProblem`) and this
-// is where a steward reads them. Bounded by `MAX_CONFIRMATIONS`, so the list
-// cannot run away.
+// is where a steward reads them. The join is the event's own `reportId`, not a
+// time window: `report → clear → report` is a supported loop, so only the id
+// says which lap a confirm belongs to. Events written before that field carry
+// null and match nothing, which shows a steward no neighbour rather than the
+// wrong one. Bounded by `MAX_CONFIRMATIONS`, so the list cannot run away.
 const alsoSaid = openReport
   ? (await store.getEvents(plate, 'confirm'))
-      .filter((e) => e.createdAt >= openReport.openedAt && (e.category !== null || e.note !== ''))
+      .filter((e) => e.reportId === openReport.id && (e.category !== null || e.note !== ''))
       .reverse()
       .map((e) => ({ problem: e.category ? problemFor(e.category) : null, note: e.note }))
   : [];
@@ -133,18 +136,26 @@ const visibleStewards = stewards.filter(
     {openReport?.note && <p class="body-copy note-echo">“{openReport.note}”</p>}
     {
       alsoSaid.length > 0 && (
-        <ul class="also-said">
-          {alsoSaid.map(({ problem, note }) => (
-            <li>
-              {problem && (
-                <span class="also-label" {...bi(problem.label, lang)}>
-                  {problem.label[lang]}
-                </span>
-              )}
-              {note && <span class="also-note">“{note}”</span>}
-            </li>
-          ))}
-        </ul>
+        <div class="also-block">
+          <div class="also-title" {...bi(MINE.alsoSaid, lang)}>
+            {MINE.alsoSaid[lang]}
+          </div>
+          <ul class="also-said">
+            {alsoSaid.map(({ problem, note }) => (
+              <li>
+                {problem && (
+                  <span class="also-cat">
+                    <span {...bi(MINE.alsoReported, lang)}>{MINE.alsoReported[lang]}</span>{' '}
+                    <span class="also-label" {...bi(problem.label, lang)}>
+                      {problem.label[lang]}
+                    </span>
+                  </span>
+                )}
+                {note && <span class="also-note">“{note}”</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
       )
     }
     {
@@ -196,6 +207,13 @@ const visibleStewards = stewards.filter(
   .bed-ident { margin-top: 6px; }
   .stewards-gap { margin-top: 14px; }
   .note-echo { font-style: italic; }
+  .also-block { display: flex; flex-direction: column; gap: 6px; }
+  .also-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    color: var(--theme-muted);
+  }
   .also-said {
     list-style: none;
     margin: 0;
@@ -207,7 +225,7 @@ const visibleStewards = stewards.filter(
     color: var(--theme-muted);
   }
   .also-said .also-label { font-weight: 600; color: var(--theme-ink); }
-  .also-said .also-label + .also-note { margin-left: 6px; }
+  .also-said .also-cat + .also-note { margin-left: 6px; }
   .also-said .also-note { font-style: italic; }
   .stats {
     display: flex;

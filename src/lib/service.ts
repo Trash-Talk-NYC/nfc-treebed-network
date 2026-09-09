@@ -298,7 +298,11 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
         photoAttached: open.photoAttached || photoAttached,
       };
       await tx.updateReport(weighted);
-      await appendEvent(tx, plate, 'confirm', actorId, null, now, { category, note });
+      await appendEvent(tx, plate, 'confirm', actorId, null, now, {
+        category,
+        note,
+        reportId: open.id,
+      });
       return { kind: 'added-weight', report: weighted };
     }
 
@@ -326,7 +330,11 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
       photoAttached,
     };
     await tx.createReport(report);
-    await appendEvent(tx, plate, 'report', actorId, null, now, { category, note });
+    await appendEvent(tx, plate, 'report', actorId, null, now, {
+      category,
+      note,
+      reportId: report.id,
+    });
     return { kind: 'filed', report };
   });
 }
@@ -338,8 +346,8 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
  * other write here is bounded: `events` is append-only with nothing pruning it,
  * and a button anybody can press without signing in is otherwise unbounded
  * growth keyed to whoever is holding the phone. The route gates it further, on
- * a cookie the caller already had (`getExistingActorId`) — same trade as
- * `/confirm`, and a neighbour standing at the tree always has one.
+ * a cookie the caller already had (`getExistingActorId`), which a neighbour
+ * standing at the tree always has.
  *
  * Returns whether this press was the one that counted, so the screen can be
  * honest without being a rule notice.
@@ -709,7 +717,7 @@ async function appendEvent(
   actorId: string | null,
   severity: Severity | null,
   now?: Date,
-  said?: { category: ProblemCategory | null; note: string },
+  said?: { category: ProblemCategory | null; note: string; reportId: string },
 ): Promise<void> {
   await store.appendEvent({
     id: `event-${randomUUID()}`,
@@ -718,6 +726,7 @@ async function appendEvent(
     severity,
     category: said?.category ?? null,
     note: said?.note ?? '',
+    reportId: said?.reportId ?? null,
     actorId,
     createdAt: (now ?? new Date()).toISOString(),
   });

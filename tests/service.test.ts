@@ -64,6 +64,7 @@ function tapEvent(id: string) {
     severity: null,
     category: null,
     note: '',
+    reportId: null,
     actorId: 'visitor-1',
     createdAt: new Date().toISOString(),
   };
@@ -240,6 +241,27 @@ describe('what SEND IT is worth', () => {
     const [filed] = await store.getEvents(PLATE, 'report');
     expect(filed?.category).toBe('thirsty');
     expect(filed?.note).toBe('la tierra está seca');
+  });
+
+  it('names the report each event is about, so a later lap does not claim an earlier one', async () => {
+    // `report → clear → report` is a supported loop, so a time window would
+    // hand the wrong lap's neighbour to a steward. The id cannot.
+    const noon = new Date('2026-08-11T16:00:00Z');
+    const nextDay = new Date('2026-08-12T16:00:00Z');
+    const first = await reportProblem(store, careInput({ actorId: 'visitor-1', now: noon }));
+    await reportProblem(store, careInput({ actorId: 'visitor-2', note: 'lap one', now: noon }));
+    await closeReport(store, { plate: PLATE, actorId: 'visitor-9', now: noon });
+    const second = await reportProblem(store, careInput({ actorId: 'visitor-1', now: nextDay }));
+    await reportProblem(store, careInput({ actorId: 'visitor-3', note: 'lap two', now: nextDay }));
+
+    expect(first.report?.id).not.toBe(second.report?.id);
+    const confirms = await store.getEvents(PLATE, 'confirm');
+    const forSecond = confirms.filter((e) => e.reportId === second.report?.id);
+    expect(forSecond.map((e) => e.note)).toEqual(['lap two']);
+    const filed = await store.getEvents(PLATE, 'report');
+    expect(filed.map((e) => e.reportId).sort()).toEqual(
+      [first.report?.id, second.report?.id].sort(),
+    );
   });
 
   it('counts each neighbour once, and stops at the cap', async () => {

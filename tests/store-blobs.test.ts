@@ -83,6 +83,7 @@ function tapEvent(id: string): BedEvent {
     severity: null,
     category: null,
     note: '',
+    reportId: null,
     actorId: 'visitor-1',
     createdAt: new Date().toISOString(),
   };

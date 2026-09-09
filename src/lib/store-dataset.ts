@@ -88,6 +88,7 @@ function normalizeEvent(event: BedEvent): void {
   // on the way past rather than rewriting the row.
   event.category ??= null;
   event.note ??= '';
+  event.reportId ??= null;
 }
 
 function normalizeReport(report: Report): void {
