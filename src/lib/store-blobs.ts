@@ -72,10 +72,12 @@ const HEAD_KEY = 'head';
 // something is wrong — better to surface it than to spin.
 const MAX_COMMIT_ATTEMPTS = 5;
 
-// Revisions kept behind the newest one. A reader that listed the newest
-// revision and then finds it deleted would need this many commits to land in
-// the gap between its list and its get; the buffer makes that a non-event,
-// and the survivors are the paper trail mentioned above.
+// Revisions retained, the newest one included: `prune` deletes
+// `committed - KEPT_REVISIONS`, so rev/n-7 .. rev/n survive. A reader that
+// listed the newest revision and then finds it deleted would need the seven
+// commits behind it to land in the gap between its list and its get; the
+// buffer makes that a non-event, and the survivors are the paper trail
+// mentioned above.
 const KEPT_REVISIONS = 8;
 
 interface Loaded {
@@ -148,7 +150,7 @@ export class BlobsStore implements Store {
     // is gone — pruned, or never there — and the listing takes over.
     let trustHead = true;
     // A revision can disappear from under a read if it was named just before
-    // falling KEPT_REVISIONS behind — re-derive rather than fail the read.
+    // falling out of the KEPT_REVISIONS window — re-derive rather than fail the read.
     for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
       const head = trustHead ? await this.readHead() : null;
       if (head !== null) headSeen = head;
@@ -302,9 +304,9 @@ export class BlobsStore implements Store {
 
   /**
    * Best-effort cleanup after a commit: drop the one revision that this
-   * commit pushed past KEPT_REVISIONS. Every commit is on the critical path
-   * of somebody standing at a tree, so the steady state costs a single
-   * delete — a listing would be a whole extra round trip to rediscover a
+   * commit pushed out of the KEPT_REVISIONS window. Every commit is on the
+   * critical path of somebody standing at a tree, so the steady state costs a
+   * single delete — a listing would be a whole extra round trip to rediscover a
    * revision number arithmetic already knows.
    *
    * The listing is what collects what the arithmetic cannot: a delete that
@@ -415,7 +417,7 @@ function revisionKey(revision: number): string {
 
 // Compact, unlike store-local.ts: every commit uploads the whole dataset and
 // every tap is a commit, so indentation is bytes paid on the critical path and
-// again on each of the KEPT_REVISIONS copies behind it. `netlify blobs:get
+// again on each of the KEPT_REVISIONS copies the window retains. `netlify blobs:get
 // treebed rev/<n> | jq` covers the readability it costs.
 function serialize(data: Data): string {
   return JSON.stringify(data);

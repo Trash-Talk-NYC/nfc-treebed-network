@@ -97,6 +97,9 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Netlify caps a synchronous function's request payload at 6MB and buffers the body before the function is invoked, so a larger upload never reaches the route: the platform answers a bare 413 and `too-large.astro` — whose whole point is handing the visitor back the report they already filled in — never renders.
   Set below the platform's own limit, every refusal a visitor can provoke is one this route makes gracefully.
   The streaming bounds below are measured against the node adapter's real sockets either way; on netlify the body has already been buffered by the platform by the time we read it, so what they buy there is the graceful screen, not the heap.
+  Every bound in this section, and `MAX_INFLIGHT_PIN_HASHES` above, is a module-level counter, so it bounds one process: the whole server on the node target (what `npm start` runs and what the e2e suite measures), one function instance on netlify.
+  Fleet-wide peak heap and bcrypt concurrency there are these numbers times however many instances the platform is running, and a single warm instance serving concurrent invocations sheds legitimate sign-ins at the hash limit exactly as it sheds a flood.
+  They are per-instance costs, not the pilot's surface-wide DoS ceiling — bounding the surface is the per-IP limiting at the platform tier already noted as owed.
 - The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the severity and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
   The photo is discarded either way (spec §12) — this only stops it being copied on the way to being discarded.
   `readCappedForm` still buffers the text-only forms, where the whole body is 64KB and two copies of it are ~128KB.

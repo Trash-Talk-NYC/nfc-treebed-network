@@ -178,7 +178,8 @@ describe('pruning', () => {
     for (let i = 0; i < 12; i += 1) await store.appendEvent(tapEvent(`evt-window-${i}`));
     const revisions = (await revisionKeys()).map((key) => Number(key.slice('rev/'.length)));
     expect(revisions).toContain(13);
-    expect(Math.min(...revisions)).toBeGreaterThan(13 - 9);
+    // KEPT_REVISIONS is 8 counting the newest, so rev/6 .. rev/13 survive.
+    expect(Math.min(...revisions)).toBe(13 - 7);
   });
 });
 
