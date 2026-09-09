@@ -2,8 +2,8 @@
 //
 // The dataset shape, the seed, and the operations over it live in
 // store-dataset.ts, shared with store-blobs.ts; this file owns how the local
-// backend persists that dataset, and the `getStore()` factory that picks the
-// backend at runtime.
+// backend persists that dataset, and nothing else — the `getStore()` factory
+// that picks a backend lives in store.ts, beside the contract both implement.
 //
 // Concurrency note: mutations are serialized through a single promise chain
 // and written with write-to-temp + rename, which is enough for a single-node
@@ -24,7 +24,6 @@ import path from 'node:path';
 import type { Store } from './store';
 import type { Adoption, Bed, BedEvent, Report, User } from './types';
 import { type Data, TransactionStore, detach, ops, seedData } from './store-dataset';
-import { BlobsStore } from './store-blobs';
 
 // `.data/` beside the repo, unless TREEBED_DATA_DIR moves it — session.ts keeps
 // the dev session secret in the same directory. The end-to-end suite sets it so
@@ -168,23 +167,4 @@ export class LocalStore implements Store {
   async getEvents(bedPlate: string, eventType?: BedEvent['eventType']): Promise<BedEvent[]> {
     return ops.getEvents(await this.load(), bedPlate, eventType);
   }
-}
-
-let instance: Store | null = null;
-
-/**
- * The app-wide store, selected by TREEBED_STORE:
- *
- *  - `blobs`  — Netlify Blobs (store-blobs.ts); set on the deployed site,
- *               where a function instance has no disk that outlives it.
- *  - anything else, or unset — the local JSON file. Dev and the test suites
- *    stay on disk without configuring anything.
- *
- * The variable is explicit rather than sniffed from Netlify's environment so
- * a deploy is never one platform-rename away from silently writing to a
- * filesystem that forgets.
- */
-export function getStore(): Store {
-  instance ??= process.env.TREEBED_STORE === 'blobs' ? new BlobsStore() : new LocalStore();
-  return instance;
 }

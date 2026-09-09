@@ -2,7 +2,7 @@
 // Sign in — username + PIN. The PIN never appears in any response or log;
 // verification happens server-side against the bcrypt hash only.
 import Screen from '../../../layouts/Screen.astro';
-import { getStore } from '../../../lib/store-local';
+import { getStore } from '../../../lib/store';
 import { RuleError, getBedView, signIn } from '../../../lib/service';
 import { getSessionUserId, setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';

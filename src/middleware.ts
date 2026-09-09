@@ -6,6 +6,9 @@
 // of every route: the adapter resolves this module before it renders anything,
 // so a misconfigured server fails on its first request of any kind.
 //
+// The request context installed below is not a check at all; it is here
+// because middleware is the one place that wraps every route's work.
+//
 // A PIN-hash bound of zero disables sign-in and adoption the same way, quietly
 // rather than fatally, and belongs beside it for the same reason: at
 // service.ts's own module scope the warning waits for the first request that
@@ -14,12 +17,16 @@
 // module lazily too (`middleware: () => import(...)` in the built manifest),
 // so both fire on the first request of any route. scripts/preflight.mjs is
 // what runs before the port is bound.
+import { runInRequestContext } from './lib/request-context';
 import { assertSessionSecret } from './lib/session';
 import { warnIfPinHashingDisabled } from './lib/service';
 
 assertSessionSecret();
 warnIfPinHashingDisabled();
 
+// Everything a route awaits runs inside one request context, which is what
+// lets the store validate its dataset once per request instead of once per
+// read (src/lib/request-context.ts).
 export function onRequest(_context: unknown, next: () => Promise<Response>): Promise<Response> {
-  return next();
+  return runInRequestContext(next);
 }

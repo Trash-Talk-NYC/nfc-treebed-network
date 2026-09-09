@@ -31,17 +31,36 @@
 //
 // Reads are strongly consistent (`consistency: 'strong'`): after a POST
 // redirects, the very next GET can land on a *different* function instance,
-// and the receipt it renders must exist there. A read lists the revision
-// keys (cheap — cleanup keeps only a handful) and re-downloads the dataset
-// only when the newest revision is not the one this instance already holds.
+// and the receipt it renders must exist there. That guarantee covers `get`
+// and not `list` — key listings are eventually consistent whatever the store
+// is configured with — so which revision is newest is never decided by a
+// listing alone. A read takes the `head` pointer (a strongly consistent get)
+// as a lower bound, then walks forward one strongly consistent get at a time
+// until a revision is missing: the pointer can lag, the walk cannot, because
+// a revision that exists is a revision `get` is required to return. The
+// listing survives only as the fallback for a pointer that is missing or
+// points at a pruned revision, where being approximately right is enough to
+// start the walk from.
+//
+// The dataset is re-downloaded only when that walk ends somewhere this
+// instance is not already holding, and the whole revalidation happens at most
+// once per request: request-context.ts memoizes it, so a screen making four
+// reads makes one round trip's worth of them and sees one revision across all
+// four rather than possibly two.
 
 import { getStore as getBlobStore, type Store as BlobsClientStore } from '@netlify/blobs';
 import type { Store } from './store';
+import { getRequestContext } from './request-context';
 import type { Adoption, Bed, BedEvent, Report, User } from './types';
 import { type Data, TransactionStore, detach, ops, seedData } from './store-dataset';
 
 const STORE_NAME = 'treebed';
 const REVISION_PREFIX = 'rev/';
+
+// Points at a recently committed revision. A hint, not a source of truth:
+// two instances committing at once can land their pointer writes in either
+// order, so it is only ever a place to start walking forward from.
+const HEAD_KEY = 'head';
 
 // Optimistic commits only ever lose to real concurrent writers, and at pilot
 // scale (one seeded bed) more than a couple of collisions in a row means
@@ -61,7 +80,7 @@ interface Loaded {
 
 export class BlobsStore implements Store {
   private readonly blobs: BlobsClientStore;
-  /** Newest revision this instance has seen, revalidated against the key list on every load. */
+  /** Newest revision this instance has seen, revalidated on every load. */
   private cached: Loaded | null = null;
   /** Serializes this instance's transactions so they don't collide with each other. */
   private queue: Promise<unknown> = Promise.resolve();
@@ -87,35 +106,118 @@ export class BlobsStore implements Store {
 
   /**
    * The current dataset and the revision that identifies it, seeding the
-   * store on first contact. The cached copy is only ever a validated one: the
-   * key list either confirms it is still the newest or replaces it.
+   * store on first contact.
+   *
+   * Memoized for the request being served: within one request the dataset is
+   * validated once, so a render's four reads cost one revalidation and agree
+   * with each other. Outside a request (a script, the unit suites) every read
+   * revalidates.
    */
-  private async load(): Promise<Loaded> {
-    // A newest revision can disappear if it was listed just before falling
-    // KEPT_REVISIONS behind — re-list rather than fail the read.
+  private load(): Promise<Loaded> {
+    const context = getRequestContext();
+    if (context === undefined) return this.revalidate();
+    const memo = context.storeReads.get(this) as Promise<Loaded> | undefined;
+    if (memo !== undefined) return memo;
+    const loaded = this.revalidate();
+    context.storeReads.set(this, loaded);
+    // A failed read must not be the answer every later read in this request
+    // gets — the next one is allowed to try the network again.
+    loaded.catch(() => {
+      if (context.storeReads.get(this) === loaded) context.storeReads.delete(this);
+    });
+    return loaded;
+  }
+
+  /**
+   * The newest dataset there is, from the network: the pointer (or, failing
+   * that, the key listing) says where to start, and forward gets say where to
+   * stop. The cached copy is only ever a validated one — the walk either
+   * confirms it is still the newest or replaces it.
+   */
+  private async revalidate(): Promise<Loaded> {
+    // A revision can disappear from under a read if it was named just before
+    // falling KEPT_REVISIONS behind — re-derive rather than fail the read.
     for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
-      const newest = await this.newestRevision();
-      if (newest === null) {
+      // The pointer is trusted on the first attempt only: a second attempt is
+      // here because where the first one started turned out not to exist.
+      let from = attempt === 1 ? Math.max(this.cached?.revision ?? 0, (await this.readHead()) ?? 0) : 0;
+      if (from === 0) from = (await this.newestRevision()) ?? 0;
+      if (from === 0) {
         const seeded = await this.seed();
         if (seeded) return seeded;
-        continue; // Lost the seeding race; the winner's revision is listable now.
+        continue; // Lost the seeding race; the winner's revision is readable now.
       }
-      if (this.cached?.revision === newest) return this.cached;
-      const data = (await this.blobs.get(revisionKey(newest), { type: 'json' })) as Data | null;
-      if (data === null) continue;
-      this.cached = { data, revision: newest };
-      return this.cached;
+      const found = await this.walkForward(from);
+      if (found !== null) {
+        this.cached = found;
+        return found;
+      }
+      // Where we started no longer exists: drop it and ask the listing.
+      this.cached = null;
     }
     throw new Error(
       `Blob store read lost ${MAX_COMMIT_ATTEMPTS} races with concurrent commits — giving up rather than spinning.`,
     );
   }
 
-  /** First contact: write the seed as revision 1, unless another instance beats us to it. */
+  /**
+   * The dataset at `from`, then each revision after it, stopping at the first
+   * one that is missing. Every get is strongly consistent, so the first miss
+   * is the end of the chain and not a replication lag. Null if `from` itself
+   * is gone, which means the caller's starting point was stale.
+   */
+  private async walkForward(from: number): Promise<Loaded | null> {
+    let revision = from;
+    let data = this.cached?.revision === from ? this.cached.data : await this.readRevision(from);
+    if (data === null) return null;
+    for (;;) {
+      const next = await this.readRevision(revision + 1);
+      if (next === null) return { data, revision };
+      revision += 1;
+      data = next;
+    }
+  }
+
+  private async readRevision(revision: number): Promise<Data | null> {
+    return (await this.blobs.get(revisionKey(revision), { type: 'json' })) as Data | null;
+  }
+
+  /** The pointer's revision, or null when there is none to trust. */
+  private async readHead(): Promise<number | null> {
+    const raw = await this.blobs.get(HEAD_KEY, { type: 'text' });
+    if (raw === null) return null;
+    const revision = Number(raw);
+    return Number.isInteger(revision) && revision > 0 ? revision : null;
+  }
+
+  /**
+   * Move the pointer to the revision just committed. Best-effort on purpose:
+   * a pointer that lags, or that a racing commit moves back a revision, only
+   * lengthens the forward walk, and the next commit corrects it.
+   */
+  private async setHead(revision: number): Promise<void> {
+    try {
+      await this.blobs.set(HEAD_KEY, String(revision));
+    } catch (err) {
+      console.error('[store-blobs] moving the head pointer failed (reads walk forward anyway):', err);
+    }
+  }
+
+  /**
+   * First contact: write the seed as revision 1, unless another instance beats
+   * us to it.
+   *
+   * The seeded adopter gets no demo PIN here. This store is the deployed,
+   * publicly tappable one, its plaque engraves `@marisol_r`, and sign-in has
+   * no rate limiting yet — a PIN everybody knows would be an open guardian
+   * account on the internet. TREEBED_SEED_PIN can supply a real one where the
+   * flow has to be driveable; unset means no PIN opens the account.
+   */
   private async seed(): Promise<Loaded | null> {
-    const data = await seedData();
+    const data = await seedData(process.env.TREEBED_SEED_PIN || null);
     const write = await this.blobs.set(revisionKey(1), serialize(data), { onlyIfNew: true });
     if (!write.modified) return null;
+    await this.setHead(1);
     this.cached = { data, revision: 1 };
     return this.cached;
   }
@@ -135,14 +237,21 @@ export class BlobsStore implements Store {
           onlyIfNew: true,
         });
         if (write.modified) {
-          this.cached = { data: working, revision: revision + 1 };
-          await this.prune(revision + 1);
+          const committed = { data: working, revision: revision + 1 };
+          this.cached = committed;
+          // The rest of this request reads its own write, not the dataset the
+          // memo validated before it.
+          this.memoize(committed);
+          await this.setHead(committed.revision);
+          await this.prune(committed.revision);
           return result;
         }
-        // Another instance owns the next revision. Drop the stale cache and
-        // re-run the callback on the dataset that beat us — its rule checks
-        // have to be made against what is actually stored.
+        // Another instance owns the next revision. Drop the stale cache — and
+        // this request's memo of it, or every attempt would re-run against the
+        // same stale dataset — and re-run the callback on the dataset that beat
+        // us: its rule checks have to be made against what is actually stored.
         this.cached = null;
+        this.forgetMemo();
         if (attempt >= MAX_COMMIT_ATTEMPTS) {
           throw new Error(
             `Blob store transaction lost ${MAX_COMMIT_ATTEMPTS} optimistic commits in a row — giving up rather than spinning.`,
@@ -153,6 +262,16 @@ export class BlobsStore implements Store {
     // Keep the chain alive even if this transaction throws.
     this.queue = run.catch(() => undefined);
     return run;
+  }
+
+  /** Publish a known-current dataset as this request's memoized read. */
+  private memoize(loaded: Loaded): void {
+    getRequestContext()?.storeReads.set(this, Promise.resolve(loaded));
+  }
+
+  /** Drop this request's memoized read; the next one revalidates. */
+  private forgetMemo(): void {
+    getRequestContext()?.storeReads.delete(this);
   }
 
   /**
@@ -242,8 +361,10 @@ function revisionKey(revision: number): string {
   return `${REVISION_PREFIX}${revision}`;
 }
 
-// Pretty-printed for parity with store-local.ts: `netlify blobs:get` hands a
-// human something they can read when the pilot needs a look at its data.
+// Compact, unlike store-local.ts: every commit uploads the whole dataset and
+// every tap is a commit, so indentation is bytes paid on the critical path and
+// again on each of the KEPT_REVISIONS copies behind it. `netlify blobs:get
+// treebed rev/<n> | jq` covers the readability it costs.
 function serialize(data: Data): string {
-  return JSON.stringify(data, null, 2);
+  return JSON.stringify(data);
 }

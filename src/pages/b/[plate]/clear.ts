@@ -10,7 +10,7 @@
 // storage bound first (a per-bed daily cap on anonymous clears is the shape) —
 // see AGENTS.md; it is not a matter of deleting these two checks.
 import type { APIRoute } from 'astro';
-import { getStore } from '../../../lib/store-local';
+import { getStore } from '../../../lib/store';
 import { RuleError, closeReport, getBedView } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';

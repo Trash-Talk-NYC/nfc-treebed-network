@@ -5,7 +5,7 @@
 // The two-slot cap and username uniqueness are enforced server-side in
 // the service layer regardless of anything the browser claims.
 import Screen from '../../../layouts/Screen.astro';
-import { getStore } from '../../../lib/store-local';
+import { getStore } from '../../../lib/store';
 import { RuleError, adoptBed, getBedView, validateAdoptInput } from '../../../lib/service';
 import { setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';

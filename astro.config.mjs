@@ -23,4 +23,8 @@ export default defineConfig({
   server: { port: 4321 },
   // One request to first paint (spec §3a): critical CSS ships inline.
   build: { inlineStylesheets: 'always' },
+  // src/lib/build-target.ts: the target the bundle was built for, so runtime
+  // code (the store factory's assertion, the report route's photo cap) can
+  // hold the deploy to what its platform actually supports.
+  vite: { define: { __TREEBED_BUILD_TARGET__: JSON.stringify(target) } },
 });

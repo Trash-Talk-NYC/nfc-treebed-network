@@ -30,6 +30,9 @@
 // outside the transaction that acts on it.
 
 import type { Adoption, Bed, BedEvent, Report, Severity, User } from './types';
+import { BUILD_TARGET } from './build-target';
+import { LocalStore } from './store-local';
+import { BlobsStore } from './store-blobs';
 
 export interface Store {
   /**
@@ -77,3 +80,43 @@ export interface Store {
 }
 
 export type { Adoption, Bed, BedEvent, Report, Severity, User };
+
+let instance: Store | null = null;
+
+/**
+ * The app-wide store, selected by TREEBED_STORE:
+ *
+ *  - `blobs`  — Netlify Blobs (store-blobs.ts); set on the deployed site,
+ *               where a function instance has no disk that outlives it.
+ *  - `local`, or unset — the local JSON file. Dev and the test suites stay on
+ *               disk without configuring anything.
+ *
+ * The variable is explicit rather than sniffed from Netlify's environment so
+ * a deploy is never one platform-rename away from silently writing to a
+ * filesystem that forgets. That only holds if a wrong value is loud, so this
+ * is the same two-sided check TREEBED_SESSION_SECRET gets: an unrecognized
+ * value is refused rather than quietly read as `local`, and on the netlify
+ * target the disk store is refused outright — there it either throws EROFS on
+ * every route or, worse, keeps a per-instance dataset that forgets between
+ * invocations. preflight.mjs does not run for functions, so the assertion
+ * lives where the choice is made and fires on the first request to need it.
+ */
+export function getStore(): Store {
+  instance ??= createStore();
+  return instance;
+}
+
+function createStore(): Store {
+  const configured = process.env.TREEBED_STORE || 'local';
+  if (configured !== 'blobs' && configured !== 'local') {
+    throw new Error(
+      `TREEBED_STORE must be 'blobs' or 'local' (got '${configured}') — refusing to guess which backend a deploy meant.`,
+    );
+  }
+  if (BUILD_TARGET === 'netlify' && configured !== 'blobs') {
+    throw new Error(
+      "TREEBED_STORE must be 'blobs' on the netlify target — a function instance has no disk that outlives the request, so the local store would forget every write.",
+    );
+  }
+  return configured === 'blobs' ? new BlobsStore() : new LocalStore();
+}

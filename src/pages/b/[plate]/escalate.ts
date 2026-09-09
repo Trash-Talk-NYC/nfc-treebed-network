@@ -1,7 +1,7 @@
 // POST: raise the open report to DUMPING. Anyone may escalate; the
 // only-upward / only-once rules are enforced in the service layer.
 import type { APIRoute } from 'astro';
-import { getStore } from '../../../lib/store-local';
+import { getStore } from '../../../lib/store';
 import { RuleError, escalateReport } from '../../../lib/service';
 import { getExistingActorId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';

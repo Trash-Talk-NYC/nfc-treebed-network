@@ -5,6 +5,7 @@
 // backends cannot drift apart on what the data means.
 
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'node:crypto';
 import type { Store } from './store';
 import type { Adoption, Bed, BedEvent, Report, User } from './types';
 
@@ -17,17 +18,28 @@ export interface Data {
   reportCounter: number;
 }
 
+/** The demo PIN the seeded adopter gets where sign-in is not publicly reachable. */
+export const DEMO_ADOPTER_PIN = '1234';
+
 // The one hand-seeded bed for the Popl card field test, matching the
 // approved prototype exactly. No provisioning flow exists yet by design.
-export async function seedData(): Promise<Data> {
+//
+// `demoPin` is what the backend decides, because it is a deployment question
+// rather than a data one: the plaque engraves `@marisol_r` on a public screen
+// and sign-in has no rate limiting yet (see the security notes), so a
+// well-known PIN on a publicly reachable store hands any passer-by the bed's
+// guardian — `/mine`, `/photo` and the deliberately auth-gated `/clear`.
+// Passing `null` seeds the adopter with a hash of a random secret nobody
+// holds: the adoption still renders exactly as approved, and no PIN opens it
+// until a real one is issued.
+export async function seedData(demoPin: string | null = DEMO_ADOPTER_PIN): Promise<Data> {
   const marisol: User = {
     id: 'user-marisol',
     name: 'Marisol R.',
     username: 'marisol_r',
-    // Demo adopter for driving the sign-in flow locally: PIN 1234.
     // Real users get their PIN hashed at signup; nothing plaintext is stored.
     // The async hash keeps the first tap of a cold server off a blocked loop.
-    pinHash: await bcrypt.hash('1234', 10),
+    pinHash: await bcrypt.hash(demoPin ?? randomBytes(32).toString('hex'), 10),
     email: 'seed-marisol@example.invalid',
     phone: '+1 555 010 0847',
     points: 340,

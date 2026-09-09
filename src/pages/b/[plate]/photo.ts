@@ -2,7 +2,7 @@
 // event. Image capture/storage and point earning are out of MVP scope
 // (task brief) — only the fact of the photo is kept, once per NY week.
 import type { APIRoute } from 'astro';
-import { getStore } from '../../../lib/store-local';
+import { getStore } from '../../../lib/store';
 import { getBedView, logPhoto } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';

@@ -6,7 +6,7 @@
 // State is decided here, server-side; the page ships no client JS beyond the
 // severity-picker enhancement script (spec §3/§3a).
 import Screen from '../../../layouts/Screen.astro';
-import { getStore } from '../../../lib/store-local';
+import { getStore } from '../../../lib/store';
 import { getBedView, hasReportedToday, logTap } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
 import { SEVERITIES, severityName } from '../../../lib/severity';

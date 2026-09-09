@@ -2,8 +2,9 @@
 //
 // @netlify/blobs ships `BlobsServer` — the same HTTP surface production
 // speaks, backed by a local directory — so these tests exercise the actual
-// wire path: conditional GETs, `onlyIfNew` seeding, and the `onlyIfMatch`
-// commits the optimistic transaction depends on. Nothing here is mocked.
+// wire path: strongly consistent GETs, `onlyIfNew` seeding, and the
+// create-if-absent commits the optimistic transaction depends on. Nothing
+// here is mocked.
 //
 // Two BlobsStore instances sharing one server stand in for two Netlify
 // function instances sharing one site store: the in-process queue that
@@ -18,7 +19,8 @@ import path from 'node:path';
 import { getStore as getBlobClientStore, type Store as BlobsClientStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
 import { BlobsStore } from '../src/lib/store-blobs';
-import { RuleError, fileReport } from '../src/lib/service';
+import { runInRequestContext } from '../src/lib/request-context';
+import { RuleError, fileReport, signIn } from '../src/lib/service';
 import type { BedEvent } from '../src/lib/types';
 
 const PLATE = 'BED-HRL-0847';
@@ -91,6 +93,26 @@ describe('seeding', () => {
     expect(marisol?.name).toBe('Marisol R.');
   });
 
+  it('seeds the demo adopter with no PIN anybody knows', async () => {
+    const store = instance();
+    // This backend is the publicly tappable one and the plaque engraves the
+    // adopter's handle, so the local demo PIN must not open the account here.
+    await expect(signIn(store, { username: 'marisol_r', pin: '1234' })).rejects.toMatchObject({
+      code: 'invalid-credentials',
+    });
+  });
+
+  it('honours TREEBED_SEED_PIN where the flow has to be driveable', async () => {
+    process.env.TREEBED_SEED_PIN = '918273';
+    try {
+      const store = instance();
+      const user = await signIn(store, { username: 'marisol_r', pin: '918273' });
+      expect(user.username).toBe('marisol_r');
+    } finally {
+      delete process.env.TREEBED_SEED_PIN;
+    }
+  });
+
   it('a second instance arriving later sees the same seed, not a re-seed', async () => {
     const a = instance();
     await a.appendEvent(tapEvent('evt-before-b'));
@@ -106,6 +128,26 @@ describe('reads', () => {
     const bed = await store.getBed(PLATE);
     bed!.crossStreets = 'scribbled on';
     expect((await store.getBed(PLATE))?.crossStreets).toBe('W 138 St × Adam Clayton Powell Jr Blvd');
+  });
+
+  it('finds a revision the head pointer has not caught up with', async () => {
+    const a = instance();
+    await a.appendEvent(tapEvent('evt-1'));
+    await a.appendEvent(tapEvent('evt-2'));
+    // A pointer left behind by a racing commit, or by a pointer write that
+    // never landed: reads walk forward from it with strongly consistent gets
+    // rather than believing it, because a stale answer here 404s a receipt.
+    await client().set('head', '1');
+    const b = instance();
+    expect((await b.getEvents(PLATE)).map((e) => e.id).sort()).toEqual(['evt-1', 'evt-2']);
+  });
+
+  it('reads the newest revision with no head pointer at all', async () => {
+    const a = instance();
+    await a.appendEvent(tapEvent('evt-listed'));
+    await client().delete('head');
+    const b = instance();
+    expect((await b.getEvents(PLATE)).map((e) => e.id)).toEqual(['evt-listed']);
   });
 
   it('one instance reads what another just committed', async () => {
@@ -151,7 +193,7 @@ describe('transactions', () => {
     await a.transaction(async (tx) => {
       attempts += 1;
       // First attempt only: another instance commits between a's read and
-      // a's write, so a's onlyIfMatch commit must lose and re-run.
+      // a's write, so a's onlyIfNew commit must lose and re-run.
       if (attempts === 1) await b.appendEvent(tapEvent('evt-from-b'));
       await tx.appendEvent(tapEvent(`evt-from-a-${attempts}`));
     });
@@ -186,6 +228,49 @@ describe('transactions', () => {
     );
     expect([...new Set(numbers)].sort()).toEqual(numbers.sort());
     expect(Math.max(...numbers)).toBe(2226);
+  });
+});
+
+describe('per-request reads', () => {
+  it('validates once per request and shows every read the same revision', async () => {
+    const reader = instance();
+    const writer = instance();
+    await reader.getBed(PLATE); // Warm the instance the way a first tap would.
+    await runInRequestContext(async () => {
+      const before = await reader.getEvents(PLATE);
+      // Another instance commits mid-render: a screen must not show one read
+      // taken before it and the next taken after it.
+      await writer.appendEvent(tapEvent('evt-mid-render'));
+      const after = await reader.getEvents(PLATE);
+      expect(after).toEqual(before);
+    });
+    expect((await reader.getEvents(PLATE)).map((e) => e.id)).toEqual(['evt-mid-render']);
+  });
+
+  it('reads its own write inside the request that made it', async () => {
+    const store = instance();
+    await runInRequestContext(async () => {
+      await store.appendEvent(tapEvent('evt-own-write'));
+      expect((await store.getEvents(PLATE)).map((e) => e.id)).toEqual(['evt-own-write']);
+    });
+  });
+
+  it('re-runs a transaction against the dataset that beat it, memo and all', async () => {
+    const a = instance();
+    const b = instance();
+    await runInRequestContext(async () => {
+      // The memo must not survive a lost commit: re-running the callback
+      // against the dataset it already read would burn every attempt.
+      await a.getEvents(PLATE);
+      let attempts = 0;
+      await a.transaction(async (tx) => {
+        attempts += 1;
+        if (attempts === 1) await b.appendEvent(tapEvent('evt-from-b'));
+        await tx.appendEvent(tapEvent(`evt-from-a-${attempts}`));
+      });
+      expect(attempts).toBe(2);
+      expect((await a.getEvents(PLATE)).map((e) => e.id).sort()).toEqual(['evt-from-a-2', 'evt-from-b']);
+    });
   });
 });
 

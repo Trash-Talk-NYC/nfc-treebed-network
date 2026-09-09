@@ -16,7 +16,9 @@
 //                                      the plaque still renders.
 //   GET  .../receipt/<id>, too-large   Same: no body, no buffer.
 //   GET  .../mine                      Same, behind a session check.
-//   POST .../report  (multipart)       Size: 12MB, counted as bytes arrive
+//   POST .../report  (multipart)       Size: 12MB on the node target, 4MB on
+//                                      netlify (report.ts explains why),
+//                                      counted as bytes arrive
 //                                      (`readCappedHead`); nothing past the 8KB
 //                                      head is ever held, so a 12MB photo costs
 //                                      no copies of itself. Time: HEAD_READ_*

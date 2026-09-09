@@ -23,13 +23,28 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 ## Architecture invariants
 
 - **All persistence goes through the `Store` interface in `src/lib/store.ts`.**
-  Two implementations exist, selected at runtime by `getStore()` in `store-local.ts` on `TREEBED_STORE`: `LocalStore` (`src/lib/store-local.ts`, one JSON file in `.data/`, gitignored — dev and tests, the default) and `BlobsStore` (`src/lib/store-blobs.ts`, Netlify Blobs — the deployed pilot, `TREEBED_STORE=blobs`).
+  Two implementations exist, selected at runtime by `getStore()` in `store.ts` — beside the contract, not inside either backend — on `TREEBED_STORE`: `LocalStore` (`src/lib/store-local.ts`, one JSON file in `.data/`, gitignored — dev and tests, the default) and `BlobsStore` (`src/lib/store-blobs.ts`, Netlify Blobs — the deployed pilot, `TREEBED_STORE=blobs`).
   The dataset shape, the seed, and the operations they share live in `src/lib/store-dataset.ts`, so the backends cannot drift on what the data means.
   Swapping to Supabase later still means writing one new `Store` implementation and changing `getStore()` — nothing else.
+  `TREEBED_STORE` is asserted rather than defaulted-through: an unrecognized value is refused instead of being read as `local`, and on the netlify target the disk store is refused outright (a function instance has no disk that outlives the request, so it would 500 on EROFS or, worse, keep a per-instance dataset that forgets between invocations).
+  Which target a bundle was built for is `BUILD_TARGET` in `src/lib/build-target.ts`, defined by `astro.config.mjs` beside the adapter it picks — the deploy-critical facts are then held by the build rather than by a platform variable that could be renamed.
+  `scripts/preflight.mjs` never runs for a function, so this assertion is what a misconfigured deploy hits, on its first request.
 - **`BlobsStore` commits by atomically creating revision keys (`rev/<n>`), never by overwriting one.**
   Function instances scale horizontally, so its `transaction` is optimistic: read the newest revision, run the callback on a private copy, commit by creating `rev/<n+1>` with `onlyIfNew`, and re-run the whole callback on loss — a rule check made against a dataset another commit replaced never reaches the store.
   ETag compare-and-swap (`onlyIfMatch`) was rejected because the emulated Blobs server (`@netlify/blobs/server`, which `tests/store-blobs.test.ts` runs the real wire protocol against) does not produce ETags on reads, so that path would be untestable.
   Old revisions are pruned a safe distance behind the newest; the survivors double as a short paper trail (`netlify blobs:list treebed`).
+- **Which revision is newest is never decided by a key listing.**
+  Blobs' strong consistency covers `get`, not `list`, so a stale listing would hand a reader an older revision — the receipt a POST just redirected to would 404 — and would make `transaction` burn every attempt against a revision number somebody else already owns.
+  A read instead takes the `head` pointer (a strongly consistent `get`, moved after each commit) as a *lower bound* and walks forward one `get` at a time until a revision is missing: the pointer may lag or be moved back a revision by a racing commit, the walk cannot, because a revision that exists is one `get` must return.
+  The listing survives only as the fallback for a pointer that is missing or names a pruned revision, where being approximately right is enough to start the walk from.
+  `tests/store-blobs.test.ts` drives both a lagging pointer and no pointer at all.
+- **A request validates the dataset once, not once per read.**
+  `src/middleware.ts` runs every route inside a `runInRequestContext` (`src/lib/request-context.ts`), and `BlobsStore` memoizes its validated read there.
+  One plaque render was six or more sequential Blobs round trips awaited before first paint, on cellular, for someone standing at the tree; it is now one revalidation, and every read on the screen sees one revision instead of possibly two.
+  A commit republishes the memo, so a request always reads its own write, and a lost commit drops it, so a retry re-runs against the dataset that beat it.
+  Blobs payloads are serialized compact for the same reason (`store-local.ts` stays pretty-printed): every commit uploads the whole dataset, every tap is a commit, and `KEPT_REVISIONS` copies trail behind each one.
+  `netlify blobs:get treebed rev/<n> | jq` covers the readability.
+  Growth is still linear in lifetime taps — `events` is append-only with nothing pruning it — which is fine at pilot scale and is the thing to revisit (a separate append-only key, or sampling) before traffic accumulates.
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
   Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, escalate-to-dumping-once, one photo per NY week, PIN hashing.
   Anything in the browser is editable in devtools (spec §7).
@@ -77,6 +92,10 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 - **Every public POST reads its body through `src/lib/request-body.ts`, never `request.formData()` directly** — the adapter's own default limit is 1GB of buffered memory.
   The comment block at the top of that file is the whole-surface sweep — size, time, concurrency, peak heap, and what the caller sees for every publicly reachable route — and a new route belongs in it.
   Four bounds, because three rounds of review each found one of them missing somewhere: a byte cap per body, a time bound on *both* the accepted and the refused read, an in-flight byte budget across all reads at once, and the drain headroom below.
+- **The photo cap is per target: 12MB on node, 4MB on netlify.**
+  Netlify caps a synchronous function's request payload at 6MB and buffers the body before the function is invoked, so a larger upload never reaches the route: the platform answers a bare 413 and `too-large.astro` — whose whole point is handing the visitor back the report they already filled in — never renders.
+  Set below the platform's own limit, every refusal a visitor can provoke is one this route makes gracefully.
+  The streaming bounds below are measured against the node adapter's real sockets either way; on netlify the body has already been buffered by the platform by the time we read it, so what they buy there is the graceful screen, not the heap.
 - The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the severity and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
   The photo is discarded either way (spec §12) — this only stops it being copied on the way to being discarded.
   `readCappedForm` still buffers the text-only forms, where the whole body is 64KB and two copies of it are ~128KB.
@@ -132,7 +151,13 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
 
 ## Seed data
 
-One hand-seeded bed `BED-HRL-0847` (created on first boot by `store-local.ts`), with seeded adopter `marisol_r`, PIN `1234` — demo credentials for driving the sign-in flow locally.
+One hand-seeded bed `BED-HRL-0847`, with seeded adopter `marisol_r`.
+On the local store it is created on first boot with PIN `1234` — demo credentials for driving the sign-in flow locally.
+
+**`BlobsStore` seeds the same adopter with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the plaque engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open guardian account on the internet — `/mine`, `/photo`, and the deliberately auth-gated `/clear`.
+`TREEBED_SEED_PIN` supplies a real one where the flow has to be driveable on a deployed site; unset means no PIN opens the account.
+The pilot store was seeded *before* this change, so it still holds the `1234` hash — seeding only ever runs on first contact.
+Rotate it (or clear the store's `rev/*` keys and let it re-seed) before the tag is handed to anybody.
 
 ## Deployment (pilot)
 
