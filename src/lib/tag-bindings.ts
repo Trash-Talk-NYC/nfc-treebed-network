@@ -47,10 +47,17 @@ export const TAG_BINDINGS: readonly TagBinding[] = [
   { tagId: DEMO_TAG_ID, sitePlate: 'BED-HRL-0847', boundAt: '2026-08-26T12:00:00.000Z', retiredAt: null },
   // The four willow oaks at the Haven end of W 171st (positions 1–4, fronting
   // 718 and 708 — store-dataset.ts): the first real beds the captain taps.
-  // Bound by paperwork ahead of the guards going in; the guards these tags
-  // will mount on are ordered, not installed, and the beds stay unoffered
-  // (`offeredSlots: 0`) until the captain opens them — so each of these
-  // renders the not-yet-open door, which is the state being shown, not a bug.
+  // These four IDs were MINTED HERE, in this repo, ahead of the guards going
+  // in — nothing was read off hardware and no chip has been encoded with any
+  // of them yet. So this file is not a record of what is on the chips: it is
+  // the SOURCE for what must be written to them, and whoever encodes them
+  // must write these exact IDs. The ID is opaque and carries no meaning, so a
+  // mismatch cannot be repaired by editing a row here — it means physically
+  // visiting the tag and re-encoding it.
+  // The guards these tags will mount on are ordered, not installed, and the
+  // beds stay unoffered (`offeredSlots: 0`) until the captain opens them — so
+  // each of these renders the not-yet-open door, which is the state being
+  // shown, not a bug.
   { tagId: 'jjhq9gfj', sitePlate: 'BED-WH-1711', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
   { tagId: '1hc0t9cj', sitePlate: 'BED-WH-1712', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
   { tagId: '729v19w4', sitePlate: 'BED-WH-1713', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
