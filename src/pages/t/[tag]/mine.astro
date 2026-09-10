@@ -93,7 +93,7 @@ const visibleStewards = stewards.filter(
       <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
         >{COMMON.backToBed[lang]}</a
       >
-      <span class="kicker your-bed" {...bi(MINE.yourBed, lang)}>{MINE.yourBed[lang]}</span>
+      <span class="kicker" {...bi(MINE.yourBed, lang)}>{MINE.yourBed[lang]}</span>
     </div>
     <div class="card">
       <h1 class="title" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</h1>
@@ -214,8 +214,6 @@ const visibleStewards = stewards.filter(
 
 <style>
   .top-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  /* Clear of the two-segment language toggle, like every first row. */
-  .your-bed { padding-right: 94px; }
   .bed-ident { margin-top: 6px; }
   .stewards-gap { margin-top: 14px; }
   .note-echo { font-style: italic; }

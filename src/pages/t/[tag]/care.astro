@@ -45,8 +45,9 @@ const bed = view.bed;
 // The sentence screen. `tell` rather than `category=other` so the URL says
 // what the screen is rather than what it will submit.
 const telling = Astro.url.searchParams.has('tell');
-// Set when SEND IT arrived with no tile chosen — the server's own backstop for
-// a client that ignored `required`.
+// Set when SEND IT arrived with no tile chosen. The tiles are checkboxes, which
+// no browser can hold to "at least one" the way a radio's `required` held one
+// tile — so the server is the rule, and it says so here.
 const nothingPicked = Astro.url.searchParams.has('pick');
 
 const tiles = PROBLEMS.filter((p) => !p.wantsNote);
