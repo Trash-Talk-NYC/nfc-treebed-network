@@ -29,7 +29,7 @@
 // a disk flush. A rule must therefore never be enforced from a read taken
 // outside the transaction that acts on it.
 
-import type { Adoption, Bed, BedEvent, Report, Severity, User } from './types';
+import type { Adoption, Bed, BedEvent, Block, Report, Severity, User } from './types';
 import { BUILD_TARGET } from './build-target';
 import { LocalStore } from './store-local';
 import { BlobsStore } from './store-blobs';
@@ -51,6 +51,17 @@ export interface Store {
 
   // -- beds ------------------------------------------------------------
   getBed(plate: string): Promise<Bed | null>;
+  /** Refuses a plate that already exists — plates are the join key everything hangs on. */
+  createBed(bed: Bed): Promise<void>;
+  updateBed(bed: Bed): Promise<void>;
+
+  // -- blocks (admin grouping; see types.ts `Block`) --------------------
+  getBlock(id: string): Promise<Block | null>;
+  /** Every block, stable order. The admin index; nothing public reads it. */
+  getBlocks(): Promise<Block[]>;
+  updateBlock(block: Block): Promise<void>;
+  /** Beds assigned to a block, in block order. */
+  getBedsInBlock(blockId: string): Promise<Bed[]>;
 
   // -- users -----------------------------------------------------------
   getUser(id: string): Promise<User | null>;
@@ -79,7 +90,7 @@ export interface Store {
   getEvents(bedPlate: string, eventType?: BedEvent['eventType']): Promise<BedEvent[]>;
 }
 
-export type { Adoption, Bed, BedEvent, Report, Severity, User };
+export type { Adoption, Bed, BedEvent, Block, Report, Severity, User };
 
 let instance: Store | null = null;
 

@@ -114,11 +114,18 @@ describe('the dictionary', () => {
   });
 
   it('has actually been translated, not copied across', () => {
-    // "PIN" is the same word in both, and is the only entry that legitimately
-    // is. Everything else differing is what "translated" means, and this is
-    // what catches a screen added in English with the Spanish copied across.
+    // A named few are the same word in both languages and legitimately so:
+    // "PIN", "ADMIN", "DEMO" and "NFC" are what a Spanish speaker on this
+    // block says too. Everything else differing is what "translated" means,
+    // and this is what catches a screen added in English with the Spanish
+    // copied across.
     const identical = phrases.filter(([, p]) => p.en === p.es).map(([name]) => name);
-    expect(identical).toEqual(['AUTH.pin']);
+    expect(identical).toEqual([
+      'AUTH.pin',
+      'ADMIN.adminLabel',
+      'ADMIN.demoBadge',
+      'ADMIN.badgeNfcShort',
+    ]);
   });
 
   it('names all four problem categories in both languages', () => {
@@ -207,6 +214,7 @@ describe('the rendered surface', () => {
     // (AGENTS.md): nothing renders those to a person.
     ['request-body.ts', 'transport refusals, English-only by decision'],
     ['tag-route.ts', 'transport refusals, English-only by decision'],
+    ['admin-route.ts', 'transport refusals, English-only by decision'],
     ['service.ts', 'rule codes and error messages, never rendered'],
     ['store.ts', 'configuration errors, never rendered'],
     ['store-dataset.ts', 'seed data and configuration errors'],

@@ -8,6 +8,35 @@ import type { ProblemCategory } from './problem';
 
 export type Severity = 'light' | 'heavy' | 'dumping';
 
+/**
+ * A run of beds the team manages as one thing — one side of one street,
+ * addressed the way the captain says it: "708 W 171st between Fort Washington
+ * and Haven".
+ *
+ * The block is an ADMIN grouping, not a public one: no visitor screen renders
+ * it, and it is deliberately not the group-theming seam (presentation.ts owns
+ * that, and theming is a later task). What it carries is what the block admin
+ * page needs — which beds belong together, in what order along the street,
+ * and the typed reference address at the top of the page.
+ */
+export interface Block {
+  /** Slug, and the admin URL segment: `w-171-fort-washington-haven`. */
+  id: string;
+  /**
+   * The address the admin page is headed by — TYPED, not derived
+   * (design-record.md, constraint 10): a block spans several building
+   * numbers, so which one names it is the captain's call, editable in place.
+   */
+  referenceAddress: string;
+  /**
+   * True for the pilot's demo bed's block: real records and a real tag, but
+   * not a block the captain is preparing. The admin page badges it so a fake
+   * bed can never silently read as part of a real street.
+   */
+  demo: boolean;
+  createdAt: string;
+}
+
 export interface Bed {
   /**
    * Plate-format ID, e.g. BED-HRL-0847 — how the store keys the site.
@@ -30,6 +59,16 @@ export interface Bed {
    * which is ours and is not for showing.
    */
   plantingSpaceId: string | null;
+  /**
+   * NYC's stable GUID for the same planting space (`globalid` in the
+   * Forestry Planting Spaces dataset, issue #14). The numeric `objectid`
+   * above is the display identity; this is the key a future sync would
+   * re-read the record by, so it is kept from the moment a bed is matched
+   * rather than re-derived later. Recording it resolves nothing about how a
+   * sync behaves — issue #14's questions stay open, and the sync itself is a
+   * later task. Null where no NYC record has been matched.
+   */
+  plantingSpaceGlobalId: string | null;
   /**
    * The species common name, as the headline says it: "This <Willow Oak>'s bed
    * is looking for a steward."
@@ -56,7 +95,32 @@ export interface Bed {
   address: string;
   /** Max stewards. Default 2; a third slot can open later (spec §2). */
   slots: number;
-  guardInstalledAt: string;
+  /**
+   * How many of `slots` are OFFERED for adoption — the admin page's per-slot
+   * switches, stored as a count because slots have no identity of their own
+   * (a steward takes "a slot", never "slot 3"). A filled slot counts as
+   * offered; `0` is a bed the captain has not put up for adoption at all.
+   * `adoptBed` refuses past this bound exactly as it refuses past `slots`,
+   * because a switch that only changed a screen would be no rule at all
+   * (spec §7).
+   */
+  offeredSlots: number;
+  /**
+   * The guard, as two dates rather than a status enum, so flipping the admin
+   * page's "guard installed" toggle off loses nothing: a bed whose guard is
+   * ordered but not yet in has `guardOrderedAt` set and `guardInstalledAt`
+   * null, and a bed with no guard coming — the white oak on W 171st — has
+   * neither. Which word the admin page prints is derived (`guardStatus`).
+   */
+  guardOrderedAt: string | null;
+  guardInstalledAt: string | null;
+  /**
+   * The block this bed belongs to and where it stands in it, or null for a
+   * bed outside any block. Admin-only grouping — see `Block`.
+   */
+  blockId: string | null;
+  /** 1-based position along the block; the admin list's order. */
+  blockPosition: number | null;
   /**
    * When NYC's open data was last read for this bed. Null until a sync runs —
    * no sync is built yet, and this is the field it will write.
@@ -239,6 +303,14 @@ export function publicInitials(user: User): string {
     .filter((part) => part.length > 0)
     .map((part) => `${[...part][0]!.toUpperCase()}.`);
   return parts.join(' ');
+}
+
+/** What the admin page says about a bed's guard, derived from the two dates. */
+export type GuardStatus = 'installed' | 'ordered' | 'none';
+
+export function guardStatus(bed: Bed): GuardStatus {
+  if (bed.guardInstalledAt !== null) return 'installed';
+  return bed.guardOrderedAt !== null ? 'ordered' : 'none';
 }
 
 /** Admin-only. Never render this on a public screen. */

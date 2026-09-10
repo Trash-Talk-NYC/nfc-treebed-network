@@ -11,6 +11,7 @@ Source-of-truth documents live in the firstmate repo:
 - `data/tap-flow-decision/approved-screens.html` — the approved screens, iterated on directly by the captain across roughly forty rounds. Authoritative for visuals, copy and flow. **Open it in a browser before changing a screen.**
 - `data/tap-flow-decision/design-record.md` — the numbered constraints the captain agreed, with the reasoning, plus the three open questions he answered "undecided, knowingly so" and the safe default each one obliges.
 - `data/plaque-mvp-n4/spec.md` — product intent and the server-side rules, still current below the screens.
+- `data/block-admin-w171/approved-screens.html` — the approved BLOCK ADMIN screens (section 1: desktop, plus the phone flow further down) and `data/block-admin-w171/design-record.md`, the constraint record that governs them.
 The prototype in `data/plaque-mvp-n4/prototype/` is the SCRAPPED Option A plaque and is no longer authoritative for anything.
 
 ## The two doors (read before touching a screen)
@@ -312,18 +313,32 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 
 - Supabase/Postgres/PostGIS, R2, any hosted service — the store swap is designed for this.
 - Photo storage (the care sheet's attach affordance records only `photoAttached`), points/streak earning rules, the 1-day grace period, 311 handoff, NFC tag cryptographic verification, provisioning flow.
-- **The block admin page.** It is drawn in the approved screens and is a separate, later task — per-slot switches, add-slot, the typed reference address, the NFC-vs-pen-and-paper distinction, and stewards you click through for contact details.
-  Do not let it leak into visitor-flow work.
-  The model already carries what it will need (`Adoption.stewardKind`, `User.hasSignInRoute`, `User.recordHeldOnBehalf`), and it must be bilingual like everything else.
-- **Group theming.** `presentation.ts` is shaped for it and must not grow it.
+- **Group theming.** `presentation.ts` is shaped for it and must not grow it — `Block` (types.ts) is an admin grouping, deliberately NOT the theming seam.
+- **Pen-and-paper steward outreach.** `User.recordHeldOnBehalf` marks who to reach when a contact route exists; nothing contacts anyone, and a missing email is never consent to be contacted.
 - The block-over-time view, deliberately pulled from the visitor flow and kept admin-only.
 - The NYC Open Data sync itself.
   `Bed.nycSyncedAt` / `nycMissingSince` are the fields it will write.
 - Streak/points on the steward's own view render stored values only; nothing increments them yet.
 
+## The block admin (/admin)
+
+The captain's own surface — the one place full names, emails and phones render — built to `data/block-admin-w171/approved-screens.html` (desktop two-pane and the phone flow are ONE route, `src/pages/admin/blocks/[block]/index.astro`, switched by `?bed=`/`?steward=` params and a media query, so every state is a link and it all works with no script).
+
+- **Gate: `TREEBED_ADMIN_KEY`** (session.ts). Unset in production, every /admin route answers 404 — a deploy that never configured a key has no admin. Dev generates one into `.data/admin-key`. The signed `tg_admin` cookie lasts 30 days. This is deliberately NOT a username+PIN: the /auth screens are the dead end nothing builds on, and a long random key costs no bcrypt and offers no enumeration. Per-IP throttling is still the platform-tier debt recorded in request-body.ts.
+- **`Bed.offeredSlots` is a rule, not a display state**: `adoptBed` refuses past `min(slots, offeredSlots)`. The six W 171st beds seed with `offeredSlots: 0` — opening one is the captain's act, on this page. No bound tag points at an unoffered bed today, so no visitor screen changed meaning.
+- The guard is two nullable dates (`guardOrderedAt`/`guardInstalledAt`, derived `guardStatus`), so the admin toggle can flip installs without ever losing "ordered".
+- `addStewardByAdmin` is the sidewalk case: email optional, `hasSignInRoute: false`, `recordHeldOnBehalf: true`, adoption `stewardKind: 'pen-and-paper'`. It may fill an unoffered slot (writing a neighbour in is the point) but never past `slots`. A typed username that collides is refused, not mutated.
+- **NYC identifiers are resolved or null, never invented.** The six beds' `plantingSpaceId`/`plantingSpaceGlobalId`/`treeId` were resolved against NYC's Forestry Planting Spaces (`82zj-84is`) and Tree Points (`hn5i-inap`) — method and citations sit on `w171Beds()` in store-dataset.ts. `addBedByAdmin` creates beds with null NYC fields and the panel prints the unresolved marker; keep it that way.
+- Admin styles are `src/styles/admin.css` — same law as global.css: no hex anywhere, tints via `color-mix` on the `--theme-*` roles, so the presentation tests still hold the whole surface.
+- The admin is bilingual like everything else (`ADMIN` in copy.ts); tests/i18n.test.ts names the only three identical-in-both entries (ADMIN, NFC, DEMO) and fails any new one.
+
 ## Seed data
 
-One hand-seeded bed `BED-HRL-0847` — NYC planting space `#15850293`, a willow oak — with seeded steward `marisol_r` (Marisol Rivera, shown publicly as `@marisol_r` / `M. R.`).
+**The captain's real block seeds and BACKFILLS: `w-171-fort-washington-haven`, reference address 708 W 171st — six real beds `BED-WH-1711`…`1716` (five willow oaks, guards ordered; one white oak at position 5, no guard coming), each bound to its real NYC planting space.**
+`ensureCheckedInBlocks` (store-dataset.ts) runs inside `normalizeData`, so an already-seeded store — the LIVE pilot store included — gains the blocks and beds on its next load, insert-only by key: nothing the captain edits on the admin page is ever overwritten by a later load. That is how new checked-in records reach live data without a migration step; follow the same shape for the next block.
+
+One hand-seeded DEMO bed `BED-HRL-0847` — planting space `#15850293`, which is a mockup number matching NO real NYC record (checked 2026-09-10), a willow oak — with seeded steward `marisol_r` (Marisol Rivera, shown publicly as `@marisol_r` / `M. R.`).
+It deliberately lives in its own `demo`-flagged block (`w-138-acp-demo`), never in the captain's, so the admin can reach its live pilot history without a fake bed reading as part of a real street.
 On the local store it is created on first boot with PIN `1234` — demo credentials for driving the sign-in flow locally.
 The checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed, so `/t/2mq2amhv` renders on first run; the e2e suite and the site-root redirect both key off that binding.
 

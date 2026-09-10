@@ -93,6 +93,29 @@
 //                                      Leaving it unread is the expensive
 //                                      answer, not the free one (see
 //                                      SHED_DRAIN_BYTES below).
+//   GET  /admin, /admin/blocks/…       No body, no buffer. Everything under
+//                                      /admin answers 404 while no admin key
+//                                      is configured, and redirects to the
+//                                      key screen without a session
+//                                      (admin-route.ts) — both before any
+//                                      store read, with the body
+//                                      `abandonBody`'d on the way out.
+//   POST /admin                        The key form. Public and
+//                                      unauthenticated until the key
+//                                      matches, so: MAX_FORM_BYTES buffered,
+//                                      FORM_READ_* clocks, the same 2× + chunk
+//                                      reservation as every text form.
+//                                      The compare is constant-time and costs
+//                                      no bcrypt, so unlike /auth there is no
+//                                      CPU to queue behind it. Refused → a
+//                                      plain short answer.
+//   POST /admin/blocks/… (save,        The same bounds, behind the admin
+//        add-steward, add-bed)         session — which is checked, and a
+//                                      session-less body abandoned, before
+//                                      the read: a cookie is not a licence
+//                                      for an unbounded body, and an
+//                                      unauthenticated POST here reaches no
+//                                      store read and writes nothing.
 //   Any other method, any route        A route bounds only the method it
 //                                      exports; Astro answers the rest itself,
 //                                      body untouched. The four POST routes

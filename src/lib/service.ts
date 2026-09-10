@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { boundFromEnv } from './bounds';
 import type { Store } from './store';
-import type { Adoption, Bed, BedEvent, Report, Severity, User } from './types';
+import type { Adoption, Bed, BedEvent, Block, Report, Severity, User } from './types';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS } from './problem';
 import { nyCalendarDay } from './format';
@@ -506,8 +506,14 @@ async function checkAdoptPreconditions(store: Store, plate: string): Promise<voi
   if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${plate}`);
 
   const active = await store.getActiveAdoptions(plate);
-  if (active.length >= bed.slots) {
-    throw new RuleError('slots-full', `${plate} already has ${bed.slots} stewards`);
+  // Two bounds, one refusal: the physical slot count, and how many of those
+  // the captain has actually OFFERED on the admin page (`Bed.offeredSlots`).
+  // A bed with a slot built but not offered refuses exactly like a full one —
+  // the admin switch is a rule here, not a display state, because anything
+  // enforced only by a screen is editable in devtools (spec §7). No bound tag
+  // points at an unoffered bed today, so no approved screen changes meaning.
+  if (active.length >= Math.min(bed.slots, bed.offeredSlots)) {
+    throw new RuleError('slots-full', `${plate} has no offered slot open`);
   }
 }
 
@@ -710,6 +716,287 @@ function nyIsoWeek(date: Date): string {
   const monday = new Date(d);
   monday.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
   return monday.toISOString().slice(0, 10);
+}
+
+// ── The block admin's rules ─────────────────────────────────────────────
+//
+// Server-side like every other rule, and behind the admin session at the
+// route (src/pages/admin/). Everything below reads and writes through the
+// `tx` of one transaction wherever it checks state before writing it, for
+// the same reason the visitor rules do.
+
+/**
+ * How many slots a bed may grow to. "+ ADD SLOT" is the deliberate act that
+ * takes a bed past its default (design-record.md, constraint 10; spec §2's
+ * "a third slot can open later"), and this is its ceiling — a bound, so a
+ * held-down button cannot grow a record without limit.
+ */
+export const MAX_BED_SLOTS = 4;
+
+/** One bed, with everything the admin page shows about it. */
+export interface AdminBedView {
+  bed: Bed;
+  /** Active stewards, oldest first — the admin list is the click-through to contact details. */
+  stewards: Array<{ adoption: Adoption; user: User }>;
+  openReport: Report | null;
+}
+
+/** The block admin page's read: the block and its beds, in block order. */
+export interface BlockView {
+  block: Block;
+  beds: AdminBedView[];
+}
+
+export async function getBlockView(store: Store, blockId: string): Promise<BlockView | null> {
+  const block = await store.getBlock(blockId);
+  if (!block) return null;
+  const beds: AdminBedView[] = [];
+  for (const bed of await store.getBedsInBlock(blockId)) {
+    const adoptions = await store.getActiveAdoptions(bed.plate);
+    const stewards = [];
+    for (const adoption of adoptions) {
+      const user = await store.getUser(adoption.userId);
+      if (user) stewards.push({ adoption, user });
+    }
+    beds.push({ bed, stewards, openReport: await store.getOpenReport(bed.plate) });
+  }
+  return { block, beds };
+}
+
+/** What one press of SAVE CHANGES on the block admin page carries. */
+export interface BlockSaveInput {
+  blockId: string;
+  /** The typed reference address (constraint 10). Blank keeps what stands. */
+  referenceAddress: string;
+  /** The opened bed's controls, when a bed was open. */
+  bed?: {
+    plate: string;
+    guardInstalled: boolean;
+    /** How many UNFILLED slots the captain left switched on. */
+    offeredUnfilled: number;
+    /** "+ ADD SLOT" — grows `slots` by one, up to MAX_BED_SLOTS. */
+    addSlot: boolean;
+  };
+  now?: Date;
+}
+
+/**
+ * Save the block admin page: the reference address, and the opened bed's
+ * guard toggle, slot switches and added slot.
+ *
+ * One transaction for the whole press: the offered count is computed against
+ * the adoptions as they stand INSIDE it, so a steward adopting between render
+ * and save can never be switched away — a filled slot always counts as
+ * offered, and the count is clamped to what physically exists.
+ */
+export async function saveBlockSettings(store: Store, args: BlockSaveInput): Promise<void> {
+  const now = args.now ?? new Date();
+  await store.transaction(async (tx) => {
+    const block = await tx.getBlock(args.blockId);
+    if (!block) throw new RuleError('bed-not-found', `No block ${args.blockId}`);
+    const referenceAddress = args.referenceAddress.trim();
+    if (referenceAddress !== '' && referenceAddress !== block.referenceAddress) {
+      await tx.updateBlock({ ...block, referenceAddress });
+    }
+    if (!args.bed) return;
+
+    const bed = await tx.getBed(args.bed.plate);
+    if (!bed || bed.blockId !== args.blockId) {
+      throw new RuleError('bed-not-found', `No bed ${args.bed.plate} in block ${args.blockId}`);
+    }
+    const slots = args.bed.addSlot ? Math.min(MAX_BED_SLOTS, bed.slots + 1) : bed.slots;
+    const filled = (await tx.getActiveAdoptions(bed.plate)).length;
+    const offeredUnfilled = Math.max(0, Math.floor(args.bed.offeredUnfilled));
+    const offeredSlots = Math.min(slots, filled + offeredUnfilled);
+    await tx.updateBed({
+      ...bed,
+      slots,
+      offeredSlots,
+      // The toggle only moves the installed date; a guard toggled off keeps
+      // its ordered date, so "ordered" is never lost to a mis-tap. A guard
+      // already installed keeps its original date.
+      guardInstalledAt: args.bed.guardInstalled ? (bed.guardInstalledAt ?? now.toISOString()) : null,
+    });
+  });
+}
+
+/**
+ * What the admin's add-a-steward form collects. Email is OPTIONAL here — the
+ * sidewalk case requires it (design-record.md, answered open question 3) —
+ * where the visitor adopt form requires one. Username is typed or left blank
+ * for the same derivation the adopt form uses.
+ */
+export interface AdminStewardInput {
+  firstName: string;
+  lastName: string;
+  /** With or without the leading @; blank derives from the name. */
+  username: string;
+  email: string;
+  phone: string;
+}
+
+export type AdminStewardErrors = Partial<
+  Record<keyof AdminStewardInput, keyof AdminStewardInput>
+>;
+
+const USERNAME_RE = /^[a-z0-9_]{2,30}$/;
+
+/** Field-level validation for the admin form; same shape as `validateAdoptInput`. */
+export function validateAdminStewardInput(raw: AdminStewardInput): {
+  values: AdminStewardInput;
+  errors: AdminStewardErrors;
+} {
+  const values: AdminStewardInput = {
+    firstName: raw.firstName.trim(),
+    lastName: raw.lastName.trim(),
+    username: raw.username.trim().replace(/^@/, '').toLowerCase(),
+    email: raw.email.trim(),
+    phone: raw.phone.trim(),
+  };
+  const errors: AdminStewardErrors = {};
+  if (values.firstName.length < 1) errors.firstName = 'firstName';
+  if (values.lastName.length < 1) errors.lastName = 'lastName';
+  if (values.username !== '' && !USERNAME_RE.test(values.username)) errors.username = 'username';
+  // Optional, but wrong if present and malformed — a mistyped email is a
+  // steward nobody can ever reach, silently.
+  if (values.email !== '' && !EMAIL_RE.test(values.email)) errors.email = 'email';
+  if (values.phone !== '' && !PHONE_RE.test(values.phone)) errors.phone = 'phone';
+  return { values, errors };
+}
+
+/**
+ * Write in a steward the captain signed up on the sidewalk.
+ *
+ * The record is created BY the team FOR the person, and says so:
+ * `recordHeldOnBehalf: true`, `hasSignInRoute: false`, no secret. A missing
+ * email is recorded as exactly that — it is never read as consent to be
+ * contacted, and no outreach exists or is invented here (the pen-and-paper
+ * contact route is its own later task).
+ *
+ * The captain may fill a slot the public switches have not offered — writing
+ * a neighbour in is the act the page exists for — but never past the bed's
+ * physical `slots`.
+ */
+export async function addStewardByAdmin(
+  store: Store,
+  args: { plate: string; input: AdminStewardInput; now?: Date },
+): Promise<User> {
+  const now = args.now ?? new Date();
+  const { values, errors } = validateAdminStewardInput(args.input);
+  if (Object.keys(errors).length > 0) {
+    throw new RuleError('invalid-input', Object.values(errors).join(' '));
+  }
+  return store.transaction(async (tx) => {
+    const bed = await tx.getBed(args.plate);
+    if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
+    const active = await tx.getActiveAdoptions(args.plate);
+    if (active.length >= bed.slots) {
+      throw new RuleError('slots-full', `${args.plate} already has ${bed.slots} stewards`);
+    }
+
+    let username = values.username;
+    if (username === '') {
+      // Same derivation, same in-transaction collision walk as `adoptBed`.
+      const taken = new Set<string>();
+      username = deriveUsername(values.firstName, values.lastName, (c) => taken.has(c));
+      while (await tx.getUserByUsername(username)) {
+        taken.add(username);
+        username = deriveUsername(values.firstName, values.lastName, (c) => taken.has(c));
+      }
+    } else if (await tx.getUserByUsername(username)) {
+      // A typed handle that collides is refused rather than mutated — the
+      // captain typed it deliberately, and quietly issuing `dani_t2` would
+      // engrave a handle nobody chose.
+      throw new RuleError('invalid-input', 'username');
+    }
+
+    const user: User = {
+      id: `user-${randomUUID()}`,
+      firstName: values.firstName,
+      lastName: values.lastName,
+      username,
+      pinHash: null,
+      hasSignInRoute: false,
+      recordHeldOnBehalf: true,
+      email: values.email,
+      phone: values.phone,
+      points: 0,
+      streakWeeks: 0,
+      createdAt: now.toISOString(),
+    };
+    await tx.createUser(user);
+    await tx.createAdoption({
+      id: `adoption-${randomUUID()}`,
+      bedPlate: args.plate,
+      userId: user.id,
+      adoptedAt: now.toISOString(),
+      stewardKind: 'pen-and-paper',
+      displayNameHidden: false,
+      releasedAt: null,
+    });
+    await appendEvent(tx, args.plate, 'adopt', user.id, null, now);
+    return user;
+  });
+}
+
+/**
+ * "+ ADD A BED" on the block admin page.
+ *
+ * The new bed starts the way the six seeded ones did: one slot, nothing
+ * offered, no guard, no tag — and NO NYC identifiers. A planting space ID is
+ * resolved against NYC's own data or left null, never typed free-hand and
+ * never generated: a fabricated identifier is indistinguishable from a real
+ * one and wrong in a way nobody can see. The admin page prints the unresolved
+ * state instead.
+ */
+export async function addBedByAdmin(
+  store: Store,
+  args: { blockId: string; treeType: { en: string; es: string }; now?: Date },
+): Promise<Bed> {
+  const en = args.treeType.en.trim();
+  // A tree named in English inside a Spanish sentence is worse than ideal and
+  // far better than an English sentence (types.ts) — the field is optional on
+  // the form, not in the record.
+  const es = args.treeType.es.trim() || en;
+  if (en === '') throw new RuleError('invalid-input', 'treeType');
+  return store.transaction(async (tx) => {
+    const block = await tx.getBlock(args.blockId);
+    if (!block) throw new RuleError('bed-not-found', `No block ${args.blockId}`);
+    const siblings = await tx.getBedsInBlock(args.blockId);
+    const position = Math.max(0, ...siblings.map((b) => b.blockPosition ?? 0)) + 1;
+    const bed: Bed = {
+      plate: await nextPlate(tx, siblings),
+      plantingSpaceId: null,
+      plantingSpaceGlobalId: null,
+      treeType: { en, es },
+      treeId: '',
+      tagUid: '',
+      crossStreets: siblings[0]?.crossStreets ?? '',
+      address: block.referenceAddress,
+      slots: 1,
+      offeredSlots: 0,
+      guardOrderedAt: null,
+      guardInstalledAt: null,
+      blockId: args.blockId,
+      blockPosition: position,
+      nycSyncedAt: null,
+      nycMissingSince: null,
+    };
+    await tx.createBed(bed);
+    return bed;
+  });
+}
+
+/**
+ * The next plate in a block's own sequence: the siblings' prefix with the
+ * next number, walked past any plate that exists anywhere — plates are the
+ * global join key, so a collision outside the block still counts.
+ */
+async function nextPlate(store: Store, siblings: Bed[]): Promise<string> {
+  const prefix = siblings[0]?.plate.replace(/-\d+$/, '') ?? 'BED-NEW';
+  let n = Math.max(0, ...siblings.map((b) => Number(/(\d+)$/.exec(b.plate)?.[1] ?? 0))) + 1;
+  while (await store.getBed(`${prefix}-${n}`)) n += 1;
+  return `${prefix}-${n}`;
 }
 
 async function appendEvent(

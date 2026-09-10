@@ -1,0 +1,443 @@
+/* ── The block admin's stylesheet ──────────────────────────────────────
+   Same rule as global.css: no colour is named here. Every one is a
+   `--theme-*` custom property from the bed record's presentation
+   (src/lib/presentation.ts); the few tints the approved admin screens use
+   are mixed from the roles with color-mix, so a future group theme moves
+   the whole page by answering `presentationFor` differently.
+
+   Two layouts, one markup (the approved screens' desktop admin and its
+   phone version): a two-pane grid above 860px, and one pane at a time
+   below it — the block list, or the opened bed over it — switched by the
+   `mode-*` class the route sets from its own URL.                       */
+
+/* ── Frame and chrome ─────────────────────────────────────────────── */
+.admin-frame {
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding:
+    calc(16px + env(safe-area-inset-top, 0px))
+    calc(18px + env(safe-area-inset-right, 0px))
+    calc(20px + env(safe-area-inset-bottom, 0px))
+    calc(18px + env(safe-area-inset-left, 0px));
+}
+.admin-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: var(--theme-ink);
+  color: var(--theme-ground);
+  border-radius: 12px;
+  padding: 12px 18px;
+}
+.admin-bar .brand {
+  font-family: 'Londrina Solid', cursive;
+  font-size: 19px;
+  letter-spacing: 0.03em;
+}
+.admin-bar .crumb {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--theme-ground) 72%, var(--theme-ink));
+  overflow-wrap: anywhere;
+}
+.admin-bar .admin-lang {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 16px;
+  border: 2px solid color-mix(in srgb, var(--theme-ground) 45%, var(--theme-ink));
+  color: var(--theme-ground);
+  font-family: 'Barlow', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── The two panes ────────────────────────────────────────────────── */
+.admin-card {
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.admin-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+}
+.admin-left {
+  padding: 22px;
+  border-right: 1px solid var(--theme-border);
+  min-width: 0;
+}
+.admin-right {
+  padding: 22px;
+  background: var(--theme-ground);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 860px) {
+  .admin-body { grid-template-columns: 1fr; }
+  .admin-left { border-right: none; }
+  /* One pane at a time: the list, or the opened bed/steward over it. */
+  .mode-panel .admin-left { display: none; }
+  .mode-list .admin-right { display: none; }
+}
+/* The phone's way back up a level; the desktop shows both panes instead —
+   except the steward detail, whose backlink (`--always`) is the way back to
+   the bed panel it replaced on every width. */
+.admin-backlink {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  font-family: 'Barlow', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--theme-muted);
+  text-decoration: none;
+}
+.admin-backlink--always { display: flex; }
+@media (max-width: 860px) {
+  .admin-backlink { display: flex; }
+}
+
+/* ── Address bar and block meta ───────────────────────────────────── */
+.addrbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 2px solid var(--theme-border);
+  border-radius: 9px;
+  padding: 6px 13px;
+  background: var(--theme-surface);
+}
+.addrbar .addr-label {
+  flex: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--theme-faint);
+}
+.addrbar input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  padding: 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--theme-ink);
+  background: transparent;
+}
+.addrbar input:focus { outline: none; }
+.addrbar:focus-within { border-color: var(--theme-action); }
+.blockmeta {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--theme-muted);
+  margin-top: 8px;
+  line-height: 1.6;
+}
+
+/* ── The street: one row per bed ──────────────────────────────────── */
+.street {
+  margin: 18px 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.tree {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: center;
+  padding: 11px 13px;
+  border: 2px solid var(--theme-border);
+  border-radius: 10px;
+  background: var(--theme-surface);
+  text-decoration: none;
+  color: var(--theme-ink);
+}
+.tree.sel {
+  border-color: var(--theme-action);
+  background: color-mix(in srgb, var(--theme-action) 8%, var(--theme-surface));
+}
+.tree .dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex: none;
+  margin-left: 5px;
+}
+.dot-adopted { background: var(--theme-clear); }
+.dot-open { background: var(--theme-alert); }
+.dot-closed { background: var(--theme-border); }
+.tree .nm { font-size: 14px; font-weight: 700; min-width: 0; }
+.tree .nm small {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  color: var(--theme-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 5px 10px;
+  border-radius: 20px;
+  flex: none;
+}
+.badge-nfc {
+  background: color-mix(in srgb, var(--theme-clear) 16%, var(--theme-surface));
+  color: var(--theme-clear);
+}
+.badge-paper {
+  background: color-mix(in srgb, var(--theme-action) 13%, var(--theme-surface));
+  color: var(--theme-action);
+}
+.b-open { background: var(--theme-alert); color: var(--theme-on-alert); }
+.b-closed {
+  background: color-mix(in srgb, var(--theme-ink) 7%, var(--theme-ground));
+  color: var(--theme-muted);
+}
+.b-demo {
+  background: transparent;
+  border: 1px dashed var(--theme-muted);
+  color: var(--theme-muted);
+}
+.legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--theme-muted);
+  margin-top: 16px;
+}
+.legend span { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+
+/* ── The opened bed's panel ───────────────────────────────────────── */
+.panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--theme-ink);
+}
+.idline {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  color: var(--theme-muted);
+  margin-top: 4px;
+}
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--theme-border);
+}
+.toggle-row .t-lbl { display: block; font-size: 13px; font-weight: 700; }
+.toggle-row .t-sub {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--theme-muted);
+  margin-top: 2px;
+}
+/* A real checkbox drawn as the mockup's switch, so it posts with no script. */
+.sw {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 44px;
+  height: 25px;
+  margin: 0;
+  border: none;
+  border-radius: 20px;
+  background: var(--theme-border);
+  position: relative;
+  flex: none;
+  cursor: pointer;
+}
+.sw:checked { background: var(--theme-clear); }
+.sw::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: var(--theme-surface);
+}
+.sw:checked::after { left: 22px; }
+.sw:focus-visible { outline: 3px solid var(--theme-ink); outline-offset: 2px; }
+
+.slotline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--theme-border);
+  font-size: 13px;
+  font-weight: 600;
+}
+.slotline-act {
+  border: none;
+  background: transparent;
+  padding: 11px 0;
+  font-family: 'Barlow', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--theme-action);
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  text-align: left;
+}
+
+.stewrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--theme-border);
+  text-decoration: none;
+  color: var(--theme-ink);
+}
+.stewrow .av {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--theme-clear);
+  color: var(--theme-on-clear);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex: none;
+}
+.stewrow .av-lbl { font-size: 13px; font-weight: 600; line-height: 1.3; min-width: 0; }
+.stewrow .av-lbl small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--theme-muted);
+  letter-spacing: 0.06em;
+}
+.stewrow .go { margin-left: auto; color: var(--theme-faint); font-size: 15px; }
+
+.save-state {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--theme-muted);
+  text-align: center;
+  margin-top: 8px;
+}
+.pii {
+  margin-top: 16px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--theme-muted);
+  background: var(--theme-surface);
+  border: 1px dashed var(--theme-border);
+  border-radius: 8px;
+  padding: 11px 13px;
+  line-height: 1.6;
+}
+
+/* ── Steward detail ───────────────────────────────────────────────── */
+.who {
+  font-family: 'Londrina Solid', cursive;
+  font-size: 27px;
+  line-height: 1.1;
+  padding-bottom: 3px;
+}
+.who small {
+  display: block;
+  font-family: 'Barlow', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--theme-muted);
+  margin-top: 5px;
+  letter-spacing: 0.07em;
+}
+.kv { margin-top: 18px; display: flex; flex-direction: column; }
+.kv > div {
+  display: grid;
+  grid-template-columns: 106px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--theme-border);
+  font-size: 13px;
+  font-weight: 600;
+  align-items: baseline;
+  min-width: 0;
+}
+.kv dt {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  color: var(--theme-muted);
+  text-transform: uppercase;
+}
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.kv .none { color: var(--theme-faint); font-weight: 400; }
+
+/* ── Block index and the small forms ──────────────────────────────── */
+.block-list { display: flex; flex-direction: column; gap: 10px; }
+.block-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 2px solid var(--theme-border);
+  border-radius: 12px;
+  background: var(--theme-surface);
+  text-decoration: none;
+  color: var(--theme-ink);
+}
+.block-row .addr { font-size: 16px; font-weight: 700; min-width: 0; }
+.block-row .addr small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--theme-muted);
+  letter-spacing: 0.06em;
+  margin-top: 3px;
+}
+.block-row .go { margin-left: auto; color: var(--theme-faint); font-size: 17px; }
+
+.admin-narrow {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.admin-title {
+  font-family: 'Londrina Solid', cursive;
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1.1;
+  padding-bottom: 3px;
+}

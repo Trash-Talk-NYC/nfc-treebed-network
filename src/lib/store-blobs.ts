@@ -56,7 +56,7 @@ import { getStore as getBlobStore, type Store as BlobsClientStore } from '@netli
 import type { Store } from './store';
 import { BUILD_TARGET } from './build-target';
 import { getRequestContext } from './request-context';
-import type { Adoption, Bed, BedEvent, Report, User } from './types';
+import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
 import { type Data, TransactionStore, detach, normalizeData, ops, seedData } from './store-dataset';
 
 const STORE_NAME = 'treebed';
@@ -366,6 +366,30 @@ export class BlobsStore implements Store {
   // one-call transactions, so they get the same queue and conflict retry.
   async getBed(plate: string): Promise<Bed | null> {
     return ops.getBed((await this.load()).data, plate);
+  }
+
+  async createBed(bed: Bed): Promise<void> {
+    await this.transaction((tx) => tx.createBed(bed));
+  }
+
+  async updateBed(bed: Bed): Promise<void> {
+    await this.transaction((tx) => tx.updateBed(bed));
+  }
+
+  async getBlock(id: string): Promise<Block | null> {
+    return ops.getBlock((await this.load()).data, id);
+  }
+
+  async getBlocks(): Promise<Block[]> {
+    return ops.getBlocks((await this.load()).data);
+  }
+
+  async updateBlock(block: Block): Promise<void> {
+    await this.transaction((tx) => tx.updateBlock(block));
+  }
+
+  async getBedsInBlock(blockId: string): Promise<Bed[]> {
+    return ops.getBedsInBlock((await this.load()).data, blockId);
   }
 
   async getUser(id: string): Promise<User | null> {

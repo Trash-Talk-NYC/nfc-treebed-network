@@ -41,6 +41,22 @@ export function relativeAge(from: Date, now: Date = new Date()): Phrase {
   return { en: `${days} DAYS AGO`, es: `HACE ${days} DÍAS` };
 }
 
+/** The block list's count line, e.g. "6 tree beds" / "6 canteros". */
+export function bedCountLabel(count: number): Phrase {
+  return {
+    en: `${count} ${count === 1 ? 'tree bed' : 'tree beds'}`,
+    es: `${count} ${count === 1 ? 'cantero' : 'canteros'}`,
+  };
+}
+
+/** The admin bed panel's slots heading, e.g. "Slots · 1 of 2 filled". */
+export function slotsFilledLabel(filled: number, total: number): Phrase {
+  return {
+    en: `Slots · ${filled} of ${total} filled`,
+    es: `Lugares · ${filled} de ${total} ocupados`,
+  };
+}
+
 /** Steward chip suffix, e.g. "since May 2026" / "desde mayo de 2026". */
 export function sinceLabel(date: Date): Phrase {
   // Intl carries the month name in each language, so nothing here holds a

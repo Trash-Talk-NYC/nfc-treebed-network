@@ -22,7 +22,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Store } from './store';
-import type { Adoption, Bed, BedEvent, Report, User } from './types';
+import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
 import { type Data, TransactionStore, detach, normalizeData, ops, seedData } from './store-dataset';
 
 // `.data/` beside the repo, unless TREEBED_DATA_DIR moves it — session.ts keeps
@@ -112,6 +112,30 @@ export class LocalStore implements Store {
 
   async getBed(plate: string): Promise<Bed | null> {
     return ops.getBed(await this.load(), plate);
+  }
+
+  async createBed(bed: Bed): Promise<void> {
+    await this.mutate((data) => ops.createBed(data, bed));
+  }
+
+  async updateBed(bed: Bed): Promise<void> {
+    await this.mutate((data) => ops.updateBed(data, bed));
+  }
+
+  async getBlock(id: string): Promise<Block | null> {
+    return ops.getBlock(await this.load(), id);
+  }
+
+  async getBlocks(): Promise<Block[]> {
+    return ops.getBlocks(await this.load());
+  }
+
+  async updateBlock(block: Block): Promise<void> {
+    await this.mutate((data) => ops.updateBlock(data, block));
+  }
+
+  async getBedsInBlock(blockId: string): Promise<Bed[]> {
+    return ops.getBedsInBlock(await this.load(), blockId);
   }
 
   async getUser(id: string): Promise<User | null> {
