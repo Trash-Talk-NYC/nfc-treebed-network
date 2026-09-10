@@ -16,11 +16,15 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { seedData } from '../src/lib/store-dataset';
+import { defaultPresentation } from '../src/lib/presentation';
 import { DOOR_STEWARDED, DOOR_UNSTEWARDED, COMMON } from '../src/lib/copy';
 import { problemFor } from '../src/lib/problem';
 
 /** The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847. */
 const TAG = '2mq2amhv';
+
+/** The page ground, read from the presentation rather than typed as a hex. */
+const DEFAULT_GROUND = defaultPresentation().colors.ground;
 
 let server: ChildProcessWithoutNullStreams;
 let origin = '';
@@ -72,6 +76,106 @@ beforeAll(async () => {
 afterAll(async () => {
   server?.kill();
   if (dataDir) await rm(dataDir, { recursive: true, force: true });
+});
+
+/** A second server over a bed nobody has adopted, so door 1 can be measured. */
+let openServer: ChildProcessWithoutNullStreams;
+let openOrigin = '';
+let openDataDir = '';
+
+async function startOn(data: Awaited<ReturnType<typeof seedData>>): Promise<[ChildProcessWithoutNullStreams, string, string]> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'treebed-door1-'));
+  await writeFile(path.join(dir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
+  const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
+    env: {
+      ...process.env,
+      TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
+      TREEBED_DATA_DIR: dir,
+      HOST: '127.0.0.1',
+      PORT: '0',
+    },
+  }) as ChildProcessWithoutNullStreams;
+  let log = '';
+  child.stderr.on('data', (buf: Buffer) => {
+    log += String(buf);
+  });
+  const url = await new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('server never reported a port')), 30_000);
+    child.stdout.on('data', (buf: Buffer) => {
+      const found = /(http:\/\/127\.0\.0\.1:\d+)/.exec(String(buf));
+      if (found) {
+        clearTimeout(timer);
+        resolve(found[1]!);
+      }
+    });
+    child.on('exit', (code) => reject(new Error(`server exited early (${code})\n${log}`)));
+  });
+  return [child, url, dir];
+}
+
+describe('the door a bed with no steward opens', () => {
+  // The captain moved this screen onto Poster Beige and dropped the highlight
+  // after the review. Both are visible facts about the rendered HTML, and both
+  // are the kind of thing a later "tidy-up" would undo by making the two doors
+  // match — so they are asserted rather than left to a comment.
+  beforeAll(async () => {
+    const data = await seedData();
+    data.adoptions = [];
+    [openServer, openOrigin, openDataDir] = await startOn(data);
+  }, 60_000);
+
+  afterAll(async () => {
+    openServer?.kill();
+    if (openDataDir) await rm(openDataDir, { recursive: true, force: true });
+  });
+
+  it('stands on the page ground, not the green, and carries no highlight', async () => {
+    const response = await fetch(`${openOrigin}/t/${TAG}`);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+
+    // It is door 1.
+    expect(html).toContain(DOOR_UNSTEWARDED.adopt.en);
+    expect(html).toContain(DOOR_UNSTEWARDED.headAfter.en);
+
+    // On the page ground: no green screen class, and the browser chrome behind
+    // the notch matches the beige rather than staying on the old green.
+    // Anchored to the class ATTRIBUTE — `ground-clear` also appears in the
+    // inlined stylesheet, which a bare substring match would find on every
+    // screen and pass on none.
+    expect(html).toContain('class="frame ground-page"');
+    expect(html).not.toContain('class="frame ground-clear"');
+    expect(html).not.toContain('class="screen screen-clear"');
+    expect(html).toContain(`content="${DEFAULT_GROUND}"`);
+
+    // One plain sentence: the tree type is still its own bilingual leaf, but
+    // nothing picks it out.
+    expect(html).not.toContain('class="hl"');
+    expect(html).toContain('data-es="Roble sauce"');
+
+    // Same two buttons, same order, in the page ground's own pair.
+    const adoptAt = html.indexOf(DOOR_UNSTEWARDED.adopt.en);
+    const careAt = html.indexOf(COMMON.needsCare.en);
+    expect(adoptAt).toBeGreaterThan(-1);
+    expect(careAt).toBeGreaterThan(adoptAt);
+    expect(html).toContain('class="btn btn-tall btn-action"');
+    expect(html).toContain('class="btn btn-outline"');
+    // Anchored to the attribute for the same reason as the ground above: the
+    // green-ground button classes are defined in the inlined stylesheet on
+    // every screen, so a bare substring would never fail.
+    expect(html).not.toContain('class="btn btn-tall btn-on-clear"');
+  });
+
+  it('says all of it in Spanish too', async () => {
+    const html = await (await fetch(`${openOrigin}/t/${TAG}?lang=es`)).text();
+    expect(html).toContain(DOOR_UNSTEWARDED.adopt.es);
+    expect(html).toContain(DOOR_UNSTEWARDED.sub.es);
+    expect(html).toContain(COMMON.needsCare.es);
+    // Still the beige ground, whichever language it is read in.
+    expect(html).toContain('class="frame ground-page"');
+    expect(html).not.toContain('class="screen screen-clear"');
+    expect(html).not.toContain('class="hl"');
+  });
 });
 
 describe('a steward who asked not to be named', () => {

@@ -17,6 +17,12 @@ The tap resolves to a bed server-side and the bed's state picks one of two scree
 - **no steward yet** → "This <tree>'s bed is looking for a steward." → `ADOPT THIS BED` / `THIS BED NEEDS CARE`
 - **already stewarded** → "This <tree> bed has been adopted!" with the stewards shown → `SEND APPLAUSE` / `THIS BED NEEDS CARE`
 
+**The two doors stand on different grounds, deliberately.**
+Door 1 is Poster Beige — the page ground — with no highlight on the tree type, so its headline reads as one plain sentence; its buttons are the page ground's pair, Deep Purple for adopt and a Roadtop Black outline for care.
+Door 2 is Post No Bills Green with the tree type picked out in beige (`.hl`).
+The captain changed door 1 to beige after the review; it is not an oversight to normalize, and `.hl` does not go back on it.
+No yellow appears on door 1 at all, which is what keeps it clear of the one pairing that cannot work on that ground.
+
 `THIS BED NEEDS CARE` opens the problem picker (`care.astro`): thirsty plants / litter / guard damage / something else, plus an optional photo.
 "Something else" is a LINK to `?tell=1`, which is the same route rendering the free-text box — a link rather than a script, so the second screen exists with JavaScript disabled.
 Both send to `report.ts`, which lands on the full-screen "Thank you" (`thanks.astro`).

@@ -24,6 +24,21 @@
 // rules add their weight to the open report rather than sending them to a
 // screen about a rule (service.ts, `reportProblem`).
 //
+// The two doors stand on different GROUNDS, deliberately. Door 1 is Poster
+// Beige — the page ground — and its headline carries no highlight, so it reads
+// as one plain sentence; door 2 is Post No Bills Green with the tree type
+// picked out in beige. The captain changed door 1 to beige after the review, so
+// this asymmetry is the design, not an oversight to normalize: do not put
+// `.hl` back on door 1 or move it back onto the green.
+//
+// Door 1's buttons had to change colour with the ground, because beige on
+// beige is invisible. They take the page ground's own pair — Deep Purple for
+// the adopt action, which is the palette's positive-ownership role and what
+// the adopt form's own submit already uses, and the Roadtop Black outline for
+// the secondary. Both clear WCAG AA on beige (7.63:1 and 16.04:1), and no
+// yellow appears on that screen at all, so the one pairing that cannot work on
+// this ground never arises. `tests/presentation.test.ts` holds every pair.
+//
 // Option A — the plaque-first screen this replaced — is scrapped, not flagged
 // off. Do not restore it.
 import Screen from '../../../layouts/Screen.astro';
@@ -127,7 +142,7 @@ const title = bed
   lang={lang}
   presentation={presentation}
   url={url}
-  ground={view === null ? 'page' : 'clear'}
+  ground={stewarded ? 'clear' : 'page'}
 >
   {
     view === null && (
@@ -151,7 +166,8 @@ const title = bed
 
   {
     bed && !stewarded && (
-      <div class="screen screen-clear">
+      <div class="screen">
+        {/* Poster Beige, and no highlight — see the header. */}
         <div>
           <div class="kicker">
             {presentation.copy.wordmark}
@@ -164,7 +180,7 @@ const title = bed
               textContent, so a bilingual node may not have children. */}
           <h1 class="hero">
             <span {...bi(DOOR_UNSTEWARDED.headBefore, lang)}>{DOOR_UNSTEWARDED.headBefore[lang]}</span>
-            <span class="hl" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+            <span {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
             <span {...bi(DOOR_UNSTEWARDED.headAfter, lang)}>{DOOR_UNSTEWARDED.headAfter[lang]}</span>
           </h1>
           <p class="body-copy door-sub" {...bi(DOOR_UNSTEWARDED.sub, lang)}>
@@ -172,11 +188,11 @@ const title = bed
           </p>
         </div>
         {openSlots > 0 && (
-          <a class="btn btn-tall btn-on-clear" href={adopt} {...bi(DOOR_UNSTEWARDED.adopt, lang)}>
+          <a class="btn btn-tall btn-action" href={adopt} {...bi(DOOR_UNSTEWARDED.adopt, lang)}>
             {DOOR_UNSTEWARDED.adopt[lang]}
           </a>
         )}
-        <a class="btn btn-on-clear-outline" href={care} {...bi(COMMON.needsCare, lang)}>
+        <a class="btn btn-outline" href={care} {...bi(COMMON.needsCare, lang)}>
           {COMMON.needsCare[lang]}
         </a>
       </div>

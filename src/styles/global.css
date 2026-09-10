@@ -150,10 +150,12 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   line-height: 1.1;
   padding-bottom: 3px;
 }
-/* The tree type, picked out of the headline. Poster Beige on the green
-   ground with a soft glow — "still poster beige, just lit", per the captain's
-   own note on the approved screen. The glow is currentColor, so it follows
-   whatever the theme makes this ink. */
+/* The tree type, picked out of the headline — DOOR 2 ONLY. Poster Beige on
+   the green ground with a soft glow: "still poster beige, just lit", per the
+   captain's own note on the approved screen. The glow is currentColor, so it
+   follows whatever the theme makes this ink.
+   Door 1 deliberately has no highlight — the captain dropped it so that
+   headline reads as one plain sentence. Do not put this class back there. */
 .hl { color: var(--theme-on-clear); text-shadow: 0 0 14px color-mix(in srgb, currentColor 32%, transparent); }
 .body-copy {
   font-size: 15px;
