@@ -125,6 +125,7 @@ Washington Heights is heavily Spanish-speaking.
   `requireBoundTagForPost` / `requireBoundTagForForm` / `requireBoundTagForView` (`src/lib/tag-route.ts`) are what every route behind `/t/<tag>` resolves through, which is where that ordering is kept.
   The three POST endpoints (`requireBoundTagForPost` — `report`, `applause`, `clear`) answer 404 in plain text — nothing is submitting a form there.
   The screens (`requireBoundTagForForm` / `requireBoundTagForView`) send the visitor to the door screen instead, which answers 404 itself, so the calm screen lives in exactly one place: 302 for a GET, 303 for a POST at `adopt` or `auth`.
+  A bound tag whose BED has gone away — retired on the admin page — goes the same way, through `refuseMissingBedScreen`: every `/t/<tag>` screen hands the visitor to the door screen rather than a line of unstyled English, while the four POST endpoints keep their plain-text 404.
   An invalid ID — one no normalization can resolve — is 404 plain text everywhere, screens included: it is not on this network at all.
 
 ## Architecture invariants
@@ -369,8 +370,11 @@ The captain's own surface — the one place full names, emails and phones render
   It exists so the FAQ's "Trash Talk NYC sees the report" is true of a screen rather than of a CLI, which is also why the captain's surface must never see less of a report than the steward does; nothing on it writes, and closing a report stays the steward's act behind `/clear`.
   Both notes go through `capped` AT RENDER here as well as at the write, because the live pilot store already holds a note written before write-time sanitising reached the visitor's note.
 - **Deleting a bed is RETIRING it (`retireBedByAdmin`, `Bed.retiredAt`), never erasing the row** — the plate is the join key its history hangs on, and `ensureCheckedInBlocks` would re-insert an erased seeded bed on the next load, so only the tombstone stays deleted.
-  A retired bed drops off the admin lists, every rule and screen answers not-found for its plate (service.ts `getActiveBed`), a still-bound tag renders the calm "not assigned" screen without the registry-typo stderr line, and the plate and position are never reused.
+  A retired bed drops off the street list, every rule and screen answers not-found for its plate (service.ts `getActiveBed`), a still-bound tag renders the calm "not assigned" screen without the registry-typo stderr line, and the plate and position are never reused.
   The delete is two deliberate taps: the panel's link only opens `delete-bed.astro`, whose own POST does it. One bed at a time — no bulk delete, on purpose.
+  **The way back is `restoreBedByAdmin`**, reached from a "Deleted beds" section below the street list on the block page — `BlockView.retired` is what the page draws it from, and a retired row offers RESTORE and nothing else (no panel, no bulk act).
+  It exists because the tag→site registry is checked in with no runtime write path, so without it a mis-tap on the live pilot would cost that tag its screen until somebody shipped a commit.
+  Restoring clears `retiredAt` and touches nothing else, so the bed comes back exactly as it was. It is deliberately NOT a trash view: no retention policy, no auto-purge, no permanent delete.
 - `addStewardByAdmin` is the sidewalk case: email optional, `hasSignInRoute: false`, `recordHeldOnBehalf: true`, adoption `stewardKind: 'pen-and-paper'`. It may fill an unoffered slot (writing a neighbour in is the point) but never past `slots`. A typed username that collides is refused, not mutated.
 - **NYC identifiers are resolved or null, never invented.** The six beds' `plantingSpaceId`/`plantingSpaceGlobalId`/`treeId` were resolved against NYC's Forestry Planting Spaces (`82zj-84is`) and Tree Points (`hn5i-inap`) — method and citations sit on `w171Beds()` in store-dataset.ts. `addBedByAdmin` creates beds with null NYC fields and the panel prints the unresolved marker; keep it that way.
 - Admin styles are `src/styles/admin.css` — same law as global.css: no hex anywhere, tints via `color-mix` on the `--theme-*` roles, so the presentation tests still hold the whole surface.

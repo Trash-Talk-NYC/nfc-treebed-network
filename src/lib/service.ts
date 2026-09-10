@@ -828,6 +828,16 @@ export interface AdminBedView {
 export interface BlockView {
   block: Block;
   beds: AdminBedView[];
+  /**
+   * The block's deleted beds, kept apart from the live ones.
+   *
+   * A delete is a retirement (`retireBedByAdmin`), and the page that can undo
+   * it is the one that did it — so the rows are handed over separately rather
+   * than mixed into `beds`, where every control assumes a live bed. Stewards
+   * are deliberately not read for them: the only affordance a retired row has
+   * is RESTORE.
+   */
+  retired: Bed[];
 }
 
 /**
@@ -873,9 +883,15 @@ export async function getBlockView(
   const block = await store.getBlock(blockId);
   if (!block) return null;
   const beds: AdminBedView[] = [];
+  const retired: Bed[] = [];
   // A deleted bed is retired, not erased (`retireBedByAdmin`): the row and its
-  // history stay in the store, and this filter is what takes it off the page.
-  for (const bed of (await store.getBedsInBlock(blockId)).filter((b) => b.retiredAt === null)) {
+  // history stay in the store, and this split is what takes it off the street
+  // list while still leaving the captain a way back from a mis-tap.
+  for (const bed of await store.getBedsInBlock(blockId)) {
+    if (bed.retiredAt !== null) {
+      retired.push(bed);
+      continue;
+    }
     const adoptions = await store.getActiveAdoptions(bed.plate);
     const stewards = [];
     for (const adoption of adoptions) {
@@ -887,7 +903,7 @@ export async function getBlockView(
     const openReportConfirms = await getOpenReportConfirms(store, bed.plate, openReport);
     beds.push({ bed, stewards, openReport, openReportConfirms });
   }
-  return { block, beds };
+  return { block, beds, retired };
 }
 
 /** What one press of SAVE CHANGES on the block admin page carries. */
@@ -1274,6 +1290,34 @@ export async function retireBedByAdmin(
     }
     if (bed.retiredAt !== null) return;
     await tx.updateBed({ ...bed, retiredAt: now.toISOString() });
+  });
+}
+
+/**
+ * The way back from a mis-tapped delete.
+ *
+ * Retirement is a single nullable field and nothing keyed to the plate was
+ * touched, so undoing it is clearing the field — guard dates, offered slots,
+ * stewards, reports and events all come back exactly as they were, and the
+ * tag still bound to the bed resolves again on the next tap with no deploy.
+ * That matters because the tag→site registry is checked in (tag-bindings.ts)
+ * and has no runtime write path: without this, a mis-tap on the live pilot
+ * would cost that tag its screen until somebody shipped a commit.
+ *
+ * Mirrors `retireBedByAdmin`: the bed must exist in the block it is being
+ * restored on, and restoring a bed that is not retired is a no-op.
+ */
+export async function restoreBedByAdmin(
+  store: Store,
+  args: { blockId: string; plate: string },
+): Promise<void> {
+  await store.transaction(async (tx) => {
+    const bed = await tx.getBed(args.plate);
+    if (!bed || bed.blockId !== args.blockId) {
+      throw new RuleError('bed-not-found', `No bed ${args.plate} in block ${args.blockId}`);
+    }
+    if (bed.retiredAt === null) return;
+    await tx.updateBed({ ...bed, retiredAt: null });
   });
 }
 

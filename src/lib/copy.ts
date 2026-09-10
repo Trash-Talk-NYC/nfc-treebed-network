@@ -562,6 +562,16 @@ export const ADMIN = {
   deleteBedCancel: { en: 'KEEP THIS BED', es: 'CONSERVAR EL CANTERO' },
   /** The block page's flash after a delete. */
   bedDeleted: { en: 'Bed deleted. Its record is kept.', es: 'Cantero eliminado. Su registro se conserva.' },
+  /** The heading over the deleted beds, below the street list. */
+  retiredHead: { en: 'Deleted beds', es: 'Canteros eliminados' },
+  /** Why they are still on the page at all — and the only thing to do with one. */
+  retiredNote: {
+    en: 'Still in the record. Restoring one brings its bed and its tag back exactly as they were.',
+    es: 'Siguen en el registro. Al restaurar uno, su cantero y su etiqueta vuelven tal como estaban.',
+  },
+  restoreBed: { en: 'RESTORE', es: 'RESTAURAR' },
+  /** The block page's flash after a restore. */
+  bedRestored: { en: 'Bed restored.', es: 'Cantero restaurado.' },
   addBedTitle: { en: 'Add a bed', es: 'Añadir un cantero' },
   addBedBody: {
     en: 'A new bed starts closed, with one slot, its guard not yet recorded and no NYC number — the NYC bed is matched from the city’s own data, never typed.',

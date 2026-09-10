@@ -559,7 +559,11 @@ describe('deleting a bed', () => {
     const location = deleted.headers.get('location')!;
     expect(location).toContain('deleted=1');
     const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
-    expect(after).not.toContain(PLATE);
+    // Off the street — no row that opens the panel — and held below it under
+    // "Deleted beds", which is what a mis-tap is restored from.
+    expect(after).not.toContain(`?bed=${PLATE}"`);
+    expect(after).toContain('Deleted beds');
+    expect(after).toContain(PLATE);
     expect(after).toContain('Bed deleted');
     expect(after).toContain('data-es="Cantero eliminado. Su registro se conserva."');
   });
@@ -581,6 +585,23 @@ describe('deleting a bed', () => {
     expect((report.headers.get('content-type') ?? '').startsWith('text/plain')).toBe(true);
   });
 
+  it('sends a steward’s own sub-page to that same calm screen, in either language', async () => {
+    // A bookmarked /mine — or one in history — must not answer a bare line of
+    // English. The door screen is where the calm screen lives, so every
+    // sub-page hands the visitor to it and the language rides along.
+    for (const [query, expected] of [
+      ['', 'assigned to a bed yet'],
+      ['?lang=es', 'todavía no está asignada'],
+    ] as const) {
+      const hop = await fetch(`${origin}/t/${TAG}/mine${query}`, { redirect: 'manual' });
+      expect(hop.status).toBe(302);
+      expect(hop.headers.get('location')).toBe(`/t/${TAG}${query}`);
+      const screen = await fetch(`${origin}${hop.headers.get('location')!}`);
+      expect(screen.status).toBe(404);
+      expect(await screen.text()).toContain(expected);
+    }
+  });
+
   it('leaves the live tap flow untouched: the neighbouring bed and the demo bed still answer', async () => {
     const neighbour = await fetch(`${origin}/t/jjhq9gfj`);
     expect(neighbour.status).toBe(200);
@@ -600,6 +621,58 @@ describe('deleting a bed', () => {
     });
     expect(again.status).toBe(303);
     expect(again.headers.get('location')).toContain('deleted=1');
+  });
+});
+
+describe('restoring a deleted bed', () => {
+  // The same bed the delete tests retired, and the same tag: the registry is
+  // checked in and cannot be rewritten at runtime, so the way back from a
+  // mis-tap has to be a store write the admin itself can make.
+  const PLATE = 'BED-WH-1712';
+  const TAG = '1hc0t9cj';
+
+  it('lists the deleted bed apart from the street, with RESTORE as its only affordance', async () => {
+    const cookie = await adminCookie();
+    const list = await (await fetch(`${origin}${BLOCK_PATH}`, { headers: { cookie } })).text();
+    expect(list).toContain('Deleted beds');
+    expect(list).toContain('data-es="Canteros eliminados"');
+    expect(list).toContain('data-es="RESTAURAR"');
+    expect(list).toContain(`value="${PLATE}"`);
+    // A deleted row is not a way into the panel.
+    expect(list).not.toContain(`?bed=${PLATE}"`);
+  });
+
+  it('puts the bed and its tag back on the press, with nothing else changed', async () => {
+    const cookie = await adminCookie();
+    const restored = await fetch(`${origin}${BLOCK_PATH}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ restore: PLATE }),
+      redirect: 'manual',
+    });
+    expect(restored.status).toBe(303);
+    const location = restored.headers.get('location')!;
+    expect(location).toContain('restored=1');
+    const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    expect(after).toContain(PLATE);
+    expect(after).toContain('Bed restored');
+    expect(after).not.toContain('Deleted beds');
+
+    // And the tap the delete had taken away answers again, with no deploy.
+    const tap = await fetch(`${origin}/t/${TAG}`);
+    expect(tap.status).toBe(200);
+    expect(await tap.text()).not.toContain('assigned to a bed yet');
+  });
+
+  it('takes no restore from a caller with no session', async () => {
+    const refused = await fetch(`${origin}${BLOCK_PATH}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: new URLSearchParams({ restore: 'BED-WH-1713' }),
+      redirect: 'manual',
+    });
+    expect(refused.status).toBe(303);
+    expect(refused.headers.get('location')).toBe('/admin');
   });
 });
 

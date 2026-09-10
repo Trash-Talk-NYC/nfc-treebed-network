@@ -135,3 +135,25 @@ export async function requireBoundTagForPost(
  */
 export const postOnly: APIRoute = () =>
   new Response(null, { status: 405, headers: { allow: 'POST' } });
+
+/**
+ * Refuse a SCREEN whose bound tag resolves to no bed the rules will serve.
+ *
+ * A bed deleted on the admin page is retired, not erased (service.ts,
+ * `retireBedByAdmin`), so `getBedView` answering null for a bound tag is a
+ * normal state rather than a registry typo — and the answer to it already
+ * exists: the door screen renders the calm, bilingual "not assigned to a bed
+ * yet" screen and answers 404 itself. Every sub-page goes there rather than
+ * inventing a line of unstyled English, for the same reason an unbound tag
+ * does in `requireBoundTagForForm`. The query string rides along so the
+ * language a visitor picked survives the hop, and a body that arrived with
+ * the request is accounted for before the answer is written.
+ */
+export async function refuseMissingBedScreen(request: Request, base: string): Promise<Response> {
+  const seeOther = request.method !== 'GET' && request.method !== 'HEAD';
+  await abandonBody(request);
+  return new Response(null, {
+    status: seeOther ? 303 : 302,
+    headers: { location: `${base}${new URL(request.url).search}` },
+  });
+}

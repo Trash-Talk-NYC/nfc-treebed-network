@@ -30,6 +30,7 @@ import {
   MAX_BED_SLOTS,
   RuleError,
   getBlockView,
+  restoreBedByAdmin,
   saveBlockSettings,
   type AdminBedView,
 } from '../../../../lib/service';
@@ -41,6 +42,7 @@ import {
   guardMaterialFrom,
   publicHandle,
   publicInitials,
+  type Bed,
   type GuardMaterial,
   type Report,
 } from '../../../../lib/types';
@@ -77,6 +79,23 @@ if (Astro.request.method === 'POST') {
   // a cookie is not a licence for an unbounded body (request-body.ts).
   const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'admin save');
   if (refused) return refused;
+  // RESTORE carries its plate in the pressed button's own value, so only the
+  // row that was pressed is submitted and nothing else on the page has to hold
+  // a field per deleted bed. It is its own act: the panel's edits are not
+  // committed by it, the same way the delete link navigates away from them.
+  const restorePlate = form.get('restore');
+  if (typeof restorePlate === 'string' && restorePlate !== '') {
+    try {
+      await restoreBedByAdmin(store, { blockId, plate: restorePlate });
+    } catch (err) {
+      if (err instanceof RuleError && err.code === 'bed-not-found') {
+        return new Response('Not found.', { status: 404 });
+      }
+      throw err;
+    }
+    const params = new URLSearchParams({ bed: restorePlate, restored: '1' });
+    return Astro.redirect(langLink(`/admin/blocks/${blockId}?${params}`, lang), 303);
+  }
   const plate = String(form.get('plate') ?? '');
   const referenceAddress = String(form.get('referenceAddress') ?? '');
   // A radio always submits, because the panel draws NOT RECORDED as a fourth
@@ -189,7 +208,7 @@ const view = await getBlockView(store, blockId, Astro.url.searchParams.get('bed'
 if (!view) {
   return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
 }
-const { block, beds } = view;
+const { block, beds, retired } = view;
 
 const selected = beds.find((b) => b.bed.plate === Astro.url.searchParams.get('bed')) ?? null;
 const steward =
@@ -199,6 +218,8 @@ const savedFlash = Astro.url.searchParams.get('saved') === '1';
 // the bed is gone from the list, and the page says so rather than leaving the
 // captain to count beds.
 const deletedFlash = Astro.url.searchParams.get('deleted') === '1';
+// And the way back from one: the bed is on the list again, with its tag live.
+const restoredFlash = Astro.url.searchParams.get('restored') === '1';
 const mode = selected ? 'panel' : 'list';
 // The slot count the panel draws. A "+ ADD SLOT" press — and a refused save
 // that had made one — comes back with that slot on the page, and a hidden
@@ -227,6 +248,13 @@ const bedName = (b: AdminBedView): Phrase => ({
 const bedHeading = (b: AdminBedView): Phrase => ({
   en: `${capitalizeFirst(b.bed.treeType.en)} · bed #${b.bed.blockPosition ?? ''}`,
   es: `${capitalizeFirst(b.bed.treeType.es)} · cantero #${b.bed.blockPosition ?? ''}`,
+});
+
+/** "Willow oak · #2" for a deleted bed, which has no `AdminBedView`. */
+/** "Willow oak · #2" for a deleted bed, which has no `AdminBedView`. */
+const retiredName = (b: Bed): Phrase => ({
+  en: `${b.treeType.en} · #${b.blockPosition ?? ''}`,
+  es: `${b.treeType.es} · #${b.blockPosition ?? ''}`,
 });
 
 /** The bed list's small line, and the panel's three radio segments. */
@@ -374,6 +402,13 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
             </div>
           )
         }
+        {
+          restoredFlash && (
+            <div class="deleted-flash" {...bi(ADMIN.bedRestored, lang)}>
+              {ADMIN.bedRestored[lang]}
+            </div>
+          )
+        }
 
         <div class="street">
           {
@@ -420,6 +455,44 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
         <a class="add-bed" href={langLink(`${base}/add-bed`, lang)} {...bi(ADMIN.addBed, lang)}
           >{ADMIN.addBed[lang]}</a
         >
+
+        {/* The deleted beds, below and apart from the street: a delete is a
+            retirement, so a mis-tap has a way back that needs no deploy — the
+            tag registry is checked in and cannot be rewritten at runtime. A
+            retired row is NOT a link to the panel; RESTORE is all it offers. */}
+        {
+          retired.length > 0 && (
+            <div class="retired">
+              <div class="retired-head" {...bi(ADMIN.retiredHead, lang)}>
+                {ADMIN.retiredHead[lang]}
+              </div>
+              <p class="retired-note" {...bi(ADMIN.retiredNote, lang)}>
+                {ADMIN.retiredNote[lang]}
+              </p>
+              {retired.map((b) => {
+                const name = retiredName(b);
+                return (
+                  <div class="tree retired-row">
+                    <span class="dot dot-closed" />
+                    <span class="nm">
+                      <span {...bi(name, lang)}>{name[lang]}</span>
+                      <small>{b.plate}</small>
+                    </span>
+                    <button
+                      class="restore-act"
+                      type="submit"
+                      name="restore"
+                      value={b.plate}
+                      {...bi(ADMIN.restoreBed, lang)}
+                    >
+                      {ADMIN.restoreBed[lang]}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        }
       </div>
 
       <div class="admin-right">
@@ -1139,6 +1212,41 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     letter-spacing: 0.05em;
     color: var(--theme-alert-ink);
     text-decoration: none;
+  }
+  /* Apart from the street, and quieter than it: these beds are record, not
+     the block the captain came to edit. */
+  .retired {
+    margin-top: 22px;
+    padding-top: 14px;
+    border-top: 2px dashed var(--theme-border);
+  }
+  .retired-head {
+    font-family: 'Barlow', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--theme-muted);
+  }
+  .retired-note {
+    margin: 4px 0 10px;
+    font-size: 12px;
+    color: var(--theme-muted);
+  }
+  .retired-row {
+    opacity: 0.72;
+  }
+  .restore-act {
+    flex: none;
+    border: none;
+    background: transparent;
+    padding: 8px 0;
+    font-family: 'Barlow', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--theme-action);
+    cursor: pointer;
   }
   .deleted-flash {
     margin-top: 10px;

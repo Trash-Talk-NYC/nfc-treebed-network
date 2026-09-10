@@ -18,16 +18,18 @@ import { presentationFor } from '../../../lib/presentation';
 import { problemFor } from '../../../lib/problem';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 import { publicHandle, publicInitials } from '../../../lib/types';
-import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
+import { refuseMissingBedScreen, requireBoundTagForView } from '../../../lib/tag-route';
 
 const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
 if (notBound) return notBound;
 const { plate, base } = bound;
 const store = getStore();
 const view = await getBedView(store, plate);
-if (!view) {
-  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
-}
+// The bed behind a bound tag can legitimately go away: a delete on the admin
+// page retires it (service.ts). Every sub-page sends the visitor to the door
+// screen for that, which is where the calm "not assigned to a bed yet" screen
+// lives and which answers 404 itself.
+if (!view) return await refuseMissingBedScreen(Astro.request, base);
 
 const lang = resolveLang(Astro.url, Astro.cookies);
 const presentation = presentationFor(view.bed);

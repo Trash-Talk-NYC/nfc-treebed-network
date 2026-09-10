@@ -26,6 +26,7 @@ import {
   getBedView,
   getBlockView,
   reportProblem,
+  restoreBedByAdmin,
   retireBedByAdmin,
   saveBlockSettings,
   sendApplause,
@@ -905,6 +906,64 @@ describe('deleting a bed', () => {
     });
     expect(bed.plate).toBe('BED-WH-1717');
     expect(bed.blockPosition).toBe(7);
+  });
+});
+
+describe('restoring a deleted bed', () => {
+  it('hands the bed and its tag back exactly as they were, stewards and reports intact', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ guard: 'metal', offeredSlotNumbers: [1], addSlots: 1 }),
+    });
+    await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
+    const outcome = await reportProblem(store, {
+      plate: W171_PLATE,
+      actorId: 'visitor-1',
+      category: 'litter',
+      note: '',
+      photoAttached: false,
+    });
+    const before = await store.getBed(W171_PLATE);
+
+    await retireBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+    // The list holds it apart while it is deleted — that is what the page
+    // draws the RESTORE control from.
+    const deleted = await getBlockView(store, W171_BLOCK_ID);
+    expect(deleted!.beds.map((b) => b.bed.plate)).not.toContain(W171_PLATE);
+    expect(deleted!.retired.map((b) => b.plate)).toEqual([W171_PLATE]);
+
+    await restoreBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+
+    // Byte for byte the bed that was deleted: the guard, slots, offered
+    // slots, NYC identifiers — only `retiredAt` ever moved.
+    expect(await store.getBed(W171_PLATE)).toEqual(before);
+    const view = await getBlockView(store, W171_BLOCK_ID);
+    expect(view!.retired).toEqual([]);
+    expect(view!.beds.map((b) => b.bed.plate)).toContain(W171_PLATE);
+
+    // And the screens the still-bound tag reaches resolve again, with the
+    // steward and the open report the bed had before the delete.
+    const bedView = await getBedView(store, W171_PLATE);
+    expect(bedView).not.toBeNull();
+    expect(bedView!.stewards).toHaveLength(1);
+    expect(bedView!.openReport!.id).toBe(outcome.report!.id);
+    expect(bedView!.bed.guard).toBe(before!.guard);
+    expect(bedView!.bed.offeredSlots).toBe(before!.offeredSlots);
+  });
+
+  it('is a no-op on a bed that is not deleted, and refuses a plate outside the block', async () => {
+    const store = freshStore();
+    const before = await store.getBed(W171_PLATE);
+    await restoreBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+    expect(await store.getBed(W171_PLATE)).toEqual(before);
+
+    await retireBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+    await expect(
+      restoreBedByAdmin(store, { blockId: DEMO_BLOCK_ID, plate: W171_PLATE }),
+    ).rejects.toMatchObject({ code: 'bed-not-found' });
+    expect((await store.getBed(W171_PLATE))!.retiredAt).not.toBeNull();
   });
 });
 
