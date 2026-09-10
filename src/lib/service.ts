@@ -459,6 +459,12 @@ export const MAX_NAME_CHARS = 60;
 export const MAX_EMAIL_CHARS = 254;
 export const MAX_ADDRESS_CHARS = 120;
 export const MAX_TREE_TYPE_CHARS = 60;
+/**
+ * The bed's given name is engraved on the door screens beside the bed's
+ * identity, so it is held shorter than a person's name fields: long enough
+ * for "La Madrina de la 171" and short enough that one line stays one line.
+ */
+export const MAX_BED_NAME_CHARS = 40;
 
 /** Trim, then bound: what every typed field goes through before it is stored. */
 function capped(raw: string, max: number): string {
@@ -496,6 +502,16 @@ export interface AdoptInput {
    * Validated only when given.
    */
   phone: string;
+  /**
+   * The name the FIRST steward gives the bed ("the first adopter names the
+   * bed" — the captain's own reading). Optional, never required: absent and
+   * empty both mean "no name given", and the bed simply has none. The form
+   * only offers the field to the first steward; `adoptBed` re-decides
+   * eligibility inside the transaction, so a hand-built or raced submission
+   * from anyone else is silently ignored rather than refused — nobody
+   * standing at a tree is shown a rule.
+   */
+  bedName?: string;
 }
 
 export type AdoptField = keyof AdoptInput;
@@ -519,6 +535,9 @@ export function validateAdoptInput(raw: AdoptInput): { values: AdoptInput; error
     lastName: capped(raw.lastName, MAX_NAME_CHARS),
     email: capped(raw.email, MAX_EMAIL_CHARS),
     phone: raw.phone.trim(),
+    // Optional and free-form: bounded, never refused — a name is whatever
+    // its first steward says it is, up to the cap.
+    bedName: capped(raw.bedName ?? '', MAX_BED_NAME_CHARS),
   };
   const errors: AdoptErrors = {};
   if (values.firstName.length < 1) errors.firstName = 'firstName';
@@ -622,11 +641,13 @@ export async function adoptBed(
   return store.transaction(async (tx) => {
     await checkAdoptPreconditions(tx, args.plate);
 
+    const activeBefore = await tx.getActiveAdoptions(args.plate);
+
     // Resolved inside the transaction, against the users it will commit
     // alongside: two neighbours with the same name adopting at the same moment
     // must not both be handed the same handle.
     const existing = new Set<string>();
-    for (const other of await tx.getActiveAdoptions(args.plate)) {
+    for (const other of activeBefore) {
       const user = await tx.getUser(other.userId);
       if (user) existing.add(user.username.toLowerCase());
     }
@@ -674,6 +695,21 @@ export async function adoptBed(
       displayNameHidden: false,
       releasedAt: null,
     });
+    // "The first adopter names the bed" — and from then on it is the bed's
+    // name, not theirs. Decided HERE, against the adoptions as the transaction
+    // sees them, so the form's own offer (rendered before the POST) cannot be
+    // raced into a rename: anyone but the first active steward of a still
+    // unnamed bed has their `bedName` silently dropped — the adoption itself
+    // goes through, and nobody at a tree is shown a rule. A cleared name
+    // (`saveBlockSettings`) puts the bed back to unnamed, so a later first
+    // steward may name it again; an existing name is never overwritten.
+    const bedName = values.bedName ?? '';
+    if (bedName !== '' && activeBefore.length === 0) {
+      const bed = await tx.getBed(args.plate);
+      if (bed && bed.bedName === null) {
+        await tx.updateBed({ ...bed, bedName });
+      }
+    }
     await appendEvent(tx, args.plate, 'adopt', user.id, null, now);
     return user;
   });
@@ -829,6 +865,15 @@ export interface BlockSaveInput {
      * finally written. Clamped, so a hand-built number buys nothing.
      */
     addSlots: number;
+    /**
+     * Take the bed's given name back to unnamed. The name is visitor-supplied
+     * free text on a public screen bolted to a street, so the organisation
+     * must be able to take one down without touching the bed or its adoption
+     * — this switch is that, and the only rename path is a first steward
+     * naming an unnamed bed again. Never re-typed here: the admin removes a
+     * name, it does not author one.
+     */
+    clearBedName?: boolean;
   };
   now?: Date;
 }
@@ -903,6 +948,7 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       ...bed,
       slots,
       offeredSlots,
+      bedName: args.bed.clearBedName ? null : bed.bedName,
       // The toggle only moves the installed date; a guard toggled off keeps
       // its ordered date, so "ordered" is never lost to a mis-tap. A guard
       // already installed keeps its original date.
@@ -1063,6 +1109,7 @@ export async function addBedByAdmin(
       plantingSpaceGlobalId: null,
       treeType: { en, es },
       treeId: '',
+      bedName: null,
       tagUid: '',
       crossStreets: siblings[0]?.crossStreets ?? '',
       address: block.referenceAddress,

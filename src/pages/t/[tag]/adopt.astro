@@ -31,6 +31,7 @@
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import {
+  MAX_BED_NAME_CHARS,
   MAX_EMAIL_CHARS,
   MAX_NAME_CHARS,
   RuleError,
@@ -70,11 +71,17 @@ let openSlots = view.openSlots;
 const slotsAllTaken = view.stewards.length >= bed.slots;
 const noSlotCopy = (): Phrase =>
   slotsAllTaken ? slotsAllTakenMessage(bed.slots) : ADOPT.noOpenSlot;
+// "The first adopter names the bed": the naming field exists only while
+// nobody stewards this bed and nobody has named it. A second steward is not
+// asked and cannot rename — the field simply is not on their form, and
+// `adoptBed` re-decides eligibility inside its transaction so a hand-built or
+// raced POST cannot name past this either.
+const offerNaming = view.stewards.length === 0 && bed.bedName === null;
 let errors: AdoptErrors = {};
 let formError: Phrase | null = null;
 // Everything the visitor typed, echoed back on a validation failure. All of it
 // this time: there is no secret on this form to withhold.
-let values = { firstName: '', lastName: '', email: '', phone: '' };
+let values = { firstName: '', lastName: '', email: '', phone: '', bedName: '' };
 
 if (Astro.request.method === 'POST') {
   // Public and unauthenticated, like every POST here: four short text fields
@@ -88,9 +95,10 @@ if (Astro.request.method === 'POST') {
     lastName: String(form.get('lastName') ?? ''),
     email: String(form.get('email') ?? ''),
     phone: String(form.get('phone') ?? ''),
+    bedName: String(form.get('bedName') ?? ''),
   };
   const checked = validateAdoptInput(input);
-  values = { ...checked.values };
+  values = { ...checked.values, bedName: checked.values.bedName ?? '' };
   errors = checked.errors;
   if (Object.keys(errors).length === 0) {
     try {
@@ -237,6 +245,35 @@ if (Astro.request.method === 'POST') {
             )}
           </div>
 
+          {/* The naming moment — the first steward only ("the first adopter
+              names the bed"). Optional and clearly said so: someone mid-walk
+              finishes without it and the bed simply has no name. The input is
+              set in the plaque type because this is putting a name on
+              something, not another contact field; the spacer below still
+              pins the submit to the bottom, so nothing crowds the button. */}
+          {offerNaming && (
+            <div class="bed-name-field">
+              <label class="field-label" for="bedName">
+                <span {...bi(ADOPT.nameBed, lang)}>{ADOPT.nameBed[lang]}</span> ·{' '}
+                <span class="field-note" {...bi(COMMON.optional, lang)}>
+                  {COMMON.optional[lang]}
+                </span>
+              </label>
+              <input
+                class="field-input bed-name-input"
+                id="bedName"
+                name="bedName"
+                type="text"
+                maxlength={MAX_BED_NAME_CHARS}
+                value={values.bedName}
+                autocomplete="off"
+              />
+              <p class="body-copy field-help" {...bi(ADOPT.nameBedHelp, lang)}>
+                {ADOPT.nameBedHelp[lang]}
+              </p>
+            </div>
+          )}
+
           {/* Says what the form does NOT ask for, which on a street object is
               the reassuring half: nothing to invent, nothing to forget. */}
           <p class="body-copy field-help" {...bi(ADOPT.noSecret, lang)}>
@@ -267,6 +304,12 @@ if (Astro.request.method === 'POST') {
     min-height: 0;
   }
   .field-help { font-size: 13px; margin-top: 6px; }
+  /* Putting a name on something: the plaque's own face, not a contact field. */
+  .bed-name-input {
+    font-family: 'Londrina Solid', cursive;
+    font-weight: 400;
+    font-size: 22px;
+  }
   .privacy {
     font-size: 13px;
     font-weight: 400;

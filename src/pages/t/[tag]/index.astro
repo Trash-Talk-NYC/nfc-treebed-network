@@ -183,6 +183,12 @@ const title = bed
             {presentation.copy.locality && ` · ${presentation.copy.locality}`}
           </div>
           {bed.plantingSpaceId && <div class="ident">#{bed.plantingSpaceId}</div>}
+          {/* The bed's given name, which outlives the steward who gave it —
+              a named bed whose steward left still renders it here. Its own
+              leaf, as typed, in BOTH languages: a name is not translated and
+              is never spliced into the bilingual headline. No element at all
+              on an unnamed bed. */}
+          {bed.bedName !== null && <div class="bed-name">“{bed.bedName}”</div>}
         </div>
         <div class="mid">
           {/* Split into leaves either side of the tree type: the swap sets
@@ -217,6 +223,8 @@ const title = bed
             {presentation.copy.locality && ` · ${presentation.copy.locality}`}
           </div>
           {bed.plantingSpaceId && <div class="ident">#{bed.plantingSpaceId}</div>}
+          {/* Same leaf as door 1: the plaque line a first steward engraved. */}
+          {bed.bedName !== null && <div class="bed-name">“{bed.bedName}”</div>}
         </div>
         <h1 class="title adopted-head">
           <span {...bi(DOOR_STEWARDED.headBefore, lang)}>{DOOR_STEWARDED.headBefore[lang]}</span>
@@ -270,6 +278,15 @@ const title = bed
 <style>
   .unbound-id { margin-top: 10px; }
   .door-sub { margin-top: 14px; }
+  /* The engraved name: plaque type, sized under the headline it sits above.
+     Inherits each door's ink, so it holds AA on both grounds the way every
+     other inherited line does. */
+  .bed-name {
+    font-family: 'Londrina Solid', cursive;
+    font-weight: 400;
+    font-size: 20px;
+    margin-top: 6px;
+  }
   /* The stewards box sits directly under the headline on door 2, which is a
      shorter statement than door 1's — so the block is not optically centred
      here, it is stacked and the actions take the bottom. */
