@@ -39,13 +39,17 @@ export const DEMO_STEWARD_PIN = '1234';
  */
 export function normalizeData(data: Data): Data {
   data.blocks ??= {};
+  // Insert BEFORE the loops, so a freshly inserted checked-in record goes
+  // through exactly the same normalization a stored one does: the next field
+  // added to `Bed` or `Block` is then filled in for both, rather than only
+  // for the stores that had already persisted these.
+  ensureCheckedInBlocks(data);
   for (const bed of Object.values(data.beds)) normalizeBed(bed);
   for (const block of Object.values(data.blocks)) normalizeBlock(block);
   for (const user of Object.values(data.users)) normalizeUser(user);
   for (const adoption of data.adoptions) normalizeAdoption(adoption);
   for (const report of data.reports) normalizeReport(report);
   for (const event of data.events) normalizeEvent(event);
-  ensureCheckedInBlocks(data);
   return data;
 }
 
@@ -295,7 +299,9 @@ export function ensureCheckedInBlocks(data: Data): void {
     data.beds[bed.plate] ??= bed;
   }
   const demo = data.beds['BED-HRL-0847'];
-  if (demo && demo.blockId === null) {
+  // `?? null`: this runs ahead of normalization, so a record written before
+  // `blockId` existed carries undefined rather than null.
+  if (demo && (demo.blockId ?? null) === null) {
     demo.blockId = DEMO_BLOCK_ID;
     demo.blockPosition = 1;
   }

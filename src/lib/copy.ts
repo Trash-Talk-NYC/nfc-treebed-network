@@ -95,6 +95,13 @@ export const ADOPT = {
     en: 'Both slots are taken. This bed has the people it needs — but others on the block are still waiting.',
     es: 'Los dos lugares están ocupados. Este cantero ya tiene quien lo cuide, pero otros de la cuadra siguen esperando.',
   },
+  // A bed with slots built but not OFFERED on the admin page (`offeredSlots`).
+  // "Both slots are taken" would be a lie there, and this screen is only
+  // reachable by typing the URL — the door screen shows no invitation at all.
+  noOpenSlot: {
+    en: 'There’s no open slot on this bed right now — but others on the block are still waiting, and this one still needs eyes on it.',
+    es: 'Ahora mismo no hay ningún lugar libre en este cantero, pero otros de la cuadra siguen esperando y este sigue necesitando quien lo mire.',
+  },
   slotsJustFilled: {
     en: 'Both slots just filled up. This bed has the people it needs.',
     es: 'Los dos lugares se acaban de ocupar. Este cantero ya tiene quien lo cuide.',
@@ -235,6 +242,8 @@ export const ADMIN = {
   },
   keyLabel: { en: 'Admin key', es: 'Clave de administración' },
   signInSubmit: { en: 'OPEN THE ADMIN', es: 'ABRIR LA ADMINISTRACIÓN' },
+  /** In the admin bar on every admin screen: the way back out of the PII. */
+  signOut: { en: 'SIGN OUT', es: 'CERRAR SESIÓN' },
   badKey: { en: 'That key doesn’t open this.', es: 'Esa clave no abre esto.' },
   blocksTitle: { en: 'Blocks', es: 'Cuadras' },
   demoBadge: { en: 'DEMO', es: 'DEMO' },
@@ -319,6 +328,15 @@ export const ADMIN = {
   treeTypeEs: { en: 'Tree type (Spanish)', es: 'Tipo de árbol (español)' },
   addBedSubmit: { en: 'ADD THE BED', es: 'AÑADIR EL CANTERO' },
   treeTypeMissing: { en: 'Name the tree.', es: 'Dinos el árbol.' },
+  /**
+   * A slot selection with a gap in it. `offeredSlots` is a count covering
+   * slots 1..n, so the switches have to run from the first open one — saving
+   * the size of a gapped selection would re-render a switch nobody flipped.
+   */
+  slotsNotContiguous: {
+    en: 'Open slots run in order. Switch on the first free slot before the one after it.',
+    es: 'Los lugares se abren en orden. Enciende el primer lugar libre antes del siguiente.',
+  },
 } satisfies Record<string, Phrase>;
 
 /** The steward's own view of their bed. */

@@ -36,23 +36,35 @@ if (gate.refused) return gate.refused;
 const store = getStore();
 const blockId = Astro.params.block ?? '';
 
+// A refused save re-renders this page rather than redirecting, so the
+// switches come back exactly as they were left — the point of refusing is
+// that nothing silently becomes a different selection.
+let slotError: Phrase | null = null;
+let submitted: { address: string; guard: boolean; slots: Set<number> } | null = null;
+
 if (Astro.request.method === 'POST') {
   // Behind the session, but read under the same bounds as every public POST:
   // a cookie is not a licence for an unbounded body (request-body.ts).
   const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'admin save');
   if (refused) return refused;
   const plate = String(form.get('plate') ?? '');
+  const referenceAddress = String(form.get('referenceAddress') ?? '');
+  const guardInstalled = form.get('guard') !== null;
+  // The slot NUMBERS, not how many of them there are: `offeredSlots` is a
+  // count covering slots 1..n, so a gapped selection has no representation
+  // and saving its size would flip a different switch than the captain did.
+  const offeredSlotNumbers = form.getAll('slot-open').map((value) => Number(value));
   try {
     await saveBlockSettings(store, {
       blockId,
-      referenceAddress: String(form.get('referenceAddress') ?? ''),
+      referenceAddress,
       bed:
         plate === ''
           ? undefined
           : {
               plate,
-              guardInstalled: form.get('guard') !== null,
-              offeredUnfilled: form.getAll('slot-open').length,
+              guardInstalled,
+              offeredSlotNumbers,
               addSlot: form.get('add-slot') !== null,
             },
     });
@@ -60,12 +72,24 @@ if (Astro.request.method === 'POST') {
     if (err instanceof RuleError && err.code === 'bed-not-found') {
       return new Response('Not found.', { status: 404 });
     }
-    throw err;
+    if (err instanceof RuleError && err.code === 'invalid-input') {
+      slotError = ADMIN.slotsNotContiguous;
+      submitted = {
+        address: referenceAddress,
+        guard: guardInstalled,
+        slots: new Set(offeredSlotNumbers.filter(Number.isFinite)),
+      };
+      Astro.response.status = 422;
+    } else {
+      throw err;
+    }
   }
-  const params = new URLSearchParams();
-  if (plate !== '') params.set('bed', plate);
-  params.set('saved', '1');
-  return Astro.redirect(langLink(`/admin/blocks/${blockId}?${params}`, lang), 303);
+  if (slotError === null) {
+    const params = new URLSearchParams();
+    if (plate !== '') params.set('bed', plate);
+    params.set('saved', '1');
+    return Astro.redirect(langLink(`/admin/blocks/${blockId}?${params}`, lang), 303);
+  }
 }
 
 const view = await getBlockView(store, blockId);
@@ -117,7 +141,7 @@ function bedState(b: AdminBedView): { dot: string; badge: Phrase } {
   return { dot: 'dot-closed', badge: ADMIN.badgeClosed };
 }
 
-const saveState = savedFlash ? ADMIN.saved : ADMIN.noUnsaved;
+const saveState = slotError ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.noUnsaved;
 ---
 
 <AdminScreen
@@ -141,7 +165,11 @@ const saveState = savedFlash ? ADMIN.saved : ADMIN.noUnsaved;
       <div class="admin-left">
         <label class="addrbar">
           <span class="addr-label" {...bi(ADMIN.refAddress, lang)}>{ADMIN.refAddress[lang]}</span>
-          <input name="referenceAddress" value={block.referenceAddress} autocomplete="off" />
+          <input
+            name="referenceAddress"
+            value={submitted ? submitted.address : block.referenceAddress}
+            autocomplete="off"
+          />
         </label>
         <div class="blockmeta">
           {
@@ -312,13 +340,18 @@ const saveState = savedFlash ? ADMIN.saved : ADMIN.noUnsaved;
                   class="sw"
                   name="guard"
                   value="1"
-                  checked={selected.bed.guardInstalledAt !== null}
+                  checked={submitted ? submitted.guard : selected.bed.guardInstalledAt !== null}
                 />
               </label>
 
               <div class="panel-title slots-head" {...bi(slotsFilledLabel(selected.stewards.length, selected.bed.slots), lang)}>
                 {slotsFilledLabel(selected.stewards.length, selected.bed.slots)[lang]}
               </div>
+              {slotError && (
+                <div class="field-error" {...bi(slotError, lang)}>
+                  {slotError[lang]}
+                </div>
+              )}
               {Array.from({ length: selected.bed.slots }, (_, i) => i + 1).map((i) => {
                 const filled = selected.stewards[i - 1];
                 if (filled) {
@@ -344,7 +377,7 @@ const saveState = savedFlash ? ADMIN.saved : ADMIN.noUnsaved;
                     </div>
                   );
                 }
-                const offered = i <= selected.bed.offeredSlots;
+                const offered = submitted ? submitted.slots.has(i) : i <= selected.bed.offeredSlots;
                 const word = offered ? ADMIN.slotOpen : ADMIN.slotNotOffered;
                 return (
                   <label class="slotline">

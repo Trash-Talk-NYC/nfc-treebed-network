@@ -155,6 +155,12 @@ export interface BedView {
   bed: Bed;
   /** Active stewards, oldest first. The word is "steward", not "adopter". */
   stewards: Array<{ adoption: Adoption; user: User }>;
+  /**
+   * Slots a visitor may actually take, which is the same bound `adoptBed`
+   * refuses on: the physical slots AND the ones the captain has offered on
+   * the admin page. Anything else invites somebody to fill in a form the
+   * rules must then refuse, and explains it with a reason that isn't true.
+   */
   openSlots: number;
   openReport: Report | null;
 }
@@ -188,7 +194,7 @@ export async function getBedView(store: Store, plate: string): Promise<BedView |
   return {
     bed,
     stewards,
-    openSlots: Math.max(0, bed.slots - stewards.length),
+    openSlots: Math.max(0, Math.min(bed.slots, bed.offeredSlots) - stewards.length),
     openReport: (await store.getOpenReport(plate)) ?? null,
   };
 }
@@ -772,8 +778,16 @@ export interface BlockSaveInput {
   bed?: {
     plate: string;
     guardInstalled: boolean;
-    /** How many UNFILLED slots the captain left switched on. */
-    offeredUnfilled: number;
+    /**
+     * WHICH unfilled slots the captain left switched on, by slot number.
+     *
+     * The indices rather than a count, because `offeredSlots` is a count
+     * covering slots 1..n: a selection that skips one cannot be stored, and
+     * storing its size instead re-renders a different switch than the one
+     * that was flipped. Carrying the indices is what lets the save refuse
+     * that selection and say so, rather than silently re-mapping it.
+     */
+    offeredSlotNumbers: number[];
     /** "+ ADD SLOT" — grows `slots` by one, up to MAX_BED_SLOTS. */
     addSlot: boolean;
   };
@@ -789,6 +803,36 @@ export interface BlockSaveInput {
  * and save can never be switched away — a filled slot always counts as
  * offered, and the count is clamped to what physically exists.
  */
+/**
+ * The offered count a set of switched-on slot numbers means, or a refusal.
+ *
+ * `offeredSlots` covers slots 1..n, so the only selections it can hold are
+ * the ones that run from the first unfilled slot without a gap. A gapped
+ * selection is refused as `invalid-input` — the alternative is saving its
+ * size, which re-renders switches the captain never touched.
+ *
+ * Filled slots are always offered, whatever arrived: a steward adopting
+ * between the render and the save can never be switched away.
+ */
+function offeredSlotCount(numbers: number[], filled: number, slots: number): number {
+  const chosen = new Set<number>();
+  for (const raw of numbers) {
+    const n = Math.floor(raw);
+    // Out of range or already filled: the render puts no switch there, so
+    // this is not a state the page can produce.
+    if (!Number.isFinite(n) || n <= filled || n > slots) {
+      throw new RuleError('invalid-input', `slot ${raw} is not switchable on this bed`);
+    }
+    chosen.add(n);
+  }
+  for (let n = filled + 1; n <= filled + chosen.size; n += 1) {
+    if (!chosen.has(n)) {
+      throw new RuleError('invalid-input', 'offered slots must run from the first open one');
+    }
+  }
+  return filled + chosen.size;
+}
+
 export async function saveBlockSettings(store: Store, args: BlockSaveInput): Promise<void> {
   const now = args.now ?? new Date();
   await store.transaction(async (tx) => {
@@ -806,8 +850,7 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
     }
     const slots = args.bed.addSlot ? Math.min(MAX_BED_SLOTS, bed.slots + 1) : bed.slots;
     const filled = (await tx.getActiveAdoptions(bed.plate)).length;
-    const offeredUnfilled = Math.max(0, Math.floor(args.bed.offeredUnfilled));
-    const offeredSlots = Math.min(slots, filled + offeredUnfilled);
+    const offeredSlots = offeredSlotCount(args.bed.offeredSlotNumbers, filled, slots);
     await tx.updateBed({
       ...bed,
       slots,
@@ -994,9 +1037,13 @@ export async function addBedByAdmin(
  */
 async function nextPlate(store: Store, siblings: Bed[]): Promise<string> {
   const prefix = siblings[0]?.plate.replace(/-\d+$/, '') ?? 'BED-NEW';
+  // The suffix keeps the siblings' own width, so a block's plates stay one
+  // series: BED-HRL-0847 is followed by BED-HRL-0848, not BED-HRL-848.
+  const width = Math.max(1, ...siblings.map((b) => (/(\d+)$/.exec(b.plate)?.[1] ?? '').length));
+  const suffix = (n: number): string => String(n).padStart(width, '0');
   let n = Math.max(0, ...siblings.map((b) => Number(/(\d+)$/.exec(b.plate)?.[1] ?? 0))) + 1;
-  while (await store.getBed(`${prefix}-${n}`)) n += 1;
-  return `${prefix}-${n}`;
+  while (await store.getBed(`${prefix}-${suffix(n)}`)) n += 1;
+  return `${prefix}-${suffix(n)}`;
 }
 
 async function appendEvent(

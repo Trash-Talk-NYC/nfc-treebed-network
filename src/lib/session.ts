@@ -61,17 +61,40 @@ export function assertSessionSecret(): void {
   getSecret();
 }
 
-function sign(value: string): string {
-  const mac = createHmac('sha256', getSecret()).update(value).digest('base64url');
+/**
+ * What a signature is FOR, mixed into the MAC so one cookie's value can never
+ * be replayed as another's.
+ *
+ * `ACTOR` is the empty label, and stays empty on purpose: it is what
+ * `tg_session` and `tg_visitor` have always been signed with, and the live
+ * pilot holds year-long steward cookies signed that way. The two share a
+ * domain by design — `getExistingActorId` accepts either as the acting
+ * identity — so there is nothing between them to separate.
+ *
+ * `ADMIN` is its own label, which is the separation that matters: the admin
+ * gate no longer rests on no other signed value ever starting with `admin.`,
+ * because a MAC made for an actor id does not verify as an admin one.
+ */
+const PURPOSE = { ACTOR: '', ADMIN: 'admin' } as const;
+type Purpose = (typeof PURPOSE)[keyof typeof PURPOSE];
+
+function macInput(value: string, purpose: Purpose): string {
+  return purpose === '' ? value : `${purpose}:${value}`;
+}
+
+function sign(value: string, purpose: Purpose): string {
+  const mac = createHmac('sha256', getSecret()).update(macInput(value, purpose)).digest('base64url');
   return `${value}.${mac}`;
 }
 
-function unsign(signed: string): string | null {
+function unsign(signed: string, purpose: Purpose): string | null {
   const dot = signed.lastIndexOf('.');
   if (dot <= 0) return null;
   const value = signed.slice(0, dot);
   const mac = Buffer.from(signed.slice(dot + 1));
-  const expected = Buffer.from(createHmac('sha256', getSecret()).update(value).digest('base64url'));
+  const expected = Buffer.from(
+    createHmac('sha256', getSecret()).update(macInput(value, purpose)).digest('base64url'),
+  );
   if (mac.length !== expected.length || !timingSafeEqual(mac, expected)) return null;
   return value;
 }
@@ -169,17 +192,29 @@ export function verifyAdminKey(supplied: string): boolean {
 }
 
 export function setAdminSession(cookies: AstroCookies): void {
-  cookies.set(ADMIN_COOKIE, sign(`admin.${Date.now()}`), {
+  cookies.set(ADMIN_COOKIE, sign(`admin.${Date.now()}`, PURPOSE.ADMIN), {
     ...cookieOptions,
     maxAge: ADMIN_SESSION_SECONDS,
   });
+}
+
+/**
+ * Close the admin session on this device.
+ *
+ * The counterpart the 30-day PII cookie has to have: the captain works from
+ * a phone on the sidewalk and hands it over to write a neighbour in, and the
+ * only other ways out are clearing site data or rotating `TREEBED_ADMIN_KEY`,
+ * which signs out every device at once.
+ */
+export function clearAdminSession(cookies: AstroCookies): void {
+  cookies.delete(ADMIN_COOKIE, { path: cookieOptions.path });
 }
 
 /** Whether this request carries a live admin session. */
 export function isAdminSession(cookies: AstroCookies): boolean {
   if (!adminEnabled()) return false;
   const raw = cookies.get(ADMIN_COOKIE)?.value;
-  const value = raw ? unsign(raw) : null;
+  const value = raw ? unsign(raw, PURPOSE.ADMIN) : null;
   if (value === null || !value.startsWith('admin.')) return false;
   const issuedAt = Number(value.slice('admin.'.length));
   // The cookie's own maxAge already expires it client-side; this is the
@@ -189,11 +224,11 @@ export function isAdminSession(cookies: AstroCookies): boolean {
 
 export function getSessionUserId(cookies: AstroCookies): string | null {
   const raw = cookies.get(SESSION_COOKIE)?.value;
-  return raw ? unsign(raw) : null;
+  return raw ? unsign(raw, PURPOSE.ACTOR) : null;
 }
 
 export function setSessionUser(cookies: AstroCookies, userId: string): void {
-  cookies.set(SESSION_COOKIE, sign(userId), cookieOptions);
+  cookies.set(SESSION_COOKIE, sign(userId, PURPOSE.ACTOR), cookieOptions);
 }
 
 /**
@@ -204,7 +239,7 @@ export function getActorId(cookies: AstroCookies): string {
   const existing = getExistingActorId(cookies);
   if (existing) return existing;
   const visitorId = `visitor-${randomUUID()}`;
-  cookies.set(VISITOR_COOKIE, sign(visitorId), cookieOptions);
+  cookies.set(VISITOR_COOKIE, sign(visitorId, PURPOSE.ACTOR), cookieOptions);
   return visitorId;
 }
 
@@ -221,5 +256,5 @@ export function getExistingActorId(cookies: AstroCookies): string | null {
   const userId = getSessionUserId(cookies);
   if (userId) return userId;
   const raw = cookies.get(VISITOR_COOKIE)?.value;
-  return raw ? unsign(raw) : null;
+  return raw ? unsign(raw, PURPOSE.ACTOR) : null;
 }

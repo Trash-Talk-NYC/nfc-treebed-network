@@ -21,8 +21,9 @@ import '../styles/global.css';
 import '../styles/admin.css';
 import { bi, biAttr } from '../lib/bilingual';
 import { ADMIN, LANG_COPY } from '../lib/copy';
-import { otherLang, withLang, type Lang } from '../lib/i18n';
+import { langLink, otherLang, withLang, type Lang } from '../lib/i18n';
 import { themeStyle, type Presentation } from '../lib/presentation';
+import { isAdminSession } from '../lib/session';
 
 interface Props {
   title: string;
@@ -33,6 +34,11 @@ interface Props {
 }
 
 const { title, lang, presentation, url } = Astro.props;
+
+// The way out of a 30-day PII session, on every screen that session opens.
+// A plain form, so it needs no script; the key screen has nothing to sign
+// out of.
+const signedIn = isAdminSession(Astro.cookies);
 ---
 
 <!doctype html>
@@ -62,6 +68,15 @@ const { title, lang, presentation, url } = Astro.props;
           {...biAttr('aria-label', LANG_COPY.toggleLabel, lang)}
           {...bi(LANG_COPY.toggleText, lang)}>{LANG_COPY.toggleText[lang]}</a
         >
+        {
+          signedIn && (
+            <form method="POST" action={langLink('/admin/sign-out', lang)} class="admin-signout-form">
+              <button class="admin-signout" type="submit" {...bi(ADMIN.signOut, lang)}>
+                {ADMIN.signOut[lang]}
+              </button>
+            </form>
+          )
+        }
       </header>
       <slot />
     </div>

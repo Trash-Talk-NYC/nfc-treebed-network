@@ -163,4 +163,91 @@ describe('the admin door', () => {
     const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
     expect(after).toMatch(/name="slot-open"[^>]*checked/);
   });
+
+  it('refuses a gapped slot selection and comes back with the switches as they were left', async () => {
+    const cookie = await adminCookie();
+    // Two slots, then slot 2 alone: `offeredSlots` is a count covering 1..n,
+    // so this selection has no representation and must not be re-mapped.
+    await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1714`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ plate: 'BED-WH-1714', 'add-slot': '1' }),
+      redirect: 'manual',
+    });
+    const refused = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1714`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ plate: 'BED-WH-1714', 'slot-open': '2' }),
+      redirect: 'manual',
+    });
+    expect(refused.status).toBe(422);
+    const html = await refused.text();
+    // Said in both languages, and the switch the captain flipped is the one
+    // that comes back on.
+    expect(html).toContain('Open slots run in order');
+    expect(html).toContain('Los lugares se abren en orden');
+    expect(html).toMatch(/name="slot-open" value="2"[^>]*checked/);
+    expect(html).not.toMatch(/name="slot-open" value="1"[^>]*checked/);
+    // Nothing was written.
+    const bed = await (
+      await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1714`, { headers: { cookie } })
+    ).text();
+    expect(bed).not.toMatch(/name="slot-open"[^>]*checked/);
+  });
+});
+
+describe('the way out of the admin', () => {
+  it('offers sign-out on the admin page and clears the session cookie', async () => {
+    const cookie = await adminCookie();
+    const page = await (await fetch(`${origin}${BLOCK_PATH}`, { headers: { cookie } })).text();
+    expect(page).toContain('/admin/sign-out');
+    expect(page).toContain('data-es="CERRAR SESIÓN"');
+
+    const out = await fetch(`${origin}/admin/sign-out`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      redirect: 'manual',
+    });
+    expect(out.status).toBe(303);
+    expect(out.headers.get('location')).toBe('/admin');
+    const cleared = out.headers.getSetCookie().find((line) => line.startsWith('tg_admin='));
+    expect(cleared).toBeTruthy();
+    expect(cleared).toMatch(/tg_admin=;|Max-Age=0|Expires=Thu, 01 Jan 1970/);
+  });
+
+  it('has nothing to sign out of without a session, and no key screen control', async () => {
+    const refused = await fetch(`${origin}/admin/sign-out`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      redirect: 'manual',
+    });
+    expect(refused.status).toBe(303);
+    expect(refused.headers.get('location')).toBe('/admin');
+    expect(await (await fetch(`${origin}/admin`)).text()).not.toContain('/admin/sign-out');
+  });
+
+  it('answers a GET at the sign-out route 405 rather than a logged 404', async () => {
+    const cookie = await adminCookie();
+    const response = await fetch(`${origin}/admin/sign-out`, { headers: { cookie } });
+    expect(response.status).toBe(405);
+    expect(response.headers.get('allow')).toBe('POST');
+  });
+
+  it('will not take an actor cookie as an admin one', async () => {
+    // A signed `tg_visitor`, minted by the door screen, replayed as tg_admin:
+    // the MACs are made for different purposes, so it cannot verify.
+    const door = await fetch(`${origin}/t/2mq2amhv`);
+    const visitor = door.headers
+      .getSetCookie()
+      .map((line) => line.split(';')[0]!)
+      .find((pair) => pair.startsWith('tg_visitor='));
+    expect(visitor).toBeTruthy();
+    const value = visitor!.slice('tg_visitor='.length);
+    const replayed = await fetch(`${origin}${BLOCK_PATH}`, {
+      headers: { cookie: `tg_admin=${value}` },
+      redirect: 'manual',
+    });
+    expect(replayed.status).toBe(302);
+    expect(replayed.headers.get('location')).toBe('/admin');
+  });
 });

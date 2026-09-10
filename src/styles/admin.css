@@ -64,6 +64,28 @@
   text-decoration: none;
   -webkit-tap-highlight-color: transparent;
 }
+/* The way out of the PII session, beside the toggle: the same pill, in the
+   bar's own ink, so it reads as chrome rather than as a street button. */
+.admin-bar .admin-signout-form {
+  display: flex;
+}
+.admin-bar .admin-signout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 16px;
+  border: 2px solid color-mix(in srgb, var(--theme-ground) 45%, var(--theme-ink));
+  background: transparent;
+  color: var(--theme-ground);
+  font-family: 'Barlow', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
 
 /* ── The two panes ────────────────────────────────────────────────── */
 .admin-card {

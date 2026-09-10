@@ -116,6 +116,12 @@
 //                                      for an unbounded body, and an
 //                                      unauthenticated POST here reaches no
 //                                      store read and writes nothing.
+//   POST /admin/sign-out               Closes the admin session. Behind the
+//                                      same gate, and it carries nothing but
+//                                      the press, so the body is
+//                                      `abandonBody`'d rather than read: a
+//                                      form with no fields has no form to
+//                                      buffer.
 //   Any other method, any route        A route bounds only the method it
 //                                      exports; Astro answers the rest itself,
 //                                      body untouched. The four POST routes

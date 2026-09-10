@@ -61,6 +61,11 @@ const presentation = presentationFor(view.bed);
 const bed = view.bed;
 
 let openSlots = view.openSlots;
+// Why there is nothing to fill in: every physical slot taken, or a slot the
+// captain has simply not offered yet. Two different facts, and the screen must
+// not tell the visitor the wrong one.
+const slotsAllTaken = view.stewards.length >= bed.slots;
+const noSlotCopy = (): Phrase => (slotsAllTaken ? ADOPT.full : ADOPT.noOpenSlot);
 let errors: AdoptErrors = {};
 let formError: Phrase | null = null;
 // Everything the visitor typed, echoed back on a validation failure. All of it
@@ -93,7 +98,9 @@ if (Astro.request.method === 'POST') {
         // The only rule this form can lose to now. Nothing here hashes, so
         // there is no CPU bound left to be shed at, and the handle is derived
         // rather than chosen, so there is no collision to report either.
-        formError = ADOPT.slotsJustFilled;
+        // Fully offered, so losing the last slot to somebody else is what
+        // just happened; on a bed with a slot held back it never was one.
+        formError = bed.offeredSlots >= bed.slots ? ADOPT.slotsJustFilled : ADOPT.noOpenSlot;
         openSlots = 0;
       } else {
         throw err;
@@ -123,8 +130,8 @@ if (Astro.request.method === 'POST') {
     {
       openSlots === 0 ? (
         <>
-          <p class="body-copy" {...bi(formError ?? ADOPT.full, lang)}>
-            {(formError ?? ADOPT.full)[lang]}
+          <p class="body-copy" {...bi(formError ?? noSlotCopy(), lang)}>
+            {(formError ?? noSlotCopy())[lang]}
           </p>
           <div class="spacer" />
           <a

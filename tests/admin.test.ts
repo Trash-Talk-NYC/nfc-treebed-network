@@ -21,6 +21,7 @@ import {
   addBedByAdmin,
   addStewardByAdmin,
   adoptBed,
+  getBedView,
   getBlockView,
   saveBlockSettings,
   validateAdminStewardInput,
@@ -149,7 +150,7 @@ describe('offered slots are a rule, not a display state', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredUnfilled: 1, addSlot: false },
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlot: false },
     });
     await adoptBed(store, {
       plate: W171_PLATE,
@@ -164,7 +165,61 @@ describe('offered slots are a rule, not a display state', () => {
   });
 });
 
+describe('the visitor screens read the same bound the rules do', () => {
+  it('reports no open slot on a bed the captain has not offered', async () => {
+    const store = freshStore();
+    const view = await getBedView(store, W171_PLATE);
+    expect(view!.bed.slots).toBeGreaterThan(0);
+    // The door screen and adopt.astro gate the invitation on this number, so
+    // an unoffered bed must never show a form the rules would then refuse.
+    expect(view!.openSlots).toBe(0);
+
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlot: false },
+    });
+    expect((await getBedView(store, W171_PLATE))!.openSlots).toBe(1);
+  });
+});
+
 describe('saving the block admin page', () => {
+  it('refuses a gapped slot selection rather than re-mapping it to a count', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlot: true },
+    });
+    await expect(
+      saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [2], addSlot: false },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid-input' });
+    // Nothing was written, address included.
+    expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(0);
+
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1, 2], addSlot: false },
+    });
+    expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(2);
+  });
+
+  it('refuses a slot number the page never rendered a switch for', async () => {
+    const store = freshStore();
+    await expect(
+      saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [9], addSlot: false },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid-input' });
+  });
+
   it('updates the typed reference address, and a blank one keeps what stands', async () => {
     const store = freshStore();
     await saveBlockSettings(store, { blockId: W171_BLOCK_ID, referenceAddress: '710 W 171st St' });
@@ -179,7 +234,7 @@ describe('saving the block admin page', () => {
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled, offeredUnfilled: 0, addSlot: false },
+        bed: { plate: W171_PLATE, guardInstalled, offeredSlotNumbers: [], addSlot: false },
       });
     await save(true);
     const installed = (await store.getBed(W171_PLATE))!.guardInstalledAt;
@@ -196,10 +251,17 @@ describe('saving the block admin page', () => {
   it('adds a slot up to the bound, and clamps what is offered to what exists', async () => {
     const store = freshStore();
     for (let i = 0; i < MAX_BED_SLOTS + 2; i++) {
+      // Every switch the page would render for this bed, switched on.
+      const { slots } = (await store.getBed(W171_PLATE))!;
       await saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled: false, offeredUnfilled: 99, addSlot: true },
+        bed: {
+          plate: W171_PLATE,
+          guardInstalled: false,
+          offeredSlotNumbers: Array.from({ length: slots }, (_, n) => n + 1),
+          addSlot: true,
+        },
       });
     }
     const bed = (await store.getBed(W171_PLATE))!;
@@ -213,7 +275,7 @@ describe('saving the block admin page', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredUnfilled: 0, addSlot: false },
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlot: false },
     });
     expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(1);
   });
@@ -298,6 +360,16 @@ describe('adding a bed', () => {
     expect(bed.plantingSpaceGlobalId).toBeNull();
     // Spanish falls back to the English name rather than to no name.
     expect(bed.treeType.es).toBe('Pin oak');
+  });
+
+  it('keeps the siblings’ zero padding, so a block’s plates stay one series', async () => {
+    const store = freshStore();
+    // The demo block's one bed is BED-HRL-0847 — four padded digits.
+    const bed = await addBedByAdmin(store, {
+      blockId: 'w-138-acp-demo',
+      treeType: { en: 'Pin oak', es: 'Roble palustre' },
+    });
+    expect(bed.plate).toBe('BED-HRL-0848');
   });
 
   it('refuses a nameless tree', async () => {
