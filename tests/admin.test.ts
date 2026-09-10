@@ -150,7 +150,7 @@ describe('offered slots are a rule, not a display state', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlot: false },
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
     });
     await adoptBed(store, {
       plate: W171_PLATE,
@@ -177,7 +177,7 @@ describe('the visitor screens read the same bound the rules do', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlot: false },
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
     });
     expect((await getBedView(store, W171_PLATE))!.openSlots).toBe(1);
   });
@@ -189,13 +189,13 @@ describe('saving the block admin page', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlot: true },
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlots: 1 },
     });
     await expect(
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [2], addSlot: false },
+        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [2], addSlots: 0 },
       }),
     ).rejects.toMatchObject({ code: 'invalid-input' });
     // Nothing was written, address included.
@@ -204,7 +204,7 @@ describe('saving the block admin page', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1, 2], addSlot: false },
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1, 2], addSlots: 0 },
     });
     expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(2);
   });
@@ -215,7 +215,7 @@ describe('saving the block admin page', () => {
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [9], addSlot: false },
+        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [9], addSlots: 0 },
       }),
     ).rejects.toMatchObject({ code: 'invalid-input' });
   });
@@ -234,7 +234,7 @@ describe('saving the block admin page', () => {
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled, offeredSlotNumbers: [], addSlot: false },
+        bed: { plate: W171_PLATE, guardInstalled, offeredSlotNumbers: [], addSlots: 0 },
       });
     await save(true);
     const installed = (await store.getBed(W171_PLATE))!.guardInstalledAt;
@@ -260,7 +260,7 @@ describe('saving the block admin page', () => {
           plate: W171_PLATE,
           guardInstalled: false,
           offeredSlotNumbers: Array.from({ length: slots }, (_, n) => n + 1),
-          addSlot: true,
+          addSlots: 1,
         },
       });
     }
@@ -269,13 +269,36 @@ describe('saving the block admin page', () => {
     expect(bed.offeredSlots).toBe(MAX_BED_SLOTS);
   });
 
+  it('absorbs a slot adopted between the render and the save rather than refusing the press', async () => {
+    // The page drew both switches on an empty bed and the captain flipped
+    // both. A neighbour adopted slot 1 in between, so the save arrives naming
+    // a slot that is now filled — which must not cost the captain the whole
+    // press, guard toggle and address included.
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 1 },
+    });
+    await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '712 W 171st St',
+      bed: { plate: W171_PLATE, guardInstalled: true, offeredSlotNumbers: [1, 2], addSlots: 0 },
+    });
+    const bed = (await store.getBed(W171_PLATE))!;
+    expect(bed.offeredSlots).toBe(2);
+    expect(bed.guardInstalledAt).not.toBeNull();
+    expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toBe('712 W 171st St');
+  });
+
   it('never switches away a filled slot: the offered count always covers the stewards', async () => {
     const store = freshStore();
     await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlot: false },
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlots: 0 },
     });
     expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(1);
   });

@@ -40,7 +40,8 @@ const blockId = Astro.params.block ?? '';
 // switches come back exactly as they were left — the point of refusing is
 // that nothing silently becomes a different selection.
 let slotError: Phrase | null = null;
-let submitted: { address: string; guard: boolean; slots: Set<number> } | null = null;
+let submitted: { address: string; guard: boolean; slots: Set<number>; addSlots: number } | null =
+  null;
 
 if (Astro.request.method === 'POST') {
   // Behind the session, but read under the same bounds as every public POST:
@@ -54,6 +55,11 @@ if (Astro.request.method === 'POST') {
   // count covering slots 1..n, so a gapped selection has no representation
   // and saving its size would flip a different switch than the captain did.
   const offeredSlotNumbers = form.getAll('slot-open').map((value) => Number(value));
+  // Summed rather than counted: a refused save carries the slots it already
+  // added back in one hidden field, and the button adds one more on top.
+  const addSlots = form
+    .getAll('add-slot')
+    .reduce((total, value) => total + (Number.isFinite(Number(value)) ? Number(value) : 0), 0);
   try {
     await saveBlockSettings(store, {
       blockId,
@@ -65,7 +71,7 @@ if (Astro.request.method === 'POST') {
               plate,
               guardInstalled,
               offeredSlotNumbers,
-              addSlot: form.get('add-slot') !== null,
+              addSlots,
             },
     });
   } catch (err) {
@@ -78,6 +84,7 @@ if (Astro.request.method === 'POST') {
         address: referenceAddress,
         guard: guardInstalled,
         slots: new Set(offeredSlotNumbers.filter(Number.isFinite)),
+        addSlots,
       };
       Astro.response.status = 422;
     } else {
@@ -103,6 +110,13 @@ const steward =
   selected?.stewards.find((s) => s.user.id === Astro.url.searchParams.get('steward')) ?? null;
 const savedFlash = Astro.url.searchParams.get('saved') === '1';
 const mode = selected ? 'panel' : 'list';
+// The slot count the panel draws. A refused save that had pressed "+ ADD
+// SLOT" comes back with that slot still on the page, and a hidden field
+// carries the press into the next save — otherwise the switch the captain
+// flipped on it would have nowhere to be.
+const panelSlots = selected
+  ? Math.min(MAX_BED_SLOTS, selected.bed.slots + (submitted?.addSlots ?? 0))
+  : 0;
 
 const presentation = selected
   ? presentationFor(selected.bed)
@@ -344,15 +358,15 @@ const saveState = slotError ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                 />
               </label>
 
-              <div class="panel-title slots-head" {...bi(slotsFilledLabel(selected.stewards.length, selected.bed.slots), lang)}>
-                {slotsFilledLabel(selected.stewards.length, selected.bed.slots)[lang]}
+              <div class="panel-title slots-head" {...bi(slotsFilledLabel(selected.stewards.length, panelSlots), lang)}>
+                {slotsFilledLabel(selected.stewards.length, panelSlots)[lang]}
               </div>
               {slotError && (
                 <div class="field-error" {...bi(slotError, lang)}>
                   {slotError[lang]}
                 </div>
               )}
-              {Array.from({ length: selected.bed.slots }, (_, i) => i + 1).map((i) => {
+              {Array.from({ length: panelSlots }, (_, i) => i + 1).map((i) => {
                 const filled = selected.stewards[i - 1];
                 if (filled) {
                   const short =
@@ -389,7 +403,10 @@ const saveState = slotError ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   </label>
                 );
               })}
-              {selected.bed.slots < MAX_BED_SLOTS && (
+              {submitted && submitted.addSlots > 0 && (
+                <input type="hidden" name="add-slot" value={panelSlots - selected.bed.slots} />
+              )}
+              {panelSlots < MAX_BED_SLOTS && (
                 <button class="slotline-act" type="submit" name="add-slot" value="1" {...bi(ADMIN.addSlot, lang)}>
                   {ADMIN.addSlot[lang]}
                 </button>

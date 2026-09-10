@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { seedData } from '../src/lib/store-dataset';
 import { defaultPresentation } from '../src/lib/presentation';
-import { DOOR_STEWARDED, DOOR_UNSTEWARDED, COMMON } from '../src/lib/copy';
+import { DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, COMMON } from '../src/lib/copy';
 import { problemFor } from '../src/lib/problem';
 
 /** The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847. */
@@ -174,6 +174,60 @@ describe('the door a bed with no steward opens', () => {
     // Still the beige ground, whichever language it is read in.
     expect(html).toContain('class="frame ground-page"');
     expect(html).not.toContain('class="screen screen-clear"');
+    expect(html).not.toContain('class="hl"');
+  });
+});
+
+describe('the door a bed nobody has offered a slot on opens', () => {
+  // Every W 171st bed ships in this state: built, tagged, and waiting for the
+  // captain to open a slot on the admin page. The screen must not invite
+  // somebody to put their name on a bed it has no way to accept — the
+  // invitation is withheld, and the words say why.
+  let quietServer: ChildProcessWithoutNullStreams;
+  let quietOrigin = '';
+  let quietDataDir = '';
+
+  beforeAll(async () => {
+    const data = await seedData();
+    data.adoptions = [];
+    data.beds['BED-HRL-0847']!.offeredSlots = 0;
+    [quietServer, quietOrigin, quietDataDir] = await startOn(data);
+  }, 60_000);
+
+  afterAll(async () => {
+    quietServer?.kill();
+    if (quietDataDir) await rm(quietDataDir, { recursive: true, force: true });
+  });
+
+  it('says the bed is not open yet, and offers only the care door', async () => {
+    const response = await fetch(`${quietOrigin}/t/${TAG}`);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+
+    expect(html).toContain(DOOR_NOT_OFFERED.headAfter.en);
+    expect(html).toContain(DOOR_NOT_OFFERED.sub.en);
+    // No invitation of any kind: not the headline, not the sub, not the button.
+    expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.en);
+    expect(html).not.toContain(DOOR_UNSTEWARDED.headAfter.en);
+    expect(html).not.toContain(DOOR_UNSTEWARDED.sub.en);
+    expect(html).toContain(COMMON.needsCare.en);
+
+    // Still door 1's own ground and pair: beige, no highlight, no yellow.
+    expect(html).toContain('class="frame ground-page"');
+    expect(html).not.toContain('class="screen screen-clear"');
+    expect(html).not.toContain('class="hl"');
+    expect(html).toContain('class="btn btn-outline"');
+    expect(html).not.toContain('class="btn btn-tall btn-action"');
+  });
+
+  it('says it in Spanish too', async () => {
+    const html = await (await fetch(`${quietOrigin}/t/${TAG}?lang=es`)).text();
+    expect(html).toContain(DOOR_NOT_OFFERED.headAfter.es);
+    expect(html).toContain(DOOR_NOT_OFFERED.sub.es);
+    expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.es);
+    expect(html).not.toContain(DOOR_UNSTEWARDED.sub.es);
+    expect(html).toContain(COMMON.needsCare.es);
+    expect(html).toContain('class="frame ground-page"');
     expect(html).not.toContain('class="hl"');
   });
 });

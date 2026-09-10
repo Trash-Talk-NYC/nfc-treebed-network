@@ -788,8 +788,14 @@ export interface BlockSaveInput {
      * that selection and say so, rather than silently re-mapping it.
      */
     offeredSlotNumbers: number[];
-    /** "+ ADD SLOT" — grows `slots` by one, up to MAX_BED_SLOTS. */
-    addSlot: boolean;
+    /**
+     * "+ ADD SLOT" — how many slots the press adds, up to MAX_BED_SLOTS.
+     *
+     * A count rather than a flag because a refused save re-renders the slot
+     * the press added, so the next press has to add to it rather than
+     * replace it. Clamped, so a hand-built number buys nothing.
+     */
+    addSlots: number;
   };
   now?: Date;
 }
@@ -818,11 +824,15 @@ function offeredSlotCount(numbers: number[], filled: number, slots: number): num
   const chosen = new Set<number>();
   for (const raw of numbers) {
     const n = Math.floor(raw);
-    // Out of range or already filled: the render puts no switch there, so
-    // this is not a state the page can produce.
-    if (!Number.isFinite(n) || n <= filled || n > slots) {
+    // Out of range: the render puts no switch there at all, so this is not a
+    // state the page can produce.
+    if (!Number.isFinite(n) || n < 1 || n > slots) {
       throw new RuleError('invalid-input', `slot ${raw} is not switchable on this bed`);
     }
+    // A slot filled between the render and this save arrives switched on,
+    // because it was switchable when the page was drawn. It is offered by
+    // definition, so it is absorbed rather than refusing the whole press.
+    if (n <= filled) continue;
     chosen.add(n);
   }
   for (let n = filled + 1; n <= filled + chosen.size; n += 1) {
@@ -848,7 +858,8 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
     if (!bed || bed.blockId !== args.blockId) {
       throw new RuleError('bed-not-found', `No bed ${args.bed.plate} in block ${args.blockId}`);
     }
-    const slots = args.bed.addSlot ? Math.min(MAX_BED_SLOTS, bed.slots + 1) : bed.slots;
+    const added = Number.isFinite(args.bed.addSlots) ? Math.max(0, Math.floor(args.bed.addSlots)) : 0;
+    const slots = Math.min(MAX_BED_SLOTS, bed.slots + added);
     const filled = (await tx.getActiveAdoptions(bed.plate)).length;
     const offeredSlots = offeredSlotCount(args.bed.offeredSlotNumbers, filled, slots);
     await tx.updateBed({

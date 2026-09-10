@@ -49,7 +49,7 @@ import { isPostAction } from '../../../lib/plaque-url';
 import { resolveTagParam } from '../../../lib/tag-bindings';
 import { abandonBody } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
-import { COMMON, DOOR_STEWARDED, DOOR_UNSTEWARDED, UNBOUND } from '../../../lib/copy';
+import { COMMON, DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, UNBOUND } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../lib/presentation';
 import { publicHandle, publicInitials } from '../../../lib/types';
@@ -127,6 +127,9 @@ const openSlots = view?.openSlots ?? 0;
 // stewards have all asked not to be named is still taken, and falling through
 // to door 1 would invite a stranger to adopt it.
 const stewarded = stewards.length > 0;
+// Door 1 says what the screen can actually do: the invitation only where a
+// slot is offered, and the not-yet words where the captain has opened none.
+const door1 = openSlots > 0 ? DOOR_UNSTEWARDED : DOOR_NOT_OFFERED;
 const engraved = engravedStewards(stewards);
 
 const care = langLink(`${base}/care`, lang);
@@ -179,12 +182,12 @@ const title = bed
           {/* Split into leaves either side of the tree type: the swap sets
               textContent, so a bilingual node may not have children. */}
           <h1 class="hero">
-            <span {...bi(DOOR_UNSTEWARDED.headBefore, lang)}>{DOOR_UNSTEWARDED.headBefore[lang]}</span>
+            <span {...bi(door1.headBefore, lang)}>{door1.headBefore[lang]}</span>
             <span {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
-            <span {...bi(DOOR_UNSTEWARDED.headAfter, lang)}>{DOOR_UNSTEWARDED.headAfter[lang]}</span>
+            <span {...bi(door1.headAfter, lang)}>{door1.headAfter[lang]}</span>
           </h1>
-          <p class="body-copy door-sub" {...bi(DOOR_UNSTEWARDED.sub, lang)}>
-            {DOOR_UNSTEWARDED.sub[lang]}
+          <p class="body-copy door-sub" {...bi(door1.sub, lang)}>
+            {door1.sub[lang]}
           </p>
         </div>
         {openSlots > 0 && (

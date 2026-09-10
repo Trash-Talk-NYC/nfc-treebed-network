@@ -61,6 +61,24 @@ export const DOOR_UNSTEWARDED = {
   adopt: { en: 'ADOPT THIS BED', es: 'ADOPTA ESTE CANTERO' },
 } satisfies Record<string, Phrase>;
 
+/**
+ * Door 1, on a bed the captain has not offered a slot on yet (`offeredSlots`).
+ * The invitation is withheld rather than shown and then refused: a screen may
+ * not ask someone to put their name on a bed it has no way to accept.
+ */
+export const DOOR_NOT_OFFERED = {
+  /** Split around the tree type, the same shape as the invitation above. */
+  headBefore: { en: 'This ', es: 'El cantero de este ' },
+  headAfter: {
+    en: '’s bed isn’t open for adoption yet.',
+    es: ' todavía no está abierto para adopción.',
+  },
+  sub: {
+    en: 'We’re still getting this block ready. You can still tell us if it needs care.',
+    es: 'Todavía estamos preparando esta cuadra. Aun así, puedes avisarnos si necesita cuidado.',
+  },
+} satisfies Record<string, Phrase>;
+
 /** Door 2 — a bed that already has a steward. */
 export const DOOR_STEWARDED = {
   headBefore: { en: 'This ', es: '¡El cantero de este ' },
