@@ -43,7 +43,7 @@ export interface TagBinding {
 export const DEMO_TAG_ID = '2mq2amhv';
 
 export const TAG_BINDINGS: readonly TagBinding[] = [
-  // The one hand-seeded bed (store-local.ts) and the demo tag bound to it.
+  // The one hand-seeded bed (store-dataset.ts) and the demo tag bound to it.
   { tagId: DEMO_TAG_ID, sitePlate: 'BED-HRL-0847', boundAt: '2026-08-26T12:00:00.000Z', retiredAt: null },
   // The four willow oaks at the Haven end of W 171st (positions 1–4, fronting
   // 718 and 708 — store-dataset.ts): the first real beds the captain taps.

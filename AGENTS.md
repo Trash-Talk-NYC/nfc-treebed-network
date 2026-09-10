@@ -109,6 +109,7 @@ Washington Heights is heavily Spanish-speaking.
   Retiring a stolen tag (`retiredAt`) and binding a replacement to the same plate loses no history, because reports and events are keyed by the plate, never the tag.
   The registry is a checked-in table *by decision*: the team binds pilot tags itself (map note 14 — paperwork binding suffices until ~tag twenty), the in-field claim flow is a later ticket, and until it lands nothing at runtime writes a binding.
   When that flow arrives, the binding moves behind the `Store` interface; `resolveTagParam` is the only thing the route helpers call and the only thing routes reach it through, so the swap is contained.
+  The four W 171st IDs there were **minted in this repo ahead of the guards going in** — nothing was read off hardware — so for those rows the table is the SOURCE for what must be encoded onto the chips, not a record of what is already on them; whoever encodes them writes those exact IDs, and a mismatch is repaired by re-encoding the tag, never by editing a row.
 - **An unbound tag is a normal state, not an error.**
   A well-formed ID with no active binding renders the calm "not assigned to a bed yet" screen (with the ID on it) at 404 — never a 500.
   It logs no tap: sites own history and an unbound tag has none to write to.

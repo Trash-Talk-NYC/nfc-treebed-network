@@ -1,8 +1,9 @@
 # NFC Tree Bed Network
 
 The post-tap experience for Trash Talk NYC's NFC tree bed network.
-Tap a tag on a tree guard and the bed's own state picks one of two screens.
+Tap a tag on a tree guard and the bed's own state picks the screen.
 A bed with no steward yet asks to be adopted; a bed that has one shows who stewards it and offers applause.
+A bed the admin has opened no slot on says so instead of inviting anyone — the adoption invitation is withheld on either door until a slot is offered, which is the state the W 171st tags open today.
 Either door's second button is "this bed needs care" — thirsty plants, litter, guard damage or something else, with an optional photo — and both actions end on a full-screen takeover.
 
 Every visitor-facing string exists in English and Spanish, with a toggle the visitor operates (no browser-language guessing), and the whole flow works with JavaScript disabled.
@@ -19,7 +20,9 @@ Requires Node >= 22.
 
 ```sh
 npm install
-npm run dev            # http://localhost:4321/t/2mq2amhv
+npm run dev            # http://localhost:4321/t/2mq2amhv — the adopted demo bed
+                       # http://localhost:4321/t/jjhq9gfj — a real W 171st bed,
+                       #   not open for adoption yet (see src/lib/tag-bindings.ts)
                        # http://localhost:4321/admin — key in .data/admin-key
 ```
 
