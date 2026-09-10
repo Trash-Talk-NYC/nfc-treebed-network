@@ -296,6 +296,7 @@ export const ADMIN = {
   /** The steward detail's "how they came to be here" row. */
   kvKind: { en: 'Signed up', es: 'Se apuntó' },
   save: { en: 'SAVE CHANGES', es: 'GUARDAR CAMBIOS' },
+  saveAddress: { en: 'SAVE ADDRESS', es: 'GUARDAR DIRECCIÓN' },
   noUnsaved: { en: 'No unsaved changes', es: 'No hay cambios sin guardar' },
   unsaved: { en: 'Unsaved changes', es: 'Hay cambios sin guardar' },
   saved: { en: 'Changes saved', es: 'Cambios guardados' },

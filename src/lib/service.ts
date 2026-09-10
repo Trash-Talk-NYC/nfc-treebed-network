@@ -766,7 +766,6 @@ export interface AdminBedView {
   bed: Bed;
   /** Active stewards, oldest first — the admin list is the click-through to contact details. */
   stewards: Array<{ adoption: Adoption; user: User }>;
-  openReport: Report | null;
 }
 
 /** The block admin page's read: the block and its beds, in block order. */
@@ -786,7 +785,7 @@ export async function getBlockView(store: Store, blockId: string): Promise<Block
       const user = await store.getUser(adoption.userId);
       if (user) stewards.push({ adoption, user });
     }
-    beds.push({ bed, stewards, openReport: await store.getOpenReport(bed.plate) });
+    beds.push({ bed, stewards });
   }
   return { block, beds };
 }

@@ -224,6 +224,14 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               autocomplete="off"
             />
           )}
+          {/* SAVE CHANGES stands beside the address only once a bed is open.
+              Without one the field's only commit path is Enter, which nothing
+              on screen offers — least of all a phone keyboard's Go key. */}
+          {!steward && !selected && (
+            <button class="addr-save" type="submit" {...bi(ADMIN.saveAddress, lang)}>
+              {ADMIN.saveAddress[lang]}
+            </button>
+          )}
         </label>
         <div class="blockmeta">
           {
@@ -546,6 +554,18 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   .add-steward {
     text-decoration: none;
     display: block;
+  }
+  .addr-save {
+    flex: none;
+    border: none;
+    background: transparent;
+    padding: 8px 0;
+    font-family: 'Barlow', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--theme-action);
+    cursor: pointer;
   }
   /* Reads exactly as the field it stands in for, minus the caret. */
   .addr-static {
