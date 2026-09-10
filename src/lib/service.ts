@@ -63,7 +63,8 @@ export async function verifyPin(pin: string, pinHash: string): Promise<boolean> 
  *
  * `/adopt` used to be the other one. It no longer hashes anything — the
  * captain's passwordless decision means the form collects no secret — so the
- * only work a flood can buy there is two slots' worth of reads.
+ * only work a flood can buy there is the bed's offered slots, at a few reads
+ * each.
  *
  * It sheds rather than queues, the same way an over-budget body does: waiting
  * in line for a saturated CPU is the stall, not the cure.
@@ -585,7 +586,7 @@ export function deriveUsername(
   }
 }
 
-/** Two-slot cap (spec §7) enforced here, server-side. */
+/** The slot cap (spec §7) enforced here, server-side: `min(slots, offeredSlots)`. */
 export async function adoptBed(
   store: Store,
   args: { plate: string; input: AdoptInput; now?: Date },

@@ -17,7 +17,7 @@
 //    without touching stored state; the only way to persist a change is an
 //    explicit write.
 //  - `transaction` gives a read-check-write sequence exclusive access, so the
-//    service layer's rules (single open report, two-slot cap) can't be raced
+//    service layer's rules (single open report, the slot cap) can't be raced
 //    by a concurrent request between the check and the write.
 //
 // What `transaction` deliberately does NOT promise is isolation from readers.
