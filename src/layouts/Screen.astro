@@ -61,12 +61,13 @@ const chrome = {
       <LangToggle lang={lang} url={url} />
     </div>
     <script is:inline>
-      // The only client JavaScript on the tap flow, and the only thing it does
-      // is make the language toggle instant.
+      // The only client JavaScript in this layout, and the only thing it does
+      // is make the language toggle instant. (The care screen ships the tap
+      // flow's one other script, for the photo state and the note counter.)
       //
       // Every screen already carries both languages (src/lib/bilingual.ts) and
       // is already rendered in the right one by the server, so this enhances
-      // and never enables: with it off, the toggle is a link, the server
+      // and never enables: with it off, each segment is a link, the server
       // re-renders, and nothing on any screen is lost. That is the same
       // standard every form here is held to.
       (function () {

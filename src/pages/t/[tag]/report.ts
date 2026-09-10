@@ -61,7 +61,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
     // The photo is read and discarded either way (spec §12), so it is never
     // buffered: the fields that matter are taken off the head instead, which
     // keeps a 12MB upload at kilobytes of heap. Safe because the care screen's
-    // markup puts the category and the note ahead of the file input and
+    // markup puts the categories and the note ahead of the file input and
     // browsers send parts in DOM order — keep it that way if it gains a field
     // (`tests/care-form-order.e2e.test.ts` posts the rendered form's own order).
     const { head, refusal } = await readCappedHead(request, MAX_PHOTO_BODY_BYTES);

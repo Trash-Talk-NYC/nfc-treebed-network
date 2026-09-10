@@ -47,11 +47,12 @@
 //                                      Peak heap: the head plus the chunk in
 //                                      hand, which is exactly what it reserves.
 //                                      Every refusal → the too-large screen,
-//                                      severity preserved — except past
+//                                      every category they picked and the note
+//                                      they typed preserved — except past
 //                                      MAX_SHED_READS, where the read keeps
 //                                      nothing and stops at SHED_DRAIN_BYTES /
 //                                      SHED_DRAIN_MS, so the busy screen goes
-//                                      out without the severity.
+//                                      out with neither.
 //   POST .../report  (refile, no file) Size: MAX_FORM_BYTES buffered. Time and
 //                                      concurrency as below. Peak heap ~128KB.
 //                                      Refused → a plain short answer: this
@@ -860,7 +861,7 @@ function partName(headers: string): string | null {
  * deliberately never buffers one, so the fields it needs are read off the
  * parts that precede the file. That only works while the form puts those parts
  * FIRST — browsers send parts in DOM order, so the care screen's markup keeps
- * the category, the note and the hidden fields ahead of the file input. Keep
+ * the categories, the note and the hidden fields ahead of the file input. Keep
  * it that way if the screen ever gains a field:
  * `tests/care-form-order.e2e.test.ts` reads the order off the rendered care
  * screen and posts a body built in it, so a reordering fails the suite.

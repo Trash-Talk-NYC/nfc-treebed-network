@@ -3,9 +3,9 @@
 The post-tap experience for Trash Talk NYC's NFC tree bed network.
 Tap a tag on a tree guard and the bed's own state picks one of two screens.
 A bed with no steward yet asks to be adopted; a bed that has one shows who stewards it and offers applause.
-Either door's second button is "this bed needs care" — thirsty plants, litter, guard damage or something else, with an optional photo — and both actions end on a full-screen takeover.
+Either door's second button is "this bed needs care" — thirsty plants, litter, guard damage or something else, as many as apply, with an optional photo — and both actions end on a full-screen takeover.
 
-Every visitor-facing string exists in English and Spanish, with a toggle the visitor operates (no browser-language guessing), and the whole flow works with JavaScript disabled.
+Every visitor-facing string exists in English and Spanish, with a two-state toggle the visitor operates — both languages shown, the one now speaking filled in — and no browser-language guessing; the whole flow works with JavaScript disabled.
 
 A tag's URL is `/t/<id>` — an opaque 8-character ID that carries no meaning at all.
 Which bed the tag speaks for is a server-side fact (`src/lib/tag-bindings.ts`); the bed's plate (`BED-HRL-0847`) is the internal join key every report, adoption and event hangs on, and is never rendered — public screens key off NYC Parks' planting space ID instead.

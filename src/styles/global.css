@@ -318,7 +318,7 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
    only the printing is imitated. The ink is `currentColor`, so each tile
    is one theme role and nothing here names a colour.                   */
 .catgrid {
-  /* The hidden radios are absolutely positioned so they create no track;
+  /* The hidden checkboxes are absolutely positioned so they create no track;
      this is what keeps them inside the grid rather than at the frame's
      corner, where focusing one would scroll the screen to the top. */
   position: relative;
@@ -376,8 +376,9 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   mix-blend-mode: multiply;
   pointer-events: none;
 }
-/* Chosen: the ink floods the tile. Driven by :checked on a hidden radio, so
-   the picker works with no JavaScript at all. */
+/* Chosen: the ink floods the tile. Driven by :checked on a hidden checkbox —
+   the picker is multi-select, so several tiles may flood at once — and no
+   JavaScript is involved either way. */
 .quad-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .quad-input:checked + .quad {
   background: currentColor;

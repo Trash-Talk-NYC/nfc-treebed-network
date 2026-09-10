@@ -9,6 +9,10 @@
 // rest of the presentation is (presentation.ts): a group of beds with its own
 // look changes the role's value, and these tiles follow without being touched.
 //
+// The picker is MULTI-select: a bed that is thirsty AND full of litter is one
+// report naming both, so a report carries a list of these (`problemsFrom`),
+// never one of them.
+//
 // `other` is the only one that opens the free-text box. That is a property of
 // the category rather than a branch in the screen, so the screen cannot forget
 // one of them.

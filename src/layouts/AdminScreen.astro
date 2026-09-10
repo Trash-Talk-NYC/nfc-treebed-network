@@ -100,7 +100,7 @@ const signedIn = isAdminSession(Astro.cookies);
       // The language toggle's instant swap — the same enhancement, and the
       // same standard, as the tap flow's (src/layouts/Screen.astro, where the
       // mechanism is explained): the server render is already correct, and
-      // with no script the toggle is a plain link.
+      // with no script the toggle's segments are plain links.
       (function () {
         var choices = document.querySelectorAll('[data-lang-choice]');
         if (choices.length === 0) return;

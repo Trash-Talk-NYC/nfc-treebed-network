@@ -60,7 +60,7 @@ Washington Heights is heavily Spanish-speaking.
 
 - All copy lives in `src/lib/copy.ts` as `Phrase` (`{en, es}`) values, so there is no way to write an English string without its Spanish.
   `tests/i18n.test.ts` additionally fails on an empty value or one copied across untranslated.
-- `src/lib/i18n.ts` resolves the language: `?lang=` on the URL first (what the toggle link carries), then the `tg_lang` cookie, then English.
+- `src/lib/i18n.ts` resolves the language: `?lang=` on the URL first (what each of the toggle's two links carries), then the `tg_lang` cookie, then English.
   **Nothing reads `accept-language`** — the captain asked for a toggle the visitor operates, and a phone set to English in a Spanish-speaking household is common on this block.
 - Screens render the active language AND carry both in `data-en` / `data-es` attributes (`src/lib/bilingual.ts`), the same pattern the sister property `trashtalknyc-website` uses.
   The server render is what makes it correct with no script; the one inline script in `Screen.astro` upgrades the toggle to an instant, no-reload swap.
@@ -219,7 +219,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Every bound in this section, and `MAX_INFLIGHT_PIN_HASHES` above, is a module-level counter, so it bounds one process: the whole server on the node target (what `npm start` runs and what the e2e suite measures), one function instance on netlify.
   Fleet-wide peak heap and bcrypt concurrency there are these numbers times however many instances the platform is running, and a single warm instance serving concurrent invocations sheds legitimate sign-ins at the hash limit exactly as it sheds a flood.
   They are per-instance costs, not the pilot's surface-wide DoS ceiling — bounding the surface is the per-IP limiting at the platform tier already noted as owed.
-- The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the category, the note and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
+- The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the categories, the note and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
   `textFieldFromHead` is what reads them, which only works while the care screen's markup keeps its text parts ahead of the file input — browsers send parts in DOM order. Keep it that way if the screen gains a field; `tests/care-form-order.e2e.test.ts` pins it by reading the order off the rendered care screen and posting a body built in it, so a reordered field fails the suite rather than the street.
   The photo is discarded either way (spec §12) — this only stops it being copied on the way to being discarded.
   `readCappedForm` still buffers the text-only forms, where the whole body is 64KB and two copies of it are ~128KB.
@@ -242,7 +242,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - A read refused as `'busy'` drains on `BUSY_DRAIN_BYTES`/`BUSY_DRAIN_MS`, not the headroom the other refusals get.
   Refusing a body and then spending an admitted upload's worth of ingress on it sheds no load at all.
   Everything carrying something a person typed is far under that and still gets its answer; a multi-megabyte photo arriving while the server is full is the one case whose connection closes, and at capacity that is the answer rather than a courtesy owed.
-- Each refusal is its own answer: on `/report` every one of them reaches the too-large screen with the category and the note preserved, because the head holds them whichever way the upload ended and what the visitor told us is what is being rescued — the one exception being a read past `MAX_SHED_READS`, which keeps no head, so its screen offers the picker again instead of the one-tap resend.
+- Each refusal is its own answer: on `/report` every one of them reaches the too-large screen with every category picked and the note preserved, because the head holds them whichever way the upload ended and what the visitor told us is what is being rescued — the one exception being a read past `MAX_SHED_READS`, which keeps no head, so its screen offers the picker again instead of the one-tap resend.
   `?reason` picks the words — nothing (a photo to shrink), `busy` (a queue to retry), `incomplete` (an upload that stopped halfway, which is *not* to be blamed on a photo that may have been well under the cap).
   The text-only forms answer in plain text instead (413/408/503/400) because there is no filled-in report behind them to preserve.
   Those plain-text refusals are the one visitor-reachable surface that is English-only; they are the transport saying no before any screen exists to say it in, and a body that never arrived carries no language preference either.
