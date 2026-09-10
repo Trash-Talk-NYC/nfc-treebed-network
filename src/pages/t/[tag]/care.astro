@@ -93,6 +93,11 @@ const backToChoices = langLink(`${base}/care${carriedQuery ? `?${carriedQuery}` 
         `tests/care-form-order.e2e.test.ts` posts this form in its rendered
         order, so moving the file input up fails the suite. */}
     <form class="care-form" method="POST" action={action} enctype="multipart/form-data">
+      {/* The form's DEFAULT button, deliberately first and carrying nothing:
+          Enter after checking a tile files the report. Without it the first
+          submit in tree order is "Something else", whose GET would carry a
+          visitor to the sentence screen at the moment they meant to send. */}
+      <button type="submit" hidden aria-hidden="true" tabindex="-1"></button>
       {
         telling ? (
           <>
@@ -174,6 +179,7 @@ const backToChoices = langLink(`${base}/care${carriedQuery ? `?${carriedQuery}` 
                   ride its query string onto that screen. */}
               <button
                 class="quad quad-tell"
+                type="submit"
                 name="tell"
                 value="1"
                 formmethod="get"

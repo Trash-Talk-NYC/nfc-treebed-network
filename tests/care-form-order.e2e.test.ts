@@ -329,6 +329,40 @@ describe('the care form, posted exactly as it renders', () => {
     expect(checkedValues).toEqual(['thirsty', 'guard']);
   });
 
+  it('makes the report the picker’s default submit, not "Something else"', async () => {
+    // Implicit submission picks the first submit button in tree order, so a
+    // visitor who checks a tile and presses Enter must file the report rather
+    // than be carried off to the sentence screen. The hidden default button
+    // leads for exactly that reason.
+    const page = await fetch(`${origin}/t/${TAG}/care`);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    const form = /<form class="care-form"([^>]*)>([\s\S]*?)<\/form>/.exec(html);
+    if (!form) throw new Error('no care form rendered');
+    const buttons = [...form[2]!.matchAll(/<button\b([^>]*)>/g)].map(([, tag]) => tag);
+    expect(buttons.length).toBeGreaterThanOrEqual(3);
+
+    const first = buttons[0]!;
+    expect(attr(first, 'type')).toBe('submit');
+    // Carries nothing and overrides nothing: it submits the form's own POST.
+    expect(attr(first, 'formmethod')).toBeNull();
+    expect(attr(first, 'formaction')).toBeNull();
+    expect(attr(first, 'name')).toBeNull();
+    expect(/\shidden/.test(first)).toBe(true);
+    expect(attr(first, 'tabindex')).toBe('-1');
+    expect(attr(form[1]!, 'method')?.toUpperCase()).toBe('POST');
+    expect(attr(form[1]!, 'action')).toBe(`/t/${TAG}/report`);
+
+    // "Something else" keeps the scriptless GET route to the sentence screen.
+    const tell = buttons.find((tag) => /quad-tell/.test(tag));
+    if (!tell) throw new Error('the picker renders no "Something else" button');
+    expect(attr(tell, 'type')).toBe('submit');
+    expect(attr(tell, 'formmethod')).toBe('get');
+    expect(attr(tell, 'formaction')).toBe(`/t/${TAG}/care`);
+    expect(attr(tell, 'name')).toBe('tell');
+    expect(buttons.indexOf(tell)).toBeGreaterThan(0);
+  });
+
   it('loses the sentence when the photo is sent first', async () => {
     await clearAsSteward();
     const before = (await storedReports()).length;
