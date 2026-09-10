@@ -98,7 +98,7 @@ if (Astro.request.method === 'POST') {
     bedName: String(form.get('bedName') ?? ''),
   };
   const checked = validateAdoptInput(input);
-  values = { ...checked.values, bedName: checked.values.bedName ?? '' };
+  values = checked.values;
   errors = checked.errors;
   if (Object.keys(errors).length === 0) {
     try {

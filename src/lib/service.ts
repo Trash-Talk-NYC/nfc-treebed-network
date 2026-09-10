@@ -466,9 +466,17 @@ export const MAX_TREE_TYPE_CHARS = 60;
  */
 export const MAX_BED_NAME_CHARS = 40;
 
-/** Trim, then bound: what every typed field goes through before it is stored. */
+/**
+ * Control characters and the bidirectional-format overrides, which a hand-built
+ * POST can carry into a field the browser's own input would never produce.
+ * Every typed field lands on a screen as a leaf beside copy of ours, and an
+ * embedded newline or a U+202E can visually scramble the text around it.
+ */
+const UNRENDERABLE_RE = /[\p{Cc}\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
+
+/** Strip what cannot be rendered, trim, then bound: what every typed field goes through before it is stored. */
 function capped(raw: string, max: number): string {
-  return raw.trim().slice(0, max);
+  return raw.replace(UNRENDERABLE_RE, '').trim().slice(0, max);
 }
 
 /**
@@ -528,9 +536,15 @@ export type AdoptErrorCode = 'firstName' | 'lastName' | 'email' | 'phone';
 
 export type AdoptErrors = Partial<Record<AdoptField, AdoptErrorCode>>;
 
+/**
+ * The normalized form of `AdoptInput`: every field present, `bedName` an empty
+ * string where none was given, so no caller downstream repeats the fallback.
+ */
+export type AdoptValues = AdoptInput & { bedName: string };
+
 /** Field-level validation; returns normalized values and error codes. */
-export function validateAdoptInput(raw: AdoptInput): { values: AdoptInput; errors: AdoptErrors } {
-  const values: AdoptInput = {
+export function validateAdoptInput(raw: AdoptInput): { values: AdoptValues; errors: AdoptErrors } {
+  const values: AdoptValues = {
     firstName: capped(raw.firstName, MAX_NAME_CHARS),
     lastName: capped(raw.lastName, MAX_NAME_CHARS),
     email: capped(raw.email, MAX_EMAIL_CHARS),
@@ -703,11 +717,10 @@ export async function adoptBed(
     // goes through, and nobody at a tree is shown a rule. A cleared name
     // (`saveBlockSettings`) puts the bed back to unnamed, so a later first
     // steward may name it again; an existing name is never overwritten.
-    const bedName = values.bedName ?? '';
-    if (bedName !== '' && activeBefore.length === 0) {
+    if (values.bedName !== '' && activeBefore.length === 0) {
       const bed = await tx.getBed(args.plate);
       if (bed && bed.bedName === null) {
-        await tx.updateBed({ ...bed, bedName });
+        await tx.updateBed({ ...bed, bedName: values.bedName });
       }
     }
     await appendEvent(tx, args.plate, 'adopt', user.id, null, now);
