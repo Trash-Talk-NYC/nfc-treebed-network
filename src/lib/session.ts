@@ -1,6 +1,6 @@
 // Cookie identity, two kinds:
 //
-//  - `tg_session`: the signed-in adopter (user id). Set on sign-in / adopt.
+//  - `tg_session`: the signed-in steward (user id). Set on sign-in / adopt.
 //  - `tg_visitor`: an anonymous visitor id, minted on first write action, so
 //    the one-report-per-person-per-day rule has an identity to hang on for
 //    people who never sign in. Best-effort by nature (clearing cookies mints

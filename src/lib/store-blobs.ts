@@ -57,7 +57,7 @@ import type { Store } from './store';
 import { BUILD_TARGET } from './build-target';
 import { getRequestContext } from './request-context';
 import type { Adoption, Bed, BedEvent, Report, User } from './types';
-import { type Data, TransactionStore, detach, ops, seedData } from './store-dataset';
+import { type Data, TransactionStore, detach, normalizeData, ops, seedData } from './store-dataset';
 
 const STORE_NAME = 'treebed';
 const REVISION_PREFIX = 'rev/';
@@ -212,7 +212,12 @@ export class BlobsStore implements Store {
   }
 
   private async readRevision(revision: number): Promise<Data | null> {
-    return (await this.blobs.get(revisionKey(revision), { type: 'json' })) as Data | null;
+    const data = (await this.blobs.get(revisionKey(revision), { type: 'json' })) as Data | null;
+    // The pilot store holds revisions written before the tap flow's fields
+    // existed, and re-seeding over live data is refused by design. The shape is
+    // reconciled here instead — additively, on the way in, for both backends
+    // (store-dataset.ts).
+    return data === null ? null : normalizeData(data);
   }
 
   /** The pointer's revision, or null when there is none to trust. */
@@ -240,13 +245,13 @@ export class BlobsStore implements Store {
    * First contact: write the seed as revision 1, unless another instance beats
    * us to it.
    *
-   * The seeded adopter gets no demo PIN here. This store is the deployed,
-   * publicly tappable one, its plaque engraves `@marisol_r`, and sign-in has
-   * no rate limiting yet — a PIN everybody knows would be an open guardian
+   * The seeded steward gets no demo PIN here. This store is the deployed,
+   * publicly tappable one, its door screen engraves `@marisol_r`, and sign-in
+   * has no rate limiting yet — a PIN everybody knows would be an open steward
    * account on the internet. TREEBED_SEED_PIN is a development-only seam for
    * driving the sign-in flow against this backend locally, and the netlify
    * target ignores it outright: a production build that cannot honour the
-   * variable cannot be talked into an open guardian account by a stray
+   * variable cannot be talked into an open steward account by a stray
    * `netlify env:set`. Unset — and on netlify, always — no PIN opens it.
    */
   private async seed(): Promise<Loaded | null> {

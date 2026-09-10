@@ -1,13 +1,23 @@
 ---
-// The adopter's own view — same plaque, different verbs. Streak and points
-// render from stored values only; the earning rules are a later task.
+// The steward's own view of their bed — the same bed, different verbs.
+// Streak and points render from stored values only; the earning rules are a
+// later task.
+//
+// Not part of the visitor tap flow. It is the one place in the build with a
+// "close the report" button, which is why `/clear` is gated on a signed-in
+// steward of this bed (see clear.ts).
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { getBedView, hasPhotoThisWeek } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
-import { severityName } from '../../../lib/severity';
 import { relativeAge, sinceLabel } from '../../../lib/format';
+import { bi } from '../../../lib/bilingual';
+import { COMMON, MINE } from '../../../lib/copy';
+import { langLink, resolveLang } from '../../../lib/i18n';
+import { presentationFor } from '../../../lib/presentation';
+import { problemFor } from '../../../lib/problem';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { publicHandle, publicInitials } from '../../../lib/types';
 import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
 
 const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
@@ -19,19 +29,39 @@ if (!view) {
   return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
 }
 
-const userId = getSessionUserId(Astro.cookies);
-if (!userId) return Astro.redirect(`${base}/auth`, 303);
-const me = await store.getUser(userId);
-if (!me) return Astro.redirect(`${base}/auth`, 303);
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = presentationFor(view.bed);
 
-const { bed, adopters, openSlots, openReport } = view;
-const isAdopter = adopters.some((a) => a.user.id === me.id);
-// Signed in but not a guardian of this bed → back to the public plaque.
-if (!isAdopter) return Astro.redirect(ourPlaqueLink(base), 303);
+const userId = getSessionUserId(Astro.cookies);
+if (!userId) return Astro.redirect(langLink(`${base}/auth`, lang), 303);
+const me = await store.getUser(userId);
+if (!me) return Astro.redirect(langLink(`${base}/auth`, lang), 303);
+
+const { bed, stewards, openSlots, openReport } = view;
+const isSteward = stewards.some((s) => s.user.id === me.id);
+// Signed in but not a steward of this bed → back to the public screen.
+if (!isSteward) return Astro.redirect(langLink(ourPlaqueLink(base), lang), 303);
 
 const photoLogged = await hasPhotoThisWeek(store, plate, me.id);
+const openProblem = openReport ? problemFor(openReport.category) : null;
+const openAge = openReport ? relativeAge(new Date(openReport.openedAt)) : null;
 
-// Green "you cleaned it" band: the most recent report was closed by me,
+// What the neighbours who added their weight to the open report said. The
+// report itself belongs to whoever filed it, so their category and their
+// sentence live on the `confirm` events (service.ts, `reportProblem`) and this
+// is where a steward reads them. The join is the event's own `reportId`, not a
+// time window: `report → clear → report` is a supported loop, so only the id
+// says which lap a confirm belongs to. Events written before that field carry
+// null and match nothing, which shows a steward no neighbour rather than the
+// wrong one. Bounded by `MAX_CONFIRMATIONS`, so the list cannot run away.
+const alsoSaid = openReport
+  ? (await store.getEvents(plate, 'confirm'))
+      .filter((e) => e.reportId === openReport.id && (e.category !== null || e.note !== ''))
+      .reverse()
+      .map((e) => ({ problem: e.category ? problemFor(e.category) : null, note: e.note }))
+  : [];
+
+// Green "you sorted it" band: the most recent report was closed by me,
 // recently enough to still be news (12h).
 const lastReport = (await store.getReports(plate))[0] ?? null;
 const clearedByMe =
@@ -39,91 +69,173 @@ const clearedByMe =
   lastReport?.closedBy === me.id &&
   lastReport.closedAt !== null &&
   Date.now() - new Date(lastReport.closedAt).getTime() < 12 * 60 * 60 * 1000;
+const clearedAge =
+  clearedByMe && lastReport?.closedAt ? relativeAge(new Date(lastReport.closedAt)) : null;
+
+// A steward who asked not to be shown publicly is still shown their own bed:
+// the flag hides a name from the sidewalk, not a bed from the person tending
+// it (types.ts, `Adoption.displayNameHidden`).
+const visibleStewards = stewards.filter(
+  ({ adoption, user }) => !adoption.displayNameHidden || user.id === me.id,
+);
 ---
 
-<Screen title={`Your bed · ${plate}`}>
+<Screen
+  title={`${MINE.yourBed[lang]} · ${bed.treeType[lang]}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
   <div class="screen">
     <div class="top-row">
-      <a class="back-link" href={ourPlaqueLink(base)}>← {plate}</a>
-      <span class="your-bed">YOUR BED</span>
+      <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
+        >{COMMON.backToBed[lang]}</a
+      >
+      <span class="kicker your-bed" {...bi(MINE.yourBed, lang)}>{MINE.yourBed[lang]}</span>
     </div>
     <div class="card">
-      <div class="plate-lg">{bed.plate}</div>
-      <div class="cross-streets">{bed.crossStreets}</div>
-      <div class="slots">
+      <h1 class="title" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</h1>
+      <div class="ident bed-ident">
+        {bed.plantingSpaceId && <>#{bed.plantingSpaceId} · </>}
+        {bed.crossStreets}
+      </div>
+      <div class="stewards stewards-gap">
         {
-          adopters.map(({ adoption, user }) =>
-            user.id === me.id ? (
-              <div class="slot-taken slot-me">
-                {user.name} — that's you <span class="since">{sinceLabel(new Date(adoption.adoptedAt))}</span>
-              </div>
-            ) : (
-              <div class="slot-taken">
-                {adoption.displayNameHidden ? 'A neighbor' : user.name}{' '}
-                <span class="since">{sinceLabel(new Date(adoption.adoptedAt))}</span>
-              </div>
-            ),
-          )
+          visibleStewards.map(({ adoption, user }) => {
+            const since = sinceLabel(new Date(adoption.adoptedAt));
+            return (
+            <div class="steward">
+              <span class="av">{publicInitials(user).replace(/[.\s]/g, '')}</span>
+              <span class="who">
+                <span class="handle">{publicHandle(user)}</span>
+                <span class="initials">
+                  {publicInitials(user)} ·{' '}
+                  <span {...bi(since, lang)}>{since[lang]}</span>
+                </span>
+              </span>
+            </div>
+            );
+          })
         }
-        {openSlots > 0 && <div class="slot-open">Open slot — {openSlots} of {bed.slots} left</div>}
+        {openSlots > 0 && <div class="slot-open">{openSlots} / {bed.slots}</div>}
       </div>
     </div>
     {
-      openReport && (
-        <div class="band band-open">
-          <div class="band-title band-title-sm">REPORTED · {severityName(openReport.severity)}</div>
-          <div class="band-sub band-sub-tight">{relativeAge(new Date(openReport.openedAt))}</div>
+      openReport && openProblem && openAge && (
+        <div class="band band-alert">
+          <div class="band-title" {...bi(MINE.openReport, lang)}>
+            {MINE.openReport[lang]}
+          </div>
+          <div class="band-sub">
+            <span {...bi(openProblem.label, lang)}>{openProblem.label[lang]}</span> ·{' '}
+            <span {...bi(openAge, lang)}>{openAge[lang]}</span>
+          </div>
+        </div>
+      )
+    }
+    {openReport?.note && <p class="body-copy note-echo">“{openReport.note}”</p>}
+    {
+      alsoSaid.length > 0 && (
+        <div class="also-block">
+          <div class="also-title" {...bi(MINE.alsoSaid, lang)}>
+            {MINE.alsoSaid[lang]}
+          </div>
+          <ul class="also-said">
+            {alsoSaid.map(({ problem, note }) => (
+              <li>
+                {problem && (
+                  <span class="also-cat">
+                    <span {...bi(MINE.alsoReported, lang)}>{MINE.alsoReported[lang]}</span>{' '}
+                    <span class="also-label" {...bi(problem.label, lang)}>
+                      {problem.label[lang]}
+                    </span>
+                  </span>
+                )}
+                {note && <span class="also-note">“{note}”</span>}
+              </li>
+            ))}
+          </ul>
         </div>
       )
     }
     {
-      clearedByMe && lastReport?.closedAt && (
+      clearedByMe && clearedAge && (
         <div class="band band-clear">
-          <div class="band-row">
-            <span class="band-title band-title-sm">CLEAR · YOU CLEANED IT</span>
-            <span class="band-when mono">{relativeAge(new Date(lastReport.closedAt))}</span>
+          <div class="band-title" {...bi(MINE.cleared, lang)}>
+            {MINE.cleared[lang]}
+          </div>
+          <div class="band-sub" {...bi(clearedAge, lang)}>
+            {clearedAge[lang]}
           </div>
         </div>
       )
     }
     <div class="stats">
-      <span><span class="stat-streak">{me.streakWeeks} wk</span> photo streak</span>
-      <span><span class="stat-points">{me.points}</span> club points</span>
+      <span>
+        <span class="stat">{me.streakWeeks}</span>{' '}
+        <span {...bi(MINE.streak, lang)}>{MINE.streak[lang]}</span>
+      </span>
+      <span>
+        <span class="stat">{me.points}</span>{' '}
+        <span {...bi(MINE.points, lang)}>{MINE.points[lang]}</span>
+      </span>
     </div>
-    {photoLogged && <div class="ok-line">✓ Week {me.streakWeeks} photo on file. Streak alive.</div>}
-    <div class="actions-bottom">
-      {
-        openReport && (
-          <form method="POST" action={`${base}/clear`}>
-            <button class="btn btn-outline btn-clean" type="submit">I CLEANED IT — CLOSE THE REPORT</button>
-          </form>
-        )
-      }
-      <form method="POST" action={`${base}/photo`}>
-        <button class="btn btn-primary btn-photo" type="submit">
-          {photoLogged ? `PHOTO IN — WK ${me.streakWeeks} ✓` : "GIVE THIS WEEK'S PHOTO"}
-        </button>
-      </form>
-    </div>
+    <div class="spacer" />
+    {
+      openReport && (
+        <form method="POST" action={langLink(`${base}/clear`, lang)}>
+          <button class="btn btn-outline" type="submit" {...bi(MINE.clearIt, lang)}>
+            {MINE.clearIt[lang]}
+          </button>
+        </form>
+      )
+    }
+    <form method="POST" action={langLink(`${base}/photo`, lang)}>
+      <button
+        class="btn btn-tall btn-action"
+        type="submit"
+        {...bi(photoLogged ? MINE.photoIn : MINE.givePhoto, lang)}
+        >{(photoLogged ? MINE.photoIn : MINE.givePhoto)[lang]}</button
+      >
+    </form>
   </div>
 </Screen>
 
 <style>
-  .top-row { display: flex; justify-content: space-between; align-items: center; }
-  .back-link { color: var(--muted); font-size: 14px; font-weight: 800; text-decoration: none; padding: 8px 0; }
-  .your-bed { font-size: 12px; font-weight: 900; letter-spacing: 0.14em; color: var(--action); }
-  .plate-lg { font-size: 32px; font-weight: 900; line-height: 1.05; }
-  .cross-streets { font-size: 15px; font-weight: 800; color: var(--surface-dark); margin-top: 4px; }
-  .slots { margin-top: 14px; }
-  .slot-me { border: 2px solid var(--action); padding: 10px 12px; }
-  .band-title-sm { font-size: 17px; }
-  .band-sub-tight { margin-top: 2px; }
-  .band-when { font-size: 12px; opacity: 0.9; }
-  .stats { display: flex; justify-content: center; gap: 20px; font-size: 13px; font-weight: 800; color: var(--muted); }
-  .stat-streak { color: var(--action); }
-  .stat-points { color: var(--ink); }
-  .ok-line { font-size: 14px; font-weight: 800; color: var(--success); }
-  .actions-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
-  .btn-clean { min-height: 56px; font-size: 16px; letter-spacing: 0; }
-  .btn-photo { min-height: 62px; font-size: 17px; letter-spacing: 0; }
+  .top-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .your-bed { padding-right: 52px; }
+  .bed-ident { margin-top: 6px; }
+  .stewards-gap { margin-top: 14px; }
+  .note-echo { font-style: italic; }
+  .also-block { display: flex; flex-direction: column; gap: 6px; }
+  .also-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    color: var(--theme-muted);
+  }
+  .also-said {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--theme-muted);
+  }
+  .also-said .also-label { font-weight: 600; color: var(--theme-ink); }
+  .also-said .also-cat + .also-note { margin-left: 6px; }
+  .also-said .also-note { font-style: italic; }
+  .stats {
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--theme-muted);
+    text-align: center;
+  }
+  .stats .stat { font-size: 17px; font-weight: 700; color: var(--theme-ink); }
+  form + form { margin-top: -4px; }
 </style>

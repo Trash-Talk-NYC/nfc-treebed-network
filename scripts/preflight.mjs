@@ -37,6 +37,6 @@ if (!process.env.TREEBED_SESSION_SECRET) {
 const pinHashes = process.env.TREEBED_MAX_INFLIGHT_PIN_HASHES;
 if (pinHashes !== undefined && pinHashes !== '' && Number(pinHashes) < 1) {
   console.warn(
-    `TREEBED_MAX_INFLIGHT_PIN_HASHES=${pinHashes}: sign-in and adoption are disabled, every attempt answers busy.`,
+    `TREEBED_MAX_INFLIGHT_PIN_HASHES=${pinHashes}: sign-in is disabled, every attempt answers busy.`,
   );
 }

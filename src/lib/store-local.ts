@@ -23,7 +23,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Store } from './store';
 import type { Adoption, Bed, BedEvent, Report, User } from './types';
-import { type Data, TransactionStore, detach, ops, seedData } from './store-dataset';
+import { type Data, TransactionStore, detach, normalizeData, ops, seedData } from './store-dataset';
 
 // `.data/` beside the repo, unless TREEBED_DATA_DIR moves it — session.ts keeps
 // the dev session secret in the same directory. The end-to-end suite sets it so
@@ -53,7 +53,9 @@ export class LocalStore implements Store {
   private async readOrSeed(): Promise<Data> {
     let data: Data;
     try {
-      data = JSON.parse(await fs.readFile(this.file, 'utf8')) as Data;
+      // Normalized on the way in: a store file written before the tap
+      // flow's fields existed is reconciled additively, never migrated.
+      data = normalizeData(JSON.parse(await fs.readFile(this.file, 'utf8')) as Data);
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       data = await seedData();

@@ -1,26 +1,121 @@
 ---
+// The shell every tap-flow screen renders inside.
+//
+// Three things live here because they are true of every screen and must not be
+// re-decided per page:
+//
+//  1. SAFE AREAS. `viewport-fit=cover` is what makes `env(safe-area-inset-*)`
+//     resolve to anything at all — without it the insets are zero and every
+//     careful padding rule downstream is a no-op. This project has an expensive
+//     history of header/safe-area bugs shipped from unverified theories, so the
+//     one line that arms the whole mechanism sits here, next to the rules that
+//     use it (`src/styles/global.css`, `.screen`), rather than in a page.
+//  2. THE THEME. The bed's presentation is written once, as custom properties
+//     on the root element (presentation.ts). Nothing downstream names a colour.
+//  3. THE LANGUAGE. `<html lang>` is the active language, and the toggle is
+//     rendered here so it is on every screen — including the full-screen
+//     takeovers, which the captain named explicitly.
 import '../styles/global.css';
+import LangToggle from '../components/LangToggle.astro';
+import type { Lang } from '../lib/i18n';
+import { themeStyle, type Presentation } from '../lib/presentation';
 
 interface Props {
   title: string;
+  lang: Lang;
+  presentation: Presentation;
+  /** The URL the toggle rewrites — always the screen's own. */
+  url: URL;
+  /**
+   * Which theme role this screen stands on. It picks the browser chrome behind
+   * the notch — a takeover whose ground stops at the status bar is not a
+   * takeover — and tells the language toggle which ink to use.
+   */
+  ground?: 'page' | 'clear' | 'action';
 }
-const { title } = Astro.props;
+
+const { title, lang, presentation, url, ground = 'page' } = Astro.props;
+const chrome = {
+  page: presentation.colors.ground,
+  clear: presentation.colors.clear,
+  action: presentation.colors.action,
+}[ground];
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* viewport-fit=cover: without it env(safe-area-inset-*) is 0 everywhere. */}
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content={chrome} />
     <meta name="robots" content="noindex" />
     {/* Empty data: icon stops browsers fetching /favicon.ico — that 404 cost
         4KB of error HTML on every cold tap. */}
     <link rel="icon" href="data:," />
     <title>{title}</title>
   </head>
-  <body>
-    <div class="frame">
+  <body style={themeStyle(presentation.colors)}>
+    <div class={`frame ground-${ground}`}>
       <slot />
+      <LangToggle lang={lang} url={url} />
     </div>
+    <script is:inline>
+      // The only client JavaScript on the tap flow, and the only thing it does
+      // is make the language toggle instant.
+      //
+      // Every screen already carries both languages (src/lib/bilingual.ts) and
+      // is already rendered in the right one by the server, so this enhances
+      // and never enables: with it off, the toggle is a link, the server
+      // re-renders, and nothing on any screen is lost. That is the same
+      // standard every form here is held to.
+      (function () {
+        var toggle = document.querySelector('[data-lang-toggle]');
+        if (!toggle) return;
+        var YEAR = 60 * 60 * 24 * 365;
+
+        function apply(lang) {
+          var other = lang === 'es' ? 'en' : 'es';
+          document.documentElement.lang = lang;
+          document.querySelectorAll('[data-bi]').forEach(function (el) {
+            var next = el.getAttribute('data-' + lang);
+            if (next !== null) el.textContent = next;
+            el.setAttribute('data-bi', lang);
+          });
+          // Bilingual attributes: placeholder, alt, aria-label, title.
+          ['placeholder', 'alt', 'aria-label', 'title'].forEach(function (name) {
+            document.querySelectorAll('[data-' + lang + '-' + name + ']').forEach(function (el) {
+              el.setAttribute(name, el.getAttribute('data-' + lang + '-' + name));
+            });
+          });
+          // Our own links and forms carry the language so a cookie-less
+          // browser keeps it — a form left behind would post to the language
+          // the server rendered and land the visitor on the wrong thank-you.
+          [
+            ['a[href]', 'href'],
+            ['form[action]', 'action'],
+          ].forEach(function (pair) {
+            document.querySelectorAll(pair[0]).forEach(function (el) {
+              var value = el.getAttribute(pair[1]);
+              if (!value || value.indexOf('/') !== 0) return;
+              var url = new URL(value, location.origin);
+              if (lang === 'en') url.searchParams.delete('lang');
+              else url.searchParams.set('lang', lang);
+              el.setAttribute(pair[1], url.pathname + url.search + url.hash);
+            });
+          });
+          var self = new URL(location.href);
+          self.searchParams.set('lang', other);
+          toggle.setAttribute('href', self.pathname + self.search);
+          // A preference, not an identity — no signature, and it grants nothing.
+          document.cookie = 'tg_lang=' + lang + ';path=/;max-age=' + YEAR + ';samesite=lax';
+        }
+
+        toggle.addEventListener('click', function (event) {
+          event.preventDefault();
+          apply(document.documentElement.lang === 'es' ? 'en' : 'es');
+        });
+      })();
+    </script>
   </body>
 </html>

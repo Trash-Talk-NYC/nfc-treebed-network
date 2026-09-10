@@ -7,9 +7,10 @@ import { getBedView, logPhoto } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { langLink, readLang } from '../../../lib/i18n';
 import { refuseWithBody, requireBoundTagForPost, postOnly } from '../../../lib/tag-route';
 
-export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
+export const POST: APIRoute = async ({ params, request, cookies, redirect, url }) => {
   // Resolved before anything else, and its body accounted for either way: a
   // POST at a tag nobody bound has no bed behind it, and a body left untouched
   // is one Node dumps to its end for us.
@@ -18,24 +19,25 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   const { plate, base } = bound;
   const refused = await discardBody(request, 'check-in');
   if (refused) return refused;
+  const lang = readLang(url, cookies);
   const userId = getSessionUserId(cookies);
-  if (!userId) return redirect(`${base}/auth`, 303);
+  if (!userId) return redirect(langLink(`${base}/auth`, lang), 303);
 
   const store = getStore();
   const view = await getBedView(store, plate);
   if (!view) {
     return await refuseWithBody(request, new Response('No bed with that plate.', { status: 404 }));
   }
-  // Being signed in isn't enough: only this bed's guardians can write to its
+  // Being signed in isn't enough: only this bed's stewards can write to its
   // append-only history. Mirrors the gate on mine.astro.
   // Flagged like every other POST route's way back: this render is the tail of
   // a submission, not somebody arriving at the tag.
-  if (!view.adopters.some((a) => a.user.id === userId)) {
-    return redirect(ourPlaqueLink(base), 303);
+  if (!view.stewards.some((a) => a.user.id === userId)) {
+    return redirect(langLink(ourPlaqueLink(base), lang), 303);
   }
 
   await logPhoto(store, { plate, actorId: userId });
-  return redirect(`${base}/mine`, 303);
+  return redirect(langLink(`${base}/mine`, lang), 303);
 };
 
 export const ALL = postOnly;

@@ -1,0 +1,86 @@
+---
+// The language control, on every screen including the takeovers.
+//
+// A plain link, deliberately. The captain asked for a toggle the visitor
+// operates rather than a browser-language guess, and a link is the version of
+// that which works with JavaScript disabled: it carries `?lang=`, the server
+// resolves it and sets the preference (i18n.ts). The inline script in the
+// layout upgrades the same element to an instant, no-reload swap.
+//
+// It prints the language it switches TO — "ES" while showing English — so what
+// it does is legible without reading a word of the language you don't speak.
+import { bi, biAttr } from '../lib/bilingual';
+import { LANG_COPY } from '../lib/copy';
+import { otherLang, withLang, type Lang } from '../lib/i18n';
+
+interface Props {
+  lang: Lang;
+  url: URL;
+}
+const { lang, url } = Astro.props;
+---
+
+<a
+  class="lang-toggle"
+  data-lang-toggle
+  href={withLang(url, otherLang(lang))}
+  {...biAttr('aria-label', LANG_COPY.toggleLabel, lang)}
+  {...bi(LANG_COPY.toggleText, lang)}
+  >{LANG_COPY.toggleText[lang]}</a
+>
+
+<style>
+  /* Fixed rather than in flow: every screen below is a full-height column that
+     ends in its primary action, and a control in the flow would either push
+     that action down or land under the home indicator. Pinned top-right,
+     clear of the notch on both sides — the inset is added to the offset, not
+     substituted for it, so a device with no inset still gets real spacing. */
+  .lang-toggle {
+    position: fixed;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    /* Pinned to the RIGHT EDGE OF THE COLUMN, not of the viewport: the screens
+       are authored at phone width and centred on anything wider, and a control
+       stuck to the corner of a desktop window reads as belonging to the browser
+       rather than to the page. Collapses to the screen edge on a phone, where
+       the two are the same thing. */
+    /* `100%` rather than `100vw`: a fixed element's percentage resolves
+       against the viewport WITHOUT the scrollbar, while `100vw` includes it —
+       so on a scrolling screen the vw version drifts half a scrollbar off the
+       column it is supposed to be pinned to. */
+    right: calc(max(0px, (100% - 430px) / 2) + 10px + env(safe-area-inset-right, 0px));
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* 44px is the smallest thing a thumb reliably hits. */
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 10px;
+    border-radius: 22px;
+    border: 2px solid var(--theme-border);
+    background: var(--theme-surface);
+    color: var(--theme-ink);
+    font-family: 'Barlow', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .lang-toggle:active {
+    background: var(--theme-ground);
+  }
+
+  /* On the coloured grounds — the two doors and the takeovers — it reads as
+     part of the ground rather than a chip stuck on top of it. */
+  :global(.ground-clear) .lang-toggle {
+    border-color: var(--theme-on-clear-muted);
+    background: transparent;
+    color: var(--theme-on-clear);
+  }
+  :global(.ground-action) .lang-toggle {
+    border-color: var(--theme-on-action);
+    background: transparent;
+    color: var(--theme-on-action);
+  }
+</style>

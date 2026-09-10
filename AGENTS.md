@@ -1,11 +1,74 @@
 # NFC Tree Bed Network — agent notes
 
-The v1 tap screen ("plaque") for Trash Talk NYC's NFC tree bed network.
+The post-tap experience for Trash Talk NYC's NFC tree bed network.
 A pedestrian taps a tag on a tree guard and lands on `/t/<tag>` — an opaque 8-character tag ID, e.g. `/t/2mq2amhv` (production host `https://trashtalknyc.org/t/<id>`; the custom domain is separate work).
-The bed's plate (`BED-HRL-0847`) is display text on the plaque, never the URL — see "The tag URL" below.
+The bed's plate (`BED-HRL-0847`) is an INTERNAL join key and is never rendered — see "The tag URL" and "The two doors" below.
 
-Source-of-truth documents live in the firstmate repo under `data/plaque-mvp-n4/`:
-the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authoritative for visuals/copy/flow, and `spec.md` for product intent and rules.
+**Every feature-work pull request is opened against `dev`, never against `main`** — `dev` is the default branch and `main` mirrors `prod`.
+This is repeated here, at the top, because automation that picks a base by the conventional name `main` fails the promotion-chain check, and by then the base is already wrong; see "Branching model" below for the whole chain and for the retarget that clears it.
+
+Source-of-truth documents live in the firstmate repo:
+- `data/tap-flow-decision/approved-screens.html` — the approved screens, iterated on directly by the captain across roughly forty rounds. Authoritative for visuals, copy and flow. **Open it in a browser before changing a screen.**
+- `data/tap-flow-decision/design-record.md` — the numbered constraints the captain agreed, with the reasoning, plus the three open questions he answered "undecided, knowingly so" and the safe default each one obliges.
+- `data/plaque-mvp-n4/spec.md` — product intent and the server-side rules, still current below the screens.
+The prototype in `data/plaque-mvp-n4/prototype/` is the SCRAPPED Option A plaque and is no longer authoritative for anything.
+
+## The two doors (read before touching a screen)
+
+The tap resolves to a bed server-side and the bed's state picks one of two screens (`src/pages/t/[tag]/index.astro`):
+
+- **no steward yet** → "This <tree>'s bed is looking for a steward." → `ADOPT THIS BED` / `THIS BED NEEDS CARE`
+- **already stewarded** → "This <tree> bed has been adopted!" with the stewards shown → `SEND APPLAUSE` / `THIS BED NEEDS CARE`
+
+**The two doors stand on different grounds, deliberately.**
+Door 1 is Poster Beige — the page ground — with no highlight on the tree type, so its headline reads as one plain sentence; its buttons are the page ground's pair, Deep Purple for adopt and a Roadtop Black outline for care.
+Door 2 is Post No Bills Green with the tree type picked out in beige (`.hl`).
+The captain changed door 1 to beige after the review; it is not an oversight to normalize, and `.hl` does not go back on it — `tests/steward-privacy.e2e.test.ts` asserts the ground, the button pair and the absent highlight in both languages.
+No yellow appears on door 1 at all, which is what keeps it clear of the one pairing that cannot work on that ground.
+
+`THIS BED NEEDS CARE` opens the problem picker (`care.astro`): thirsty plants / litter / guard damage / something else, plus an optional photo.
+"Something else" is a LINK to `?tell=1`, which is the same route rendering the free-text box — a link rather than a script, so the second screen exists with JavaScript disabled.
+Both send to `report.ts`, which lands on the full-screen "Thank you" (`thanks.astro`).
+Adoption lands on the full-screen purple "Adopted!" (`adopted.astro`).
+
+**Option A — the old plaque-first screen — is scrapped, not flagged off. Do not restore it.**
+With it went the visitor-facing confirm, escalate, receipt and rate-limited screens, which the approved flow has no place for.
+Their RULES are untouched in `service.ts` (`escalateReport`, `closeReport`), the same way anonymous clear is kept as a capability behind a closed route; only the routes are gone.
+**`escalateReport` and `closeReport` are deliberately kept with no visitor route — they are not dead code, and re-raising them as such is re-litigating this decision.** (`confirmReport` was NOT one of them: `reportProblem` absorbed its logic inline, and it is gone.)
+
+Two consequences worth knowing before you "fix" something:
+- **A second neighbour reporting an open problem is not refused.**
+  `reportProblem` adds their weight to the open report (the `confirmedBy` array, same `MAX_CONFIRMATIONS` bound) instead of opening a duplicate — two open reports on one bed is unrecoverable through the UI, because `closeReport` only ever finds the first.
+  What they said is carried, not dropped: their category and their note ride on the `confirm` event (`BedEvent.category` / `BedEvent.note`), and a photo they attached sets `photoAttached` on the open report.
+  The steward reads them under the open-report band on `mine.astro`, headed "Neighbours also said" so they are not mistaken for the first reporter's own second thought.
+  Which report an event is about is `BedEvent.reportId` — `report`, `confirm`, `escalate` and `clear` all name it — so that join is exact rather than a time window — `report → clear → report` is a supported loop and only the id says which lap an event belongs to.
+  Events written before that field carry null and match nothing, which is the right way for it to degrade.
+  The note is capped at `MAX_NOTE_CHARS` and the confirmations are bounded, so carrying the payload reopens no growth concern.
+- **Nobody standing at a tree is shown a rule.**
+  A second send the same NY day writes nothing and still lands on the thank-you takeover.
+  What the press was worth is legible in the record and the events, not in a notice.
+
+## Bilingual, with a visible toggle
+
+**Every visitor-facing string exists in English and Spanish, and an untranslated one is a defect, not a follow-up** (design-record.md, constraint 11).
+Washington Heights is heavily Spanish-speaking.
+
+- All copy lives in `src/lib/copy.ts` as `Phrase` (`{en, es}`) values, so there is no way to write an English string without its Spanish.
+  `tests/i18n.test.ts` additionally fails on an empty value or one copied across untranslated.
+- `src/lib/i18n.ts` resolves the language: `?lang=` on the URL first (what the toggle link carries), then the `tg_lang` cookie, then English.
+  **Nothing reads `accept-language`** — the captain asked for a toggle the visitor operates, and a phone set to English in a Spanish-speaking household is common on this block.
+- Screens render the active language AND carry both in `data-en` / `data-es` attributes (`src/lib/bilingual.ts`), the same pattern the sister property `trashtalknyc-website` uses.
+  The server render is what makes it correct with no script; the one inline script in `Screen.astro` upgrades the toggle to an instant, no-reload swap.
+  **A bilingual element must be a LEAF node** — the swap sets `textContent` — which is why a sentence wrapping the tree type is split into leaves either side of it.
+- Every link and redirect of ours carries the language through `langLink` / `withLang`, which preserve whatever else the URL held — including `tg_action`, without which a language switch would log a second tap (`plaque-url.ts`).
+- Plain-text refusals for machine callers (405, "Not a tag on this network.") are deliberately English-only: nothing renders those to a person.
+
+## Presentation is data-driven, not hardcoded
+
+**No colour, logo or wordmark is named anywhere but `src/lib/presentation.ts`.** Every bed returns the same defaults today and grouping is deliberately NOT built; what this buys is that giving a block or a sponsor its own look later is a new lookup rather than an unpicking job across every screen.
+`themeStyle` writes the roles onto the root element as `--theme-*` custom properties and the stylesheet reads them.
+`tests/presentation.test.ts` fails the build on a hex value anywhere else under `src/`, and holds every text/background pair to WCAG AA.
+`Presentation.logo` and `public/img/trash-talk-nyc-logo.png` are part of that seam and are kept on purpose although no approved screen renders a logo yet: a sponsor's or a block's mark must be a lookup here, not a rewrite. Do not delete them as dead weight.
 
 ## Stack
 
@@ -25,8 +88,8 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   CI also runs `npm run test:netlify-build` after both suites, because every other step builds and exercises the node target only — the adapter production ships would otherwise be built for the first time by a manual deploy.
   That script builds the netlify target *and* runs `scripts/smoke-netlify.mjs`, which imports the emitted `.netlify/v1/functions/ssr/ssr.mjs` and renders one request through it: the break this repo actually hit (`app.getLogger()`) is a load-time crash that a build alone passes green, so the build without the boot would prove only that the adapter resolves and the bundle emits.
   The request it drives is the root redirect, the one route that reaches a rendered response without touching the store, so the gate needs no Blobs backend.
-- The plaque ships zero client JavaScript except one inline script enhancing the severity sheet — live tier name/definition on the slider, and the "photo attached" state on the file input.
-  Every form is a plain HTML POST and works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
+- The tap flow ships two small inline scripts and nothing else: the language toggle's instant swap (`Screen.astro`) and the care screen's photo-attached state plus note counter (`care.astro`).
+  Both are enhancements. Every form is a plain HTML POST, the language toggle is a plain link, and the whole flow works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
 
 ## The tag URL (read before touching routing)
 
@@ -48,8 +111,8 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   POSTs at an unbound tag are answered before any rule runs, and pay `abandonBody`'s bounded drain (`request-body.ts`) for the body on the way out:
   a body the app never touches is one Node dumps to its end for us, so refusing without reading is the expensive answer rather than the free one.
   `requireBoundTagForPost` / `requireBoundTagForForm` / `requireBoundTagForView` (`src/lib/tag-route.ts`) are what every route behind `/t/<tag>` resolves through, which is where that ordering is kept.
-  The five POST endpoints (`requireBoundTagForPost`) answer 404 in plain text — nothing is submitting a form there.
-  The screens (`requireBoundTagForForm` / `requireBoundTagForView`) send the visitor to the plaque instead, which answers 404 itself, so the calm screen lives in exactly one place: 302 for a GET, 303 for a POST at `adopt` or `auth`.
+  The four POST endpoints (`requireBoundTagForPost` — `report`, `applause`, `clear`, `photo`) answer 404 in plain text — nothing is submitting a form there.
+  The screens (`requireBoundTagForForm` / `requireBoundTagForView`) send the visitor to the door screen instead, which answers 404 itself, so the calm screen lives in exactly one place: 302 for a GET, 303 for a POST at `adopt` or `auth`.
   An invalid ID — one no normalization can resolve — is 404 plain text everywhere, screens included: it is not on this network at all.
 
 ## Architecture invariants
@@ -68,19 +131,19 @@ the approved UI prototype (`prototype/Tree Guard Plaque v2.dc.html`) is authorit
   Old revisions are pruned a safe distance behind the newest; the survivors double as a short paper trail (`netlify blobs:list treebed`).
 A commit's own expired revision is deleted by key, since arithmetic already knows which one fell out of the window; the full listing sweep runs on a failed delete and once every `KEPT_REVISIONS` commits, because an instance recycled between a commit and its prune leaves an orphan no later commit's arithmetic names.
 - **Which revision is newest is never decided by a key listing.**
-  Blobs' strong consistency covers `get`, not `list`, so a stale listing would hand a reader an older revision — the receipt a POST just redirected to would 404 — and would make `transaction` burn every attempt against a revision number somebody else already owns.
+  Blobs' strong consistency covers `get`, not `list`, so a stale listing would hand a reader an older revision — the thank-you screen a POST just redirected to would render against an older bed — and would make `transaction` burn every attempt against a revision number somebody else already owns.
   A read instead takes the `head` pointer (a strongly consistent `get`, moved after each commit) as a *lower bound* and walks forward one `get` at a time until a revision is missing: the pointer may lag or be moved back a revision by a racing commit, the walk cannot, because a revision that exists is one `get` must return.
   The listing survives only as the fallback for a pointer that is missing or names a pruned revision, where being approximately right is enough to start the walk from.
   `tests/store-blobs.test.ts` drives both a lagging pointer and no pointer at all.
 - **A request validates the dataset once, not once per read.**
   `src/middleware.ts` runs every route inside a `runInRequestContext` (`src/lib/request-context.ts`), and `BlobsStore` memoizes its validated read there.
-  One plaque render was six or more sequential Blobs round trips awaited before first paint, on cellular, for someone standing at the tree; it is now one revalidation, and every read on the screen sees one revision instead of possibly two.
+  One door-screen render was six or more sequential Blobs round trips awaited before first paint, on cellular, for someone standing at the tree; it is now one revalidation, and every read on the screen sees one revision instead of possibly two.
   A commit republishes the memo, so a request always reads its own write, and a lost commit drops it, so a retry re-runs against the dataset that beat it.
   Blobs payloads are serialized compact for the same reason (`store-local.ts` stays pretty-printed): every commit uploads the whole dataset, every tap is a commit, and `KEPT_REVISIONS` copies trail behind each one.
   `netlify blobs:get treebed rev/<n> | jq` covers the readability.
   Growth is still linear in lifetime taps — `events` is append-only with nothing pruning it — which is fine at pilot scale and is the thing to revisit (a separate append-only key, or sampling) before traffic accumulates.
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
-  Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, escalate-to-dumping-once, one photo per NY week, PIN hashing.
+  Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, one applause per person per bed per NY day, escalate-to-dumping-once, one photo per NY week, the note cap, PIN hashing.
   Anything in the browser is editable in devtools (spec §7).
 - **A rule that checks state before writing it runs inside `store.transaction()`, and reads and writes through the `tx` the callback is handed — never through the store it came from.**
   A bare sequence of store calls interleaves with concurrent requests, and two reports open on one bed is unrecoverable through the UI — `closeReport` only ever finds the first.
@@ -94,33 +157,46 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Known MVP limitation: clearing cookies mints a new identity; the limit is best-effort for anonymous users.
 - **A write a cookie-less caller can repeat reads the actor with `getExistingActorId`, not `getActorId` — with `/report` as the one deliberate exception.**
   `getActorId` mints a visitor id when there isn't one, which on a write path hands a caller that sends no cookie a fresh identity every request — the rule then bounds nothing.
-  `/confirm` and `/escalate` therefore perform no write for a cookie-less POST and redirect like any other no-op action; a real neighbour always has the cookie, because the plaque GET they pressed the button on set it, so the approved one-tap UX is unchanged and signed-in users never reach the gate at all.
-  Filing a report is the exception because the trade is not the same one: a confirm the server declines to count costs a visitor nothing they came for, while a report it declines to file is the product.
+  `/applause` therefore performs no write for a cookie-less POST and redirects like any other no-op action; a real neighbour always has the cookie, because the door screen's GET they pressed the button on set it, so the approved one-tap UX is unchanged and signed-in users never reach the gate at all.
+  Filing a report is the exception because the trade is not the same one: an applause the server declines to count costs a visitor nothing they came for, while a report it declines to file is the product.
   So `/report` mints (`getActorId`), a cookie-less POST files, and the one-per-person-per-NY-day limit is best-effort for anonymous callers — the same concession already recorded above for the visitor cookie. Don't "fix" that line into `getExistingActorId`; it would silently stop anonymous filing, which is the core street action.
-  This is a bound, not tamper-proofing: a script that keeps a cookie jar per identity still inflates the confirm count, exactly as it can still refile past the daily limit. It is the same best-effort tier as the visitor cookie itself, and what it buys is that the trivial version — no cookies at all — writes nothing. `MAX_CONFIRMATIONS` (service.ts) is what makes the cost finite where the write is a growing array — the stored array, the events beside it, and the number on the public screen all stop growing there.
-- **`/clear` is gated on a signed-in adopter of that bed, and anonymous clear is deferred by decision — not missing by accident.**
+  This is a bound, not tamper-proofing: a script that keeps a cookie jar per identity still inflates the weight on a report, exactly as it can still resend past the daily limit. It is the same best-effort tier as the visitor cookie itself, and what it buys is that the trivial version — no cookies at all — writes nothing. `MAX_CONFIRMATIONS` (service.ts) is what makes the cost finite where the write is a growing array — the stored array, the events beside it, and the number on the public screen all stop growing there.
+- **`/clear` is gated on a signed-in steward of that bed, and anonymous clear is deferred by decision — not missing by accident.**
   Spec §2's "anyone can mark clear" is deliberately not implemented at the route right now. `closeReport` itself is unchanged and still actor-agnostic: the capability is intact in the service layer, only the route is closed, so re-opening it is a routing change and not a rules rewrite.
-  A cookie gate is not enough here, which is why this one is auth-gated where `/confirm` and `/escalate` are not. Closing a report is what lets the next one be filed, so `report → clear → report` is a loop with no UI behind it, and each lap appends a `Report` and two `BedEvent`s to a history nothing prunes, each written by re-serializing the whole file — the cost of an injected record grows with the records already injected. `/report` mints deliberately, so a cookie-less caller files freely; one GET buys the visitor cookie that a `getExistingActorId` gate on `/clear` would ask for, and the loop runs unchanged. Auth ends it instead of rationing it, and costs no approved screen: the only clear button in the build is on the guardian view (`mine.astro`), behind a session and an adopter check already.
+  A cookie gate is not enough here, which is why this one is auth-gated where `/applause` is not. Closing a report is what lets the next one be filed, so `report → clear → report` is a loop with no UI behind it, and each lap appends a `Report` and two `BedEvent`s to a history nothing prunes, each written by re-serializing the whole file — the cost of an injected record grows with the records already injected. `/report` mints deliberately, so a cookie-less caller files freely; one GET buys the visitor cookie that a `getExistingActorId` gate on `/clear` would ask for, and the loop runs unchanged. Auth ends it instead of rationing it, and costs no approved screen: the only clear button in the build is on the steward's own view (`mine.astro`), behind a session and a steward check already.
   **Re-opening anonymous clear requires a storage bound as a precondition** — a generous per-bed daily cap on anonymous clears is the shape to use. Whoever re-opens it must not simply delete the two checks in `clear.ts`; without a bound underneath, that restores the unbounded loop verbatim.
 
 ## Security decisions (read before touching auth)
 
-- **PIN auth is an MVP decision with a known weakness, not a considered long-term design.**
-  The captain chose username + numeric PIN for the street MVP (replacing spec §2's magic-link plan).
-  A 4–8 digit PIN is brute-forceable and there is no rate limiting on sign-in attempts yet.
-  Revisit before any real rollout.
-- PINs are bcrypt-hashed (`hashPin`/`verifyPin` in service.ts). Never store, log, or echo a plaintext PIN — the adopt form deliberately does not re-fill the PIN field on validation errors.
+- **The adopt form collects NO secret, and must not be given one back.**
+  The captain's passwordless decision superseded the earlier PIN plan and ordered the field, the `pinHash` column and the username+PIN screen dropped.
+  His three reasons, each of which a secret here undoes: a forgotten one is permanent lockout with no recovery path; a cloned plaque on a public repo is a reusable secret to harvest; and a short numeric code on a street object has no brute-force protection.
+  He also preferred a tap-to-sign-in LINK over a typed code, because a typed code is relay-phishable.
+  A steward's public handle is derived from their name instead (`deriveUsername` in `service.ts`) — Marisol Rivera → `@marisol_r`, the shape the seed already had.
+- **What carries a steward today is the session cookie, which lasts a year.**
+  Sign-in is rare precisely because of that, which is why adopting without a way back in is survivable rather than broken.
+  **Known gap, stated rather than buried: a steward who clears cookies before the tap-to-sign-in link lands has no return path.**
+  Building that link needs the org's Brevo account and belongs to `adopt-name-split-r5`.
+- **The `/auth` PIN screens are pre-existing and deliberately left in place.**
+  Nobody the new adopt form creates can use them — `pinHash` is null and `hasSignInRoute` is false, so `signIn` gives them the unmatchable hash — and migrating those screens is that same later task.
+  A 4–8 digit PIN is brute-forceable and there is still no rate limiting on sign-in attempts.
+  Do not build new flows on them.
+- Where a PIN still exists (the pre-existing `/auth` screens and the seeded steward), it is bcrypt-hashed (`hashPin`/`verifyPin` in service.ts). Never store, log, or echo a plaintext PIN.
+  The adopt form has no field to re-fill: it collects no secret, so everything the visitor typed comes back on a validation error.
 - **`MAX_INFLIGHT_PIN_HASHES` (service.ts, 4) bounds the backlog a PIN hash can build, not how many PINs may be tried and not the CPU itself.**
+  It covers `/auth` only. `/adopt` used to hash too; passwordless removed that, so the only work a flood can buy there is two slots' worth of reads.
   `request-body.ts` bounds bytes, time and concurrency for every public POST, but it releases a read's share of `MAX_INFLIGHT_BODY_BYTES` before any rule runs, and a bcrypt is ~150–300ms of the one thread that also serves every tap.
-  So `/auth` and `/adopt` were the one place an anonymous caller could still queue unbounded work: a few dozen POSTs a second saturate the loop and every tap, report and confirm stalls behind however many hashes the flood managed to start.
+  So `/auth` is the one place an anonymous caller can still queue unbounded work: a few dozen POSTs a second saturate the loop and every tap, report and applause stalls behind however many hashes the flood managed to start.
   Past the bound the request is shed rather than queued — waiting in line for a saturated CPU is the stall, not the cure — and `signIn` takes its slot *before* the username lookup, so being shed can't reveal what the constant-time compare below is there to hide.
-  What that buys is bounded queue depth and bounded added latency, not a bounded share of the CPU: bcryptjs yields to the event loop once per 100ms of synchronous work (`MAX_EXECUTION_TIME`), not per round, so four admitted hashes still keep the thread in bcrypt nearly continuously. A tap arriving mid-flood waits behind at most four hashes — a few hundred milliseconds — instead of behind an unbounded queue. The plaque, the report and the confirm stay usable under load; they do not stay fast.
-  The other side of that trade, deliberately: a sustained anonymous flood holds sign-in and adoption at their busy screens for as long as it lasts. Auth loses to the tap/report path, which is the whole reason the bound sheds. Per-IP limiting at the platform tier is the eventual remedy, alongside the per-PIN and per-account rate limiting that is still absent and still owed before any real rollout — this bounds the cost of attempts, not their number.
-  Both screens answer it themselves: the sign-in form and the adopt form come back with a 503, `retry-after`, and everything the visitor typed except the PIN. Shedding logs at most one line a minute, carrying the number shed since the last one: the node adapter writes no access log, so 503s are otherwise invisible from the box, but a line per refusal would let an anonymous flood decide how much stderr it costs us — the same reason `request-body.ts` says nothing at all for a `busy` refusal.
+  What that buys is bounded queue depth and bounded added latency, not a bounded share of the CPU: bcryptjs yields to the event loop once per 100ms of synchronous work (`MAX_EXECUTION_TIME`), not per round, so four admitted hashes still keep the thread in bcrypt nearly continuously. A tap arriving mid-flood waits behind at most four hashes — a few hundred milliseconds — instead of behind an unbounded queue. The door screen, the report and the applause stay usable under load; they do not stay fast.
+  The other side of that trade, deliberately: a sustained anonymous flood holds sign-in at its busy screen for as long as it lasts. Auth loses to the tap/report path, which is the whole reason the bound sheds. Per-IP limiting at the platform tier is the eventual remedy, alongside the per-PIN and per-account rate limiting that is still absent and still owed before any real rollout — this bounds the cost of attempts, not their number.
+  The sign-in screen answers it itself: the form comes back with a 503, `retry-after`, and the username still in it — never the PIN, which no response carries back. Shedding logs at most one line a minute, carrying the number shed since the last one: the node adapter writes no access log, so 503s are otherwise invisible from the box, but a line per refusal would let an anonymous flood decide how much stderr it costs us — the same reason `request-body.ts` says nothing at all for a `busy` refusal.
   How many hashes overlap depends on how fast the box is, so the end-to-end proof of what a shed visitor receives runs against a server started with `TREEBED_MAX_INFLIGHT_PIN_HASHES=0` — a test seam like the two in `request-body.ts`, not a deployment knob. Zero stays legal for exactly that reason, and it is announced the same way the session secret is: `scripts/preflight.mjs` warns before the port is bound under `npm start` / `npm run preview`, and `warnIfPinHashingDisabled` (called from `src/middleware.ts`) covers a server started any other way.
   That second one is *not* a boot warning and neither is the session-secret assertion beside it — measured against the built bundle, the node adapter imports the middleware lazily (`middleware: () => import("./virtual_astro_middleware.mjs")`), so both speak on the first request of any route. Nothing inside the app can speak earlier; preflight is the only code that runs before the server listens.
-- `signIn` runs a bcrypt compare even when the username is unknown, so unknown-user and wrong-PIN cost the same. Don't "optimize" that short circuit back in — without rate limiting it is the only thing making username enumeration expensive.
-  `adoptBed` keeps the same price on the same question: its pre-filter checks only that the bed exists and has a slot free, and `username-taken` is answered from inside the transaction, past the hash. Reading the username cheaply up front would be a second, free oracle for the question `signIn` charges a bcrypt for, and it sheds nothing anyway — a flood sends handles nobody holds, so they pass the check and buy the hash regardless. The bed and slot legs are the ones that shed: once both slots are taken, every further POST refuses before hashing.
+- `signIn` runs a bcrypt compare even when the username is unknown, so unknown-user and wrong-PIN cost the same.
+  Don't "optimize" that short circuit back in — without rate limiting it is the only thing making username enumeration expensive.
+  A steward with no sign-in route gets the same unmatchable hash, so "no such person" and "cannot sign in" are not distinguishable by timing either.
+  `adoptBed` no longer has that question to leak: nobody submits a handle, so there is no "that username is taken" to answer and no oracle to price. What sheds a flood there is the bed and the slots — once both are taken, every further POST refuses on three reads.
 - `TREEBED_SESSION_SECRET` is required in production; the app refuses to sign cookies with a generated one. The `.data/session-secret` fallback is dev-only.
   The requirement is checked twice so a misconfigured deploy can't reach traffic: `scripts/preflight.mjs` runs as npm's `prestart` and `prepreview` and refuses to boot, and `src/middleware.ts` asserts at module load so a server started any other way fails on its first request of any route rather than on the first one that touches a cookie.
 - **Every public POST reads its body through `src/lib/request-body.ts`, never `request.formData()` directly** — the adapter's own default limit is 1GB of buffered memory.
@@ -128,7 +204,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Four bounds, because three rounds of review each found one of them missing somewhere: a byte cap per body, a time bound on *both* the accepted and the refused read, an in-flight byte budget across all reads at once, and the drain headroom below.
   A route bounds only the method it exports, so `src/middleware.ts` drains once after `next()` settles as the backstop for every route and every method — a no-op wherever the body was already read, and what covers the `PUT` at `/report` no route handler ever sees.
   It drains in a `finally`, so a route that throws is covered too: Astro turns the rejection into a 500 of its own, and the unread body has to be accounted for before that answer is written.
-  The five POST endpoints export `ALL = postOnly` (`tag-route.ts`) so an unhandled method is answered 405 rather than by Astro's own 404, which logs a line per request and would let an anonymous caller decide how much stderr it costs us.
+  The four POST endpoints export `ALL = postOnly` (`tag-route.ts`) so an unhandled method is answered 405 rather than by Astro's own 404, which logs a line per request and would let an anonymous caller decide how much stderr it costs us.
   One refusal is deliberately not ours: Astro's cross-origin guard runs ahead of our middleware and answers a form-content-type POST with a missing or mismatched `Origin` header 403 with the body unread.
   Taking that over would mean turning off `security.checkOrigin` and re-implementing CSRF ourselves to recover work spent on requests that were going to be refused anyway — accepted and recorded in the sweep comment instead.
 - **The photo cap is per target: 12MB on node, 4MB on netlify.**
@@ -138,7 +214,8 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Every bound in this section, and `MAX_INFLIGHT_PIN_HASHES` above, is a module-level counter, so it bounds one process: the whole server on the node target (what `npm start` runs and what the e2e suite measures), one function instance on netlify.
   Fleet-wide peak heap and bcrypt concurrency there are these numbers times however many instances the platform is running, and a single warm instance serving concurrent invocations sheds legitimate sign-ins at the hash limit exactly as it sheds a flood.
   They are per-instance costs, not the pilot's surface-wide DoS ceiling — bounding the surface is the per-IP limiting at the platform tier already noted as owed.
-- The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the severity and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
+- The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the category, the note and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
+  `textFieldFromHead` is what reads them, which only works while the care screen's markup keeps its text parts ahead of the file input — browsers send parts in DOM order. Keep it that way if the screen gains a field; `tests/care-form-order.e2e.test.ts` pins it by reading the order off the rendered care screen and posting a body built in it, so a reordered field fails the suite rather than the street.
   The photo is discarded either way (spec §12) — this only stops it being copied on the way to being discarded.
   `readCappedForm` still buffers the text-only forms, where the whole body is 64KB and two copies of it are ~128KB.
 - A refused body is read to its end and discarded rather than cancelled: cancelling the reader destroys the socket, and a client still uploading gets a connection reset instead of the response.
@@ -160,47 +237,99 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - A read refused as `'busy'` drains on `BUSY_DRAIN_BYTES`/`BUSY_DRAIN_MS`, not the headroom the other refusals get.
   Refusing a body and then spending an admitted upload's worth of ingress on it sheds no load at all.
   Everything carrying something a person typed is far under that and still gets its answer; a multi-megabyte photo arriving while the server is full is the one case whose connection closes, and at capacity that is the answer rather than a courtesy owed.
-- Each refusal is its own answer: on `/report` every one of them reaches the too-large screen with the severity preserved, because the head holds it whichever way the upload ended and the report is what is being rescued — the one exception being a read past `MAX_SHED_READS`, which keeps no head, so its `?reason=busy` screen offers the picker again instead of the one-tap refile.
+- Each refusal is its own answer: on `/report` every one of them reaches the too-large screen with the category and the note preserved, because the head holds them whichever way the upload ended and what the visitor told us is what is being rescued — the one exception being a read past `MAX_SHED_READS`, which keeps no head, so its screen offers the picker again instead of the one-tap resend.
   `?reason` picks the words — nothing (a photo to shrink), `busy` (a queue to retry), `incomplete` (an upload that stopped halfway, which is *not* to be blamed on a photo that may have been well under the cap).
   The text-only forms answer in plain text instead (413/408/503/400) because there is no filled-in report behind them to preserve.
+  Those plain-text refusals are the one visitor-reachable surface that is English-only; they are the transport saying no before any screen exists to say it in, and a body that never arrived carries no language preference either.
   A read that *fails* is not an oversized body, and an oversized body whose sender then hangs up is not a failed read — that one keeps `'over-limit'` and logs one quiet line, because a visitor closing the tab on a refused upload is not an incident.
 - Tap counting must be wrong in neither direction, and `src/lib/plaque-url.ts` is the one place that decides it.
-  Every POST route that sends someone back to the plaque and every link back to it from one of our own screens builds the URL with `ourPlaqueLink` — one function, because it answers one question — and the plaque suppresses its tap event only for the flags in `POST_ACTION_FLAGS`.
+  Every POST route that sends someone back to the door screen and every link back to it from one of our own screens builds the URL with `ourPlaqueLink` — one function, because it answers one question — and the door screen suppresses its tap event only for the flags in `POST_ACTION_FLAGS`.
   Suppressing on "the URL has a query string" would drop every tap from a decorated tag URL (UTM, Popl, a link shortener); matching only the flags that flash something counted one visit twice every time a rule sent a visitor back with nothing to say.
-  A link back counts as ours for the same reason a redirect does — somebody already on the receipt or the sign-in form had their tap counted when they arrived — and it is the commonest flow of all: tap, file, read the receipt, press "just passing through".
+  A link back counts as ours for the same reason a redirect does — somebody already on the thank-you takeover or the sign-in form had their tap counted when they arrived — and it is the commonest flow of all: tap, send, read the thank-you, press "back to the bed".
+  `?lang=` is deliberately NOT one of the suppressing flags: any decorated tag URL could carry it, and a flag that stops counting is one a link shortener could set by accident. Switching language on the door screen itself therefore renders a second view of one visit — one person at one tree either way, and the cheaper mistake of the two.
   The site root redirects through `ourPlaqueLink` too: a tag never sends anyone to `/`, so what does is an uptime check, a crawler, or somebody typing the domain, and a monitor polling it once a minute would be 1,440 taps a day on the only seeded bed.
-  It also counts only a `GET`: Astro renders the plaque for any method, but a tap is a person opening the URL on the chip, and a hand-built POST or PUT — or a monitor's HEAD — is nobody standing at a tree bed.
-  Known residual, accepted rather than fixed: because the flag rides the URL, a visitor who uses an in-app back-link is left with `?tg_action=1` in the address bar, so a later return through history, a bookmark or a shared link renders the plaque without logging a tap — a small under-count in the opposite direction. The NFC tag always sends the bare URL, so the primary metric path is unaffected, and the alternatives (a Referer check, a short-lived nav cookie) are each less reliable and less legible than one flag in one place.
-- Email and phone are PII: stored on the user record, never rendered on any public screen, never included in any client-visible payload. Only name/username is engraved, and only while `displayNameHidden` is false.
+  It also counts only a `GET`: Astro renders the door screen for any method, but a tap is a person opening the URL on the chip, and a hand-built POST or PUT — or a monitor's HEAD — is nobody standing at a tree bed.
+  Known residual, accepted rather than fixed: because the flag rides the URL, a visitor who uses an in-app back-link is left with `?tg_action=1` in the address bar, so a later return through history, a bookmark or a shared link renders the door screen without logging a tap — a small under-count in the opposite direction. The NFC tag always sends the bare URL, so the primary metric path is unaffected, and the alternatives (a Referer check, a short-lived nav cookie) are each less reliable and less legible than one flag in one place.
+- Email and phone are PII: stored on the user record, never rendered on any public screen, never included in any client-visible payload.
+  Only the username and the initials are engraved, and only while `displayNameHidden` is false.
+
+## Identity, privacy and consent
+
+- **Public screens key off NYC Parks' planting space ID, shown as `#<id>` (`Bed.plantingSpaceId`).**
+  The bed rather than the tree, deliberately: planting spaces persist while trees churn through retirement and stumps, so an adoption keyed to the bed survives a replanting.
+  Our own plate encodes site type and neighbourhood and is **never rendered** — it survives as the join key every report, adoption and event hangs on.
+  The opaque tag ID stays the URL and an internal key, and is displayed on exactly one screen: the calm "not assigned to a bed yet" one, where it is the only thing there is to say.
+  A bed NYC has no number for prints no number at all rather than falling back to the plate.
+- **A steward is shown as username first, then initials — `@marisol_r`, `M. R.`** (`publicHandle` / `publicInitials` in `types.ts`).
+  The handle is DERIVED from the name, not typed: the approved form has no username field, and `deriveUsername` gives the first name plus the last initial — exactly as much as the initials printed under it already give away.
+  Full name, email and phone are admin-only and must never reach a public screen or payload.
+  `fullName` exists for the admin surface and has no caller in the visitor flow.
+- **The word is "steward", not "adopter", throughout** — copy, types, comments and test names alike.
+- **Do not render a privacy policy link.**
+  There is no policy yet, and a dead link on a form collecting an email and a phone number is worse than none (design-record.md, answered open question 1).
+  `ADOPT.privacy` is the plain sentence, and `adopt.astro` marks the single obvious place the link goes when there is one.
+- **Do not render the mailing-list signup line either, for the same reason.**
+  There is no real signup URL, and the approved takeover's `trashtalknyc.org/xxx` was a placeholder shown to every visitor at the end of the core street action.
+  It is removed rather than guessed at; `thanks.astro` marks the one place it goes back, and putting it back needs one real URL on `Presentation.copy` plus its sentence in `copy.ts`.
+- **A steward may be held without an email**, because the sidewalk case needs it (answered open question 3).
+  `User.hasSignInRoute` and `User.recordHeldOnBehalf` record that explicitly, and `pinHash` is nullable; `signIn` gives such a user the unmatchable hash so the refusal costs the same bcrypt as any other.
+  The two flags are distinct on purpose: a steward who adopts at the tag today also has `hasSignInRoute: false` (there is no secret and no link yet), but `recordHeldOnBehalf: false` — they signed themselves up and gave an email, and nobody is holding the record for them.
+  **Do not invent an outreach mechanism, and never read a missing email as consent to be contacted.**
+  The admin flow that creates these is a later task.
+- **The NYC sync is read-only and additive.**
+  `Bed.nycMissingSince` is a flag for a human and nothing else: a bed that disappears from NYC's data is never deleted, unpublished or orphaned, and its adoption is never touched.
+  The captain was asked and answered "we don't know" (answered open question 2), so the build takes the one action that cannot destroy a live adoption.
+  Whoever implements the sync: do not turn that flag into a cascade.
+  `normalizeData` in `store-dataset.ts` is held to the same rule — it fills in fields a stored record predates, additively and losslessly, because the pilot store is live, seeding only runs on first contact, and there is deliberately no migration step.
 
 ## Design tokens
 
-- The palette in `src/styles/global.css` is the **prototype's rendered palette**, which deliberately diverges from the production site's brand tokens.
-  The captain approved the prototype's look; firstmate has flagged the divergence upstream.
-  Each token's comment records the brand value it diverges from — a future snap to brand palette is that one file.
-- Fonts are self-hosted subsets (Nunito variable 700–900, Space Mono 400/700); provenance pinned in `public/fonts/README.md`.
-  No Google Fonts CDN. Bebas Neue is intentionally absent — the prototype doesn't use it despite spec §3a.
-- The bed screen's oversized action buttons are the captain's explicit override of the prototype's 66px buttons ("buttons taking close to as much of the screen as they can"). Don't shrink them back to match the prototype.
-- `t/[tag]/too-large.astro` is the one screen with no prototype counterpart: where a refused upload lands.
-  Filing is the core street action, so an optional attachment must never cost someone the report they already filled in — the screen carries their chosen severity and offers to file it without the photo.
-  `?reason=busy` (the server was at capacity) and `?reason=incomplete` (the upload stalled or broke off) are the same screen for the other two refusals, each with its own copy: nothing is gained by telling somebody to shrink a photo that was never the problem.
-  It is built from the same tokens as the rate-limited screen and, like every other screen, works with JavaScript disabled.
+- The palette is the identity the captain approved across the tap-flow review (`design-record.md`, constraint 2), and it lives in `src/lib/presentation.ts` — **not** in `src/styles/global.css`, which names no colour at all.
+  See "Presentation is data-driven" above.
+  Poster Beige `#eae9da` · Post No Bills Green `#4e6e65` · Deep Purple `#65409a` · Street Sign Yellow `#f3cf02` · Roadtop Black `#1d1d23`, with roles: purple = the positive ownership action, yellow = attention (**always with black on it, never white — white on yellow is 1.53:1**), green = all-clear/adopted and the ground door 2 stands on, beige = the page ground — which is door 1's ground — and the buttons placed on the green.
+  Four values are one step off the review mock because the mock's own value does not clear WCAG AA; each moved the minimum distance and no hue changed.
+  `tests/presentation.test.ts` holds every pair to it.
+- Type is two families and nothing else (constraint 3): **Londrina Solid** on headlines, the plate and buttons; **Barlow** on everything else.
+  Barlow labels are sentence case, not all-caps — only the buttons and the two kicker rules shout.
+  Self-hosted subsets; provenance and the character set are pinned in `public/fonts/README.md`.
+  No Google Fonts CDN.
+  The accented range is load-bearing: every screen exists in Spanish.
+  Bebas Neue is intentionally absent — the approved screens don't use it despite spec §3a.
+- **Safe areas are armed in one place and used in one place.** `viewport-fit=cover` in `Screen.astro`'s viewport meta is what makes `env(safe-area-inset-*)` resolve to anything but zero; without that line every `calc()` in `.screen` silently collapses to its fallback.
+  The insets are ADDED to the design's own padding, never substituted for it.
+  This project has an expensive history of header/safe-area bugs shipped from unverified theories — verify on a physical device, not a simulator, and do not "fix" anything here speculatively.
+- The problem-picker tiles use a **risograph treatment**: one flat spot ink per choice (`currentColor`, so the ink is a theme role), knocked off register and multiplied into the paper, under a fixed noise plate.
+  Carried over from the approved screens rather than re-invented.
+- The oversized action buttons (`.btn-tall`) are the captain's explicit override — a thumb, at arm's length, in the rain.
+  Don't shrink them back.
+- **"Adopted!" and "Thank you" are full-screen takeovers, with animation to follow.** The seam for it is `.takeover-mark`, an element that exists only to be animated; `prefers-reduced-motion` is already honoured in `global.css` so the first animation added inherits the guard.
+  **Do not build the animation.**
+- `t/[tag]/too-large.astro` is the one screen with no counterpart in the approved screens: where a refused upload lands.
+  Telling us a bed needs care is the core street action, so an optional attachment must never cost somebody what they already told us — the screen carries their category and their sentence back and offers to send it without the photo.
+  `?reason=busy` and `?reason=incomplete` are the same screen with their own words, because nothing is gained by telling somebody to shrink a photo that was never the problem.
 
 ## Scope deliberately left out (later tasks)
 
 - Supabase/Postgres/PostGIS, R2, any hosted service — the store swap is designed for this.
-- Photo storage (the report sheet's attach affordance records only `photoAttached`), points/streak earning rules, the 1-day grace period, 311 handoff, admin dashboard, NFC tag cryptographic verification, provisioning flow.
-- Streak/points on the adopter view render stored values only; nothing increments them yet.
+- Photo storage (the care sheet's attach affordance records only `photoAttached`), points/streak earning rules, the 1-day grace period, 311 handoff, NFC tag cryptographic verification, provisioning flow.
+- **The block admin page.** It is drawn in the approved screens and is a separate, later task — per-slot switches, add-slot, the typed reference address, the NFC-vs-pen-and-paper distinction, and stewards you click through for contact details.
+  Do not let it leak into visitor-flow work.
+  The model already carries what it will need (`Adoption.stewardKind`, `User.hasSignInRoute`, `User.recordHeldOnBehalf`), and it must be bilingual like everything else.
+- **Group theming.** `presentation.ts` is shaped for it and must not grow it.
+- The block-over-time view, deliberately pulled from the visitor flow and kept admin-only.
+- The NYC Open Data sync itself.
+  `Bed.nycSyncedAt` / `nycMissingSince` are the fields it will write.
+- Streak/points on the steward's own view render stored values only; nothing increments them yet.
 
 ## Seed data
 
-One hand-seeded bed `BED-HRL-0847`, with seeded adopter `marisol_r`.
+One hand-seeded bed `BED-HRL-0847` — NYC planting space `#15850293`, a willow oak — with seeded steward `marisol_r` (Marisol Rivera, shown publicly as `@marisol_r` / `M. R.`).
 On the local store it is created on first boot with PIN `1234` — demo credentials for driving the sign-in flow locally.
 The checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed, so `/t/2mq2amhv` renders on first run; the e2e suite and the site-root redirect both key off that binding.
 
-**`BlobsStore` seeds the same adopter with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the plaque engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open guardian account on the internet — `/mine`, `/photo`, and the deliberately auth-gated `/clear`.
+**`BlobsStore` seeds the same steward with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the door screen engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open steward account on the internet — `/mine`, `/photo`, and the deliberately auth-gated `/clear`.
 `TREEBED_SEED_PIN` is a **development-only** seam, for driving the sign-in flow against a store that seeds without one.
-It is unset on the Netlify site and must never be set there: a PIN supplied to the publicly tappable store is the open guardian account this seed exists to avoid.
+It is unset on the Netlify site and must never be set there: a PIN supplied to the publicly tappable store is the open steward account this seed exists to avoid.
 That is enforced in code rather than by this paragraph — `seed()` reads the variable only on the node target (`BUILD_TARGET`, the same shape as the store-selection assertion), so a production build ignores it however it is set.
 
 The pilot store was seeded *before* this change — seeding only ever runs on first contact — so it held the `1234` hash.
@@ -277,3 +406,10 @@ That single limitation has three consequences:
 
 Leaving the chain advisory is a **deliberate accepted risk** taken by the captain (small team, and no branch deploys itself — the pilot ships by CLI from a checkout), not an oversight.
 If the repo ever goes public or the org upgrades to a paid plan, replace this check with real branch protection / rulesets and mark it a required status check.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

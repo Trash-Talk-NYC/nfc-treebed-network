@@ -1,0 +1,208 @@
+---
+// "This bed needs care" — the problem picker, and the sentence box behind
+// "something else".
+//
+// Two screens, one route, because they are one question asked twice:
+//   default    the four quadrants + an optional photo + SEND IT
+//   ?tell=1    the free-text box + an optional photo + SEND IT
+//
+// Both are plain HTML forms. Picking "Something else" is a LINK to `?tell=1`
+// rather than a radio, which is what makes the second screen reachable with
+// JavaScript disabled — the approved screens show it as its own screen, and
+// this is that, without a script deciding when it appears.
+//
+// The photo is attached on whichever screen the visitor sends from. Nothing
+// stores it (spec §12): the report keeps only that one was attached, and the
+// bytes are counted and dropped without ever being buffered (report.ts).
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store';
+import { getBedView } from '../../../lib/service';
+import { bi, biAttr } from '../../../lib/bilingual';
+import { CARE, COMMON } from '../../../lib/copy';
+import { langLink, resolveLang } from '../../../lib/i18n';
+import { presentationFor, themeVar } from '../../../lib/presentation';
+import { MAX_NOTE_CHARS, PROBLEMS } from '../../../lib/problem';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
+
+const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
+if (notBound) return notBound;
+const { plate, base } = bound;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) {
+  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
+}
+
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = presentationFor(view.bed);
+const bed = view.bed;
+
+// The sentence screen. `tell` rather than `category=other` so the URL says
+// what the screen is rather than what it will submit.
+const telling = Astro.url.searchParams.has('tell');
+// Set when SEND IT arrived with no tile chosen — the server's own backstop for
+// a client that ignored `required`.
+const nothingPicked = Astro.url.searchParams.has('pick');
+
+const tiles = PROBLEMS.filter((p) => !p.wantsNote);
+const other = PROBLEMS.find((p) => p.wantsNote)!;
+
+const action = langLink(`${base}/report`, lang);
+const backToBed = langLink(ourPlaqueLink(base), lang);
+const backToChoices = langLink(`${base}/care`, lang);
+---
+
+<Screen
+  title={`${(telling ? CARE.noteTitle : CARE.title)[lang]} · ${bed.treeType[lang]}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <div class="screen">
+    <a
+      class="back-link"
+      href={telling ? backToChoices : backToBed}
+      {...bi(telling ? COMMON.backToChoices : COMMON.backToBed, lang)}
+      >{(telling ? COMMON.backToChoices : COMMON.backToBed)[lang]}</a
+    >
+    <h1 class="title" {...bi(telling ? CARE.noteTitle : CARE.title, lang)}>
+      {(telling ? CARE.noteTitle : CARE.title)[lang]}
+    </h1>
+
+    {/* multipart, and the text parts first: the route reads the category and
+        the note off the head of the body and never buffers the photo, which
+        only works while the file input is last in the DOM (request-body.ts).
+        `tests/care-form-order.e2e.test.ts` posts this form in its rendered
+        order, so moving the file input up fails the suite. */}
+    <form class="care-form" method="POST" action={action} enctype="multipart/form-data">
+      {
+        telling ? (
+          <>
+            <input type="hidden" name="category" value={other.value} />
+            <p class="body-copy" {...bi(CARE.noteHelp, lang)}>
+              {CARE.noteHelp[lang]}
+            </p>
+            <textarea
+              class="freetext"
+              name="note"
+              rows="5"
+              maxlength={MAX_NOTE_CHARS}
+              {...biAttr('placeholder', CARE.notePlaceholder, lang)}
+            />
+            <div class="charcount" data-charcount>0 / {MAX_NOTE_CHARS}</div>
+          </>
+        ) : (
+          <>
+            {nothingPicked && (
+              <p class="field-error" {...bi(CARE.pickOne, lang)}>
+                {CARE.pickOne[lang]}
+              </p>
+            )}
+            <div class="catgrid">
+              {/* Radio + label: the whole tile is the hit target, the chosen
+                  state is `:checked`, and none of it needs script. The input is
+                  a direct child of the grid so the adjacent-sibling selector
+                  reaches its label; being absolutely positioned, it creates no
+                  track of its own. The ink is a theme role, never a hex. */}
+              {tiles.map((problem) => (
+                <Fragment>
+                  <input
+                    class="quad-input"
+                    type="radio"
+                    id={`cat-${problem.value}`}
+                    name="category"
+                    value={problem.value}
+                    required
+                  />
+                  <label
+                    class="quad"
+                    for={`cat-${problem.value}`}
+                    style={`color:${themeVar(problem.ink)};border-color:${themeVar(problem.edge)}`}
+                  >
+                    <span {...bi(problem.label, lang)}>{problem.label[lang]}</span>
+                  </label>
+                </Fragment>
+              ))}
+              {/* The fourth quadrant is a link: choosing it opens the sentence
+                  box, which is its own screen with or without JavaScript. */}
+              <a
+                class="quad quad-link"
+                href={langLink(`${base}/care?tell=1`, lang)}
+                style={`color:${themeVar(other.ink)};border-color:${themeVar(other.edge)}`}
+              >
+                <span {...bi(other.label, lang)}>{other.label[lang]}</span>
+              </a>
+            </div>
+          </>
+        )
+      }
+
+      <p class="body-copy photo-help" {...bi(CARE.photoHelp, lang)}>
+        {CARE.photoHelp[lang]}
+      </p>
+      {/* Both states are in the document, and the class picks which shows.
+          Nothing rewrites text, so the language toggle keeps working on the
+          one that is visible. */}
+      <label class="photo-row">
+        <input type="file" name="photo" accept="image/*" capture="environment" />
+        <span class="photo-idle" {...bi(COMMON.addPhoto, lang)}>{COMMON.addPhoto[lang]}</span>
+        <span class="photo-on" {...bi(COMMON.photoAttached, lang)}>{COMMON.photoAttached[lang]}</span>
+      </label>
+
+      <div class="spacer" />
+      <button class="btn btn-tall btn-alert" type="submit" {...bi(COMMON.sendIt, lang)}>
+        {COMMON.sendIt[lang]}
+      </button>
+    </form>
+  </div>
+</Screen>
+
+<script is:inline>
+  // Enhancement only, and only for the two things a plain form cannot say:
+  // that a photo is now attached, and how much of the sentence is left. Both
+  // screens submit correctly with this script absent — the file input is a
+  // file input and the server caps the note either way.
+  (function () {
+    var photo = document.querySelector('.photo-row input[type=file]');
+    var row = document.querySelector('.photo-row');
+    if (photo && row) {
+      photo.addEventListener('change', function () {
+        row.classList.toggle('attached', !!(photo.files && photo.files.length > 0));
+      });
+    }
+    var note = document.querySelector('.freetext');
+    var count = document.querySelector('[data-charcount]');
+    if (note && count) {
+      var max = note.getAttribute('maxlength');
+      var show = function () {
+        count.textContent = note.value.length + ' / ' + max;
+      };
+      note.addEventListener('input', show);
+      show();
+    }
+  })();
+</script>
+
+<style>
+  .care-form {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    flex: 1;
+    min-height: 0;
+  }
+  /* The link tile is an anchor, so it needs the label's own reset. */
+  .quad-link { text-decoration: none; }
+  .photo-help { font-size: 13px; }
+  .photo-on { display: none; }
+  .photo-row.attached .photo-idle { display: none; }
+  .photo-row.attached .photo-on { display: inline; }
+  .charcount {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theme-faint);
+    text-align: right;
+    margin-top: -6px;
+  }
+</style>

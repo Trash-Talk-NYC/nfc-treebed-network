@@ -1,16 +1,51 @@
 ---
-// Claim a slot. Collects the captain's full field set, in this order:
-// name, username, PIN, email, phone. Email and phone are PII: stored,
-// never displayed anywhere public, never echoed into any client payload.
-// The two-slot cap and username uniqueness are enforced server-side in
-// the service layer regardless of anything the browser claims.
+// One short form. The whole of what it takes to put your name on a bed.
+//
+// Four fields, exactly as the approved screens draw them: first name, last
+// name, email, and a phone the captain's own gap note made optional ("Right
+// now the form refuses to submit without one, which costs signups on a
+// sidewalk"). The single "YOUR NAME" field the old form had is split in two,
+// which was the other gap note.
+//
+// **No password, no PIN, no code.** The captain's passwordless decision
+// superseded the PIN plan, and ordered the field, the column and the
+// username+PIN screen dropped. Three reasons, all of which a secret here would
+// undo: a forgotten one is permanent lockout with no recovery path; a cloned
+// plaque on a public repo hands an attacker a reusable secret to harvest; and
+// a short code on a street object has no brute-force protection. The handle
+// shown on the plaque is derived from the name instead (`deriveUsername`).
+//
+// What carries a steward from here is the session cookie set below, which
+// lasts a year — sign-in is rare precisely because of it. The tap-to-sign-in
+// link that replaces the PIN screens is `adopt-name-split-r5` and needs the
+// org's Brevo account, so it is NOT built here. Until it lands, a steward who
+// clears cookies has no way back in; that gap is stated in the PR rather than
+// closed with the secret the captain removed. The existing `/auth` screens are
+// left alone for the same reason — migrating them is that task too.
+//
+// Email and phone are PII: stored, never displayed anywhere public, never
+// echoed into any client payload. Only the username and the initials are
+// public, and the sentence on the form says so — with NO privacy policy link,
+// because there is no policy yet and a dead link on a form collecting contact
+// details is worse than none (design-record.md, answered open question 1).
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
-import { RuleError, adoptBed, getBedView, validateAdoptInput } from '../../../lib/service';
+import {
+  RuleError,
+  adoptBed,
+  getBedView,
+  validateAdoptInput,
+  type AdoptErrors,
+} from '../../../lib/service';
 import { setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
+import { bi } from '../../../lib/bilingual';
+import { ADOPT, ADOPT_ERRORS, COMMON } from '../../../lib/copy';
+import { langLink, resolveLang } from '../../../lib/i18n';
+import { presentationFor } from '../../../lib/presentation';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 import { refuseWithBody, requireBoundTagForForm } from '../../../lib/tag-route';
+import type { Phrase } from '../../../lib/i18n';
 
 const { bound, refused: notBound } = await requireBoundTagForForm(Astro.params.tag, Astro.request);
 if (notBound) return notBound;
@@ -21,126 +56,187 @@ if (!view) {
   return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
 }
 
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = presentationFor(view.bed);
+const bed = view.bed;
+
 let openSlots = view.openSlots;
-let errors: Partial<Record<'name' | 'username' | 'pin' | 'email' | 'phone', string>> = {};
-let formError: string | null = null;
-// Values echoed back on validation failure — the PIN deliberately never is.
-let values = { name: '', username: '', email: '', phone: '' };
+let errors: AdoptErrors = {};
+let formError: Phrase | null = null;
+// Everything the visitor typed, echoed back on a validation failure. All of it
+// this time: there is no secret on this form to withhold.
+let values = { firstName: '', lastName: '', email: '', phone: '' };
 
 if (Astro.request.method === 'POST') {
-  // Public and unauthenticated, like every POST here: five short text fields
+  // Public and unauthenticated, like every POST here: four short text fields
   // never need more, and an unbounded body is free memory exhaustion.
   const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'form');
   // Each reason gets its own answer: a 413 would send somebody off to shorten
   // a form that was never long.
   if (refused) return refused;
   const input = {
-    name: String(form.get('name') ?? ''),
-    username: String(form.get('username') ?? ''),
-    pin: String(form.get('pin') ?? ''),
+    firstName: String(form.get('firstName') ?? ''),
+    lastName: String(form.get('lastName') ?? ''),
     email: String(form.get('email') ?? ''),
     phone: String(form.get('phone') ?? ''),
   };
   const checked = validateAdoptInput(input);
-  values = {
-    name: checked.values.name,
-    username: checked.values.username,
-    email: checked.values.email,
-    phone: checked.values.phone,
-  };
+  values = { ...checked.values };
   errors = checked.errors;
   if (Object.keys(errors).length === 0) {
     try {
       const user = await adoptBed(store, { plate, input });
       setSessionUser(Astro.cookies, user.id);
-      return Astro.redirect(`${base}/mine`, 303);
+      return Astro.redirect(langLink(`${base}/adopted`, lang), 303);
     } catch (err) {
       if (err instanceof RuleError && err.code === 'slots-full') {
-        formError = 'Both slots just filled up. This bed has its guardians.';
+        // The only rule this form can lose to now. Nothing here hashes, so
+        // there is no CPU bound left to be shed at, and the handle is derived
+        // rather than chosen, so there is no collision to report either.
+        formError = ADOPT.slotsJustFilled;
         openSlots = 0;
-      } else if (err instanceof RuleError && err.code === 'username-taken') {
-        errors.username = 'That username is taken.';
-      } else if (err instanceof RuleError && err.code === 'busy') {
-        // Shed because too many PIN hashes are already running. The form comes
-        // back filled in — everything but the PIN, which is never echoed — so a
-        // retry costs one tap rather than the whole field set.
-        formError = 'Too many people are signing up at once. Give it a moment and try again.';
-        Astro.response.status = 503;
-        Astro.response.headers.set('retry-after', '5');
       } else {
         throw err;
       }
     }
   }
 }
-
-const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slots still open`;
 ---
 
-<Screen title={`Adopt this tree bed · ${plate}`}>
+<Screen
+  title={`${ADOPT.title[lang]} · ${bed.treeType[lang]}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
   <div class="screen">
-    <a class="back-link" href={ourPlaqueLink(base)}>← {plate}</a>
-    <div class="headline">Adopt this tree bed</div>
-    <div class="subline">Your name goes on the plaque. One photo a week.</div>
+    <div>
+      <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
+        >{COMMON.backToBed[lang]}</a
+      >
+      <div class="ident">
+        {bed.plantingSpaceId && <>#{bed.plantingSpaceId} · </>}
+        <span {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+      </div>
+    </div>
+    <h1 class="title" {...bi(ADOPT.title, lang)}>{ADOPT.title[lang]}</h1>
     {
       openSlots === 0 ? (
         <>
-          <div class="card form-card">
-            <div class="full-note">
-              {formError ?? 'Both slots are taken. This bed has its guardians — but other beds are waiting.'}
-            </div>
-          </div>
-          <div class="actions-bottom">
-            <a class="btn btn-dark btn-put" href={ourPlaqueLink(base)}>BACK TO THE PLAQUE</a>
-          </div>
+          <p class="body-copy" {...bi(formError ?? ADOPT.full, lang)}>
+            {(formError ?? ADOPT.full)[lang]}
+          </p>
+          <div class="spacer" />
+          <a
+            class="btn btn-action"
+            href={langLink(ourPlaqueLink(base), lang)}
+            {...bi(COMMON.backToBed, lang)}
+            >{COMMON.backToBed[lang]}</a
+          >
         </>
       ) : (
-        <form method="POST" class="adopt-form">
-          <div class="card form-card">
-            <div class="slots-row">
-              <span class="slots-label">SLOTS</span>
-              <span class="slots-open">{slotsOpenLabel}</span>
+        <form method="POST" action={langLink(`${base}/adopt`, lang)} class="adopt-form">
+          {formError && (
+            <p class="field-error" {...bi(formError, lang)}>
+              {formError[lang]}
+            </p>
+          )}
+          <div class="field-row">
+            <div>
+              <label class="field-label" for="firstName" {...bi(ADOPT.firstName, lang)}>
+                {ADOPT.firstName[lang]}
+              </label>
+              <input
+                class="field-input"
+                id="firstName"
+                name="firstName"
+                type="text"
+                value={values.firstName}
+                autocomplete="given-name"
+                required
+              />
             </div>
-            {formError && <div class="field-error">{formError}</div>}
-            <label class="field-label label-gap" for="name">YOUR NAME</label>
-            <input class="field-input" id="name" name="name" type="text" value={values.name} autocomplete="name" required />
-            {errors.name && <div class="field-error">{errors.name}</div>}
-            <label class="field-label label-gap" for="username">YOUR USERNAME</label>
+            <div>
+              <label class="field-label" for="lastName" {...bi(ADOPT.lastName, lang)}>
+                {ADOPT.lastName[lang]}
+              </label>
+              <input
+                class="field-input"
+                id="lastName"
+                name="lastName"
+                type="text"
+                value={values.lastName}
+                autocomplete="family-name"
+                required
+              />
+            </div>
+          </div>
+          {errors.firstName && (
+            <div class="field-error" {...bi(ADOPT_ERRORS.firstName, lang)}>
+              {ADOPT_ERRORS.firstName[lang]}
+            </div>
+          )}
+          {errors.lastName && (
+            <div class="field-error" {...bi(ADOPT_ERRORS.lastName, lang)}>
+              {ADOPT_ERRORS.lastName[lang]}
+            </div>
+          )}
+
+          <div>
+            <label class="field-label" for="email" {...bi(ADOPT.email, lang)}>
+              {ADOPT.email[lang]}
+            </label>
             <input
               class="field-input"
-              id="username"
-              name="username"
-              type="text"
-              placeholder="@"
-              value={values.username}
-              autocomplete="username"
-              autocapitalize="none"
+              id="email"
+              name="email"
+              type="email"
+              value={values.email}
+              autocomplete="email"
               required
             />
-            {errors.username && <div class="field-error">{errors.username}</div>}
-            <label class="field-label label-gap" for="pin">PICK A PIN</label>
+            {errors.email && (
+              <div class="field-error" {...bi(ADOPT_ERRORS.email, lang)}>
+                {ADOPT_ERRORS.email[lang]}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label class="field-label" for="phone">
+              <span {...bi(ADOPT.phone, lang)}>{ADOPT.phone[lang]}</span> ·{' '}
+              <span class="field-note" {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span>
+            </label>
             <input
               class="field-input"
-              id="pin"
-              name="pin"
-              type="password"
-              inputmode="numeric"
-              autocomplete="new-password"
-              placeholder="4–8 digits"
-              required
+              id="phone"
+              name="phone"
+              type="tel"
+              value={values.phone}
+              autocomplete="tel"
             />
-            {errors.pin && <div class="field-error">{errors.pin}</div>}
-            <label class="field-label label-gap" for="email">EMAIL</label>
-            <input class="field-input" id="email" name="email" type="email" value={values.email} autocomplete="email" required />
-            {errors.email && <div class="field-error">{errors.email}</div>}
-            <label class="field-label label-gap" for="phone">PHONE NUMBER</label>
-            <input class="field-input" id="phone" name="phone" type="tel" value={values.phone} autocomplete="tel" required />
-            {errors.phone && <div class="field-error">{errors.phone}</div>}
-            <div class="pii-note">Email and phone stay private — only your name goes on the plaque.</div>
+            {errors.phone && (
+              <div class="field-error" {...bi(ADOPT_ERRORS.phone, lang)}>
+                {ADOPT_ERRORS.phone[lang]}
+              </div>
+            )}
           </div>
-          <div class="actions-bottom">
-            <button class="btn btn-primary btn-put" type="submit">PUT MY NAME ON IT</button>
-          </div>
+
+          {/* Says what the form does NOT ask for, which on a street object is
+              the reassuring half: nothing to invent, nothing to forget. */}
+          <p class="body-copy field-help" {...bi(ADOPT.noSecret, lang)}>
+            {ADOPT.noSecret[lang]}
+          </p>
+
+          {/* The privacy sentence, with no link. When there IS a policy, the
+              link goes here and nowhere else — one obvious place, left on
+              purpose (design-record.md, answered open question 1). */}
+          <p class="privacy" {...bi(ADOPT.privacy, lang)}>{ADOPT.privacy[lang]}</p>
+
+          <div class="spacer" />
+          <button class="btn btn-tall btn-action" type="submit" {...bi(ADOPT.submit, lang)}>
+            {ADOPT.submit[lang]}
+          </button>
         </form>
       )
     }
@@ -148,24 +244,18 @@ const slotsOpenLabel = openSlots === 1 ? '1 slot still open' : `${openSlots} slo
 </Screen>
 
 <style>
-  .back-link {
-    align-self: flex-start;
-    color: var(--muted);
-    font-size: 14px;
-    font-weight: 800;
-    text-decoration: none;
-    padding: 8px 0;
+  .adopt-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1;
+    min-height: 0;
   }
-  .headline { font-size: 28px; font-weight: 900; line-height: 1.15; }
-  .subline { font-size: 15px; font-weight: 700; color: var(--surface-dark); }
-  .adopt-form { display: flex; flex-direction: column; gap: 18px; flex: 1; }
-  .form-card { display: flex; flex-direction: column; gap: 12px; }
-  .slots-row { display: flex; justify-content: space-between; align-items: baseline; }
-  .slots-label { font-size: 12px; font-weight: 800; letter-spacing: 0.14em; color: var(--muted); }
-  .slots-open { font-size: 12px; font-weight: 900; color: var(--action); }
-  .label-gap { margin-top: 4px; }
-  .pii-note { font-size: 12px; font-weight: 700; color: var(--muted); }
-  .full-note { font-size: 15px; font-weight: 700; color: var(--surface-dark); line-height: 1.5; }
-  .actions-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
-  .btn-put { min-height: 62px; font-size: 17px; letter-spacing: 0; }
+  .field-help { font-size: 13px; margin-top: 6px; }
+  .privacy {
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--theme-muted);
+  }
 </style>

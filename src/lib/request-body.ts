@@ -17,9 +17,10 @@
 //                                      one render's reads, no per-request
 //                                      buffer. A failed tap write is logged and
 //                                      the plaque still renders.
-//   GET  .../receipt/<id>, too-large   Same: no body, no buffer.
+//   GET  .../care, adopt, auth,        Same: no body, no buffer.
+//        thanks, adopted, too-large
 //   GET  .../mine                      Same, behind a session check.
-//   Any method at those five screens   Astro renders a page for a POST as
+//   Any method at those screens        Astro renders a page for a POST as
 //                                      readily as for a tap, and none of these
 //                                      has a form behind it — so the body is
 //                                      not read but not left either:
@@ -69,15 +70,15 @@
 //                                      copy, the chunk in hand). Refused → a
 //                                      plain short answer, the same shape these
 //                                      forms already give a rejected field.
-//   POST .../confirm, .../escalate     One button each, so `discardBody` reads
-//                                      the body to its end under MAX_FORM_BYTES
-//                                      and keeps nothing: the same short time
+//   POST .../applause                  One button, so `discardBody` reads the
+//                                      body to its end under MAX_FORM_BYTES and
+//                                      keeps nothing: the same short time
 //                                      bounds, the head-only reservation, same
 //                                      peak. Refused → a plain short answer.
 //                                      Leaving it unread would cost heap nothing
 //                                      and could cost the caller this route's
 //                                      redirect.
-//   POST .../clear, .../photo          The same, behind session and adopter
+//   POST .../clear, .../photo          The same, behind session and steward
 //                                      checks — the body is read on the same
 //                                      bounds before either is consulted, so an
 //                                      unauthenticated POST is bounded by the
@@ -94,8 +95,9 @@
 //                                      SHED_DRAIN_BYTES below).
 //   Any other method, any route        A route bounds only the method it
 //                                      exports; Astro answers the rest itself,
-//                                      body untouched. The five POST routes
-//                                      export `ALL` (`postOnly`, tag-route.ts)
+//                                      body untouched. The four POST routes
+//                                      (report, applause, clear, photo) export
+//                                      `ALL` (`postOnly`, tag-route.ts)
 //                                      so that answer is a 405 rather than a
 //                                      404 with a log line per request, and
 //                                      src/middleware.ts drains once after the
@@ -154,7 +156,7 @@
 // the rule that spends it lives.
 
 import { boundFromEnv } from './bounds';
-import { severityIndexFrom } from './severity';
+import { noteFrom, problemFrom, type ProblemCategory } from './problem';
 
 /**
  * Why a body was refused.
@@ -778,14 +780,93 @@ export async function readFormOrRefuse(
 }
 
 /**
- * The severity index out of a multipart body's head, or null if it isn't in
- * there. A truncated body can't go through formData(), and the report route
- * deliberately never buffers one, so the fields it needs are read off the part
- * that precedes the file.
+ * The delimiter a multipart body's parts are separated by, off the request's
+ * own `content-type`, or `''` when it names none.
+ *
+ * This is the authority for where one part ends and the next begins, which is
+ * why the helpers below take it rather than pattern-matching the body: without
+ * it, a `name="..."` a visitor typed into the note is indistinguishable from
+ * the header of a part they never sent.
  */
-export function severityIndexFromHead(head: Uint8Array): number | null {
-  const match = /name="severity"[^]*?\r?\n\r?\n([^\r\n]*)/.exec(headText(head));
-  return match ? severityIndexFrom(match[1]) : null;
+export function multipartBoundary(contentType: string): string {
+  const match = /boundary=(?:"([^"]*)"|([^;\s]+))/i.exec(contentType);
+  return match ? (match[1] ?? match[2] ?? '') : '';
+}
+
+/**
+ * The parts of a multipart head, each split into its header block and the
+ * value beneath it.
+ *
+ * Never throws and expects truncation: the head is the first `HEAD_BYTES` of a
+ * body, so the last part is normally cut mid-anything. A part whose header
+ * block hasn't finished arriving is skipped rather than half-read, and the
+ * whole walk is over an 8KB string.
+ */
+function headParts(head: Uint8Array, boundary: string): Array<{ headers: string; value: string }> {
+  if (boundary === '') return [];
+  const parts: Array<{ headers: string; value: string }> = [];
+  for (const chunk of headText(head).split(`--${boundary}`).slice(1)) {
+    const blank = /\r?\n\r?\n/.exec(chunk);
+    if (!blank) continue;
+    parts.push({
+      headers: chunk.slice(0, blank.index),
+      // The CRLF before the next delimiter belongs to the delimiter, not to
+      // what the visitor typed.
+      value: chunk.slice(blank.index + blank[0].length).replace(/\r?\n$/, ''),
+    });
+  }
+  return parts;
+}
+
+function partName(headers: string): string | null {
+  const match = /name="([^"]*)"/.exec(headers);
+  return match ? (match[1] ?? '') : null;
+}
+
+/**
+ * A named text field out of a multipart body's head, or null if it isn't in
+ * there.
+ *
+ * A truncated body can't go through formData(), and the report route
+ * deliberately never buffers one, so the fields it needs are read off the
+ * parts that precede the file. That only works while the form puts those parts
+ * FIRST — browsers send parts in DOM order, so the care screen's markup keeps
+ * the category, the note and the hidden fields ahead of the file input. Keep
+ * it that way if the screen ever gains a field:
+ * `tests/care-form-order.e2e.test.ts` reads the order off the rendered care
+ * screen and posts a body built in it, so a reordering fails the suite.
+ *
+ * The name is matched against a part's HEADER block only, never against the
+ * head at large: the note is a sentence a neighbour typed, and a sentence that
+ * happens to read like multipart structure must not be able to answer for a
+ * part nobody sent.
+ */
+export function textFieldFromHead(
+  head: Uint8Array,
+  name: string,
+  boundary: string,
+): string | null {
+  for (const part of headParts(head, boundary)) {
+    if (partName(part.headers) === name) return part.value;
+  }
+  return null;
+}
+
+/** The problem category the care screen sent, or null if the head lacks it. */
+export function categoryFromHead(head: Uint8Array, boundary: string): ProblemCategory | null {
+  return problemFrom(textFieldFromHead(head, 'category', boundary));
+}
+
+/**
+ * The free-text note, from the same head.
+ *
+ * A note is at most `MAX_NOTE_CHARS`, so it fits inside `HEAD_BYTES` several
+ * times over, and a note containing a CR or LF — which a textarea can produce
+ * — survives whole, because the value runs to the part's delimiter rather than
+ * to the first line break.
+ */
+export function noteFromHead(head: Uint8Array, boundary: string): string {
+  return noteFrom(textFieldFromHead(head, 'note', boundary));
 }
 
 /**
@@ -793,16 +874,35 @@ export function severityIndexFromHead(head: Uint8Array): number | null {
  *
  * A browser sends the file part with `filename=""` when nobody picked
  * anything, and a real filename when they did — which is the only thing the
- * MVP records about the photo anyway (spec §12).
+ * MVP records about the photo anyway (spec §12). Read off the photo part's own
+ * headers, so a `filename="..."` typed into the note answers for nothing.
  */
-export function photoAttachedFromHead(head: Uint8Array): boolean {
-  const match = /name="photo"[^]*?filename="([^"]*)"/.exec(headText(head));
-  return match !== null && match[1]!.length > 0;
+export function photoAttachedFromHead(head: Uint8Array, boundary: string): boolean {
+  for (const part of headParts(head, boundary)) {
+    if (partName(part.headers) !== 'photo') continue;
+    const filename = /filename="([^"]*)"/.exec(part.headers);
+    return filename !== null && (filename[1] ?? '').length > 0;
+  }
+  return false;
 }
 
-/** latin1: the field names and values we look for are ASCII, and it never throws. */
+/**
+ * The head as text.
+ *
+ * UTF-8, not latin1: the structure we match on is ASCII, but the note carried
+ * beside it is a sentence a neighbour typed, and on this block that is
+ * routinely Spanish — "está dañado" read as latin1 is stored, echoed and
+ * carried back to the too-large screen as "estÃ¡ daÃ±ado".
+ *
+ * Non-fatal by construction, which the callers rely on: the head is the first
+ * `HEAD_BYTES` of a body and so is normally cut mid-anything, and a decoder
+ * that threw would cost a visitor the screen. A codepoint split by that cut
+ * degrades to U+FFFD instead.
+ */
+const HEAD_DECODER = new TextDecoder('utf-8');
+
 function headText(head: Uint8Array): string {
-  return Buffer.from(head).toString('latin1');
+  return HEAD_DECODER.decode(head);
 }
 
 /**

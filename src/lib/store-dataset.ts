@@ -18,28 +18,110 @@ export interface Data {
   reportCounter: number;
 }
 
-/** The demo PIN the seeded adopter gets where sign-in is not publicly reachable. */
-export const DEMO_ADOPTER_PIN = '1234';
+/** The demo PIN the seeded steward gets where sign-in is not publicly reachable. */
+export const DEMO_STEWARD_PIN = '1234';
+
+/**
+ * Fill in fields a record predates.
+ *
+ * The pilot store is live and holds rows written before the tap flow's fields
+ * existed — a bed with no planting space ID or tree type, a user with a single
+ * `name`, a report with no category. Seeding only ever runs on first contact,
+ * so those rows are never rewritten by a deploy, and the store deliberately has
+ * no migration step (AGENTS.md: rotating a value forward is a hand procedure,
+ * and re-seeding over live data is refused).
+ *
+ * So the shape is reconciled on the way in instead, once per load, in the one
+ * place both backends share. Everything here is additive and lossless: nothing
+ * is deleted, nothing is renamed away, and a record that already has the field
+ * keeps its value. The same rule the NYC sync is held to.
+ */
+export function normalizeData(data: Data): Data {
+  for (const bed of Object.values(data.beds)) normalizeBed(bed);
+  for (const user of Object.values(data.users)) normalizeUser(user);
+  for (const adoption of data.adoptions) normalizeAdoption(adoption);
+  for (const report of data.reports) normalizeReport(report);
+  for (const event of data.events) normalizeEvent(event);
+  return data;
+}
+
+function normalizeBed(bed: Bed): void {
+  const legacy = bed as Bed & { treeType?: unknown };
+  // A bed we hold that NYC's data has no number for prints no number at all.
+  // Falling back to `plate` would put our own ID — which encodes site type and
+  // neighbourhood — on a public screen.
+  bed.plantingSpaceId ??= null;
+  if (typeof legacy.treeType !== 'object' || legacy.treeType === null) {
+    bed.treeType = { en: 'tree', es: 'árbol' };
+  }
+  bed.nycSyncedAt ??= null;
+  bed.nycMissingSince ??= null;
+}
+
+function normalizeUser(user: User): void {
+  // Before the first/last split, one `name` field held both — the gap the
+  // approved screens call out ("Names are one field today").
+  const legacy = user as User & { name?: string };
+  if (typeof user.firstName !== 'string' || typeof user.lastName !== 'string') {
+    const parts = (legacy.name ?? '').trim().split(/\s+/).filter(Boolean);
+    user.firstName ??= parts[0] ?? '';
+    user.lastName ??= parts.slice(1).join(' ');
+  }
+  user.pinHash ??= null;
+  // A record that predates the pen-and-paper case was created by somebody
+  // signing themselves up, which is exactly the state these two describe.
+  user.hasSignInRoute ??= user.pinHash !== null;
+  user.recordHeldOnBehalf ??= false;
+}
+
+function normalizeAdoption(adoption: Adoption): void {
+  adoption.stewardKind ??= 'nfc';
+  // A row written before the flag existed belongs to somebody who was never
+  // offered the choice, and the screen engraved them — so `false` records what
+  // is already true on the plaque rather than hiding a steward who never asked.
+  adoption.displayNameHidden ??= false;
+}
+
+function normalizeEvent(event: BedEvent): void {
+  // Events written before a `confirm` carried what the second neighbour said
+  // have nothing to say; `events` is append-only, so this fills the shape in
+  // on the way past rather than rewriting the row.
+  event.category ??= null;
+  event.note ??= '';
+  event.reportId ??= null;
+}
+
+function normalizeReport(report: Report): void {
+  // Reports filed before the problem picker said only how bad it was. "Litter"
+  // is what the severity sheet was for — it asked how much trash there was —
+  // so that is what those rows meant, not a guess.
+  report.category ??= 'litter';
+  report.note ??= '';
+  report.severity ??= null;
+}
 
 // The one hand-seeded bed for the Popl card field test, matching the
-// approved prototype exactly. No provisioning flow exists yet by design.
+// approved screens exactly. No provisioning flow exists yet by design.
 //
 // `demoPin` is what the backend decides, because it is a deployment question
-// rather than a data one: the plaque engraves `@marisol_r` on a public screen
-// and sign-in has no rate limiting yet (see the security notes), so a
+// rather than a data one: the door screen engraves `@marisol_r` on a public
+// screen and sign-in has no rate limiting yet (see the security notes), so a
 // well-known PIN on a publicly reachable store hands any passer-by the bed's
-// guardian — `/mine`, `/photo` and the deliberately auth-gated `/clear`.
-// Passing `null` seeds the adopter with a hash of a random secret nobody
+// steward — `/mine`, `/photo` and the deliberately auth-gated `/clear`.
+// Passing `null` seeds the steward with a hash of a random secret nobody
 // holds: the adoption still renders exactly as approved, and no PIN opens it
 // until a real one is issued.
-export async function seedData(demoPin: string | null = DEMO_ADOPTER_PIN): Promise<Data> {
+export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promise<Data> {
   const marisol: User = {
     id: 'user-marisol',
-    name: 'Marisol R.',
+    firstName: 'Marisol',
+    lastName: 'Rivera',
     username: 'marisol_r',
     // Real users get their PIN hashed at signup; nothing plaintext is stored.
     // The async hash keeps the first tap of a cold server off a blocked loop.
     pinHash: await bcrypt.hash(demoPin ?? randomBytes(32).toString('hex'), 10),
+    hasSignInRoute: true,
+    recordHeldOnBehalf: false,
     email: 'seed-marisol@example.invalid',
     phone: '+1 555 010 0847',
     points: 340,
@@ -50,12 +132,18 @@ export async function seedData(demoPin: string | null = DEMO_ADOPTER_PIN): Promi
     beds: {
       'BED-HRL-0847': {
         plate: 'BED-HRL-0847',
+        // The number the approved screens carry. Public identity is NYC's,
+        // ours is the join key underneath it.
+        plantingSpaceId: '15850293',
+        treeType: { en: 'Willow oak', es: 'Roble sauce' },
         treeId: '08-4211',
         tagUid: '04:A2:2F:9C',
         crossStreets: 'W 138 St × Adam Clayton Powell Jr Blvd',
         address: '2300 Adam Clayton Powell Jr Blvd, New York, NY 10030',
         slots: 2,
         guardInstalledAt: '2026-04-18T16:00:00.000Z',
+        nycSyncedAt: null,
+        nycMissingSince: null,
       },
     },
     users: { [marisol.id]: marisol },
@@ -65,6 +153,7 @@ export async function seedData(demoPin: string | null = DEMO_ADOPTER_PIN): Promi
         bedPlate: 'BED-HRL-0847',
         userId: marisol.id,
         adoptedAt: '2026-05-02T14:00:00.000Z',
+        stewardKind: 'nfc',
         displayNameHidden: false,
         releasedAt: null,
       },

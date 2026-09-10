@@ -1,0 +1,259 @@
+// The steward's screens, against the real rendered HTML: a steward who asked
+// not to be named, and what a second neighbour's press reaches them as.
+//
+// `Adoption.displayNameHidden` is a person asking not to have their name on a
+// screen bolted to a sidewalk, so the proof has to be the HTML a passer-by
+// receives — not a helper returning the right list. It also has to prove the
+// other half: the bed still reads as ADOPTED. Falling through to door 1 would
+// invite a stranger to adopt a bed that is taken, which is the worse mistake
+// of the two.
+//
+// Slow by nature (a build plus a server), so it lives in the e2e suite.
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { seedData } from '../src/lib/store-dataset';
+import { defaultPresentation } from '../src/lib/presentation';
+import { DOOR_STEWARDED, DOOR_UNSTEWARDED, COMMON } from '../src/lib/copy';
+import { problemFor } from '../src/lib/problem';
+
+/** The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847. */
+const TAG = '2mq2amhv';
+
+/** The page ground, read from the presentation rather than typed as a hex. */
+const DEFAULT_GROUND = defaultPresentation().colors.ground;
+
+let server: ChildProcessWithoutNullStreams;
+let origin = '';
+let dataDir = '';
+
+beforeAll(async () => {
+  const built = spawnSync('npm', ['run', 'build'], {
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  });
+  if (built.status !== 0) throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
+
+  dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-privacy-'));
+  // The store the server will find already there: the seeded adoption, with
+  // its steward hidden. Nothing in the visitor flow can set the flag — the
+  // admin page that will is a later task — so the state is written directly,
+  // which is also the state that page will produce.
+  const data = await seedData();
+  data.adoptions[0]!.displayNameHidden = true;
+  await writeFile(path.join(dataDir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
+
+  const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
+    env: {
+      ...process.env,
+      TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
+      TREEBED_DATA_DIR: dataDir,
+      HOST: '127.0.0.1',
+      PORT: '0',
+    },
+  }) as ChildProcessWithoutNullStreams;
+  let log = '';
+  child.stderr.on('data', (buf: Buffer) => {
+    log += String(buf);
+  });
+  origin = await new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('server never reported a port')), 30_000);
+    child.stdout.on('data', (buf: Buffer) => {
+      const found = /(http:\/\/127\.0\.0\.1:\d+)/.exec(String(buf));
+      if (found) {
+        clearTimeout(timer);
+        resolve(found[1]!);
+      }
+    });
+    child.on('exit', (code) => reject(new Error(`server exited early (${code})\n${log}`)));
+  });
+  server = child;
+}, 180_000);
+
+afterAll(async () => {
+  server?.kill();
+  if (dataDir) await rm(dataDir, { recursive: true, force: true });
+});
+
+/** A second server over a bed nobody has adopted, so door 1 can be measured. */
+let openServer: ChildProcessWithoutNullStreams;
+let openOrigin = '';
+let openDataDir = '';
+
+async function startOn(data: Awaited<ReturnType<typeof seedData>>): Promise<[ChildProcessWithoutNullStreams, string, string]> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'treebed-door1-'));
+  await writeFile(path.join(dir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
+  const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
+    env: {
+      ...process.env,
+      TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
+      TREEBED_DATA_DIR: dir,
+      HOST: '127.0.0.1',
+      PORT: '0',
+    },
+  }) as ChildProcessWithoutNullStreams;
+  let log = '';
+  child.stderr.on('data', (buf: Buffer) => {
+    log += String(buf);
+  });
+  const url = await new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('server never reported a port')), 30_000);
+    child.stdout.on('data', (buf: Buffer) => {
+      const found = /(http:\/\/127\.0\.0\.1:\d+)/.exec(String(buf));
+      if (found) {
+        clearTimeout(timer);
+        resolve(found[1]!);
+      }
+    });
+    child.on('exit', (code) => reject(new Error(`server exited early (${code})\n${log}`)));
+  });
+  return [child, url, dir];
+}
+
+describe('the door a bed with no steward opens', () => {
+  // The captain moved this screen onto Poster Beige and dropped the highlight
+  // after the review. Both are visible facts about the rendered HTML, and both
+  // are the kind of thing a later "tidy-up" would undo by making the two doors
+  // match — so they are asserted rather than left to a comment.
+  beforeAll(async () => {
+    const data = await seedData();
+    data.adoptions = [];
+    [openServer, openOrigin, openDataDir] = await startOn(data);
+  }, 60_000);
+
+  afterAll(async () => {
+    openServer?.kill();
+    if (openDataDir) await rm(openDataDir, { recursive: true, force: true });
+  });
+
+  it('stands on the page ground, not the green, and carries no highlight', async () => {
+    const response = await fetch(`${openOrigin}/t/${TAG}`);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+
+    // It is door 1.
+    expect(html).toContain(DOOR_UNSTEWARDED.adopt.en);
+    expect(html).toContain(DOOR_UNSTEWARDED.headAfter.en);
+
+    // On the page ground: no green screen class, and the browser chrome behind
+    // the notch matches the beige rather than staying on the old green.
+    // Anchored to the class ATTRIBUTE — `ground-clear` also appears in the
+    // inlined stylesheet, which a bare substring match would find on every
+    // screen and pass on none.
+    expect(html).toContain('class="frame ground-page"');
+    expect(html).not.toContain('class="frame ground-clear"');
+    expect(html).not.toContain('class="screen screen-clear"');
+    expect(html).toContain(`content="${DEFAULT_GROUND}"`);
+
+    // One plain sentence: the tree type is still its own bilingual leaf, but
+    // nothing picks it out.
+    expect(html).not.toContain('class="hl"');
+    expect(html).toContain('data-es="Roble sauce"');
+
+    // Same two buttons, same order, in the page ground's own pair.
+    const adoptAt = html.indexOf(DOOR_UNSTEWARDED.adopt.en);
+    const careAt = html.indexOf(COMMON.needsCare.en);
+    expect(adoptAt).toBeGreaterThan(-1);
+    expect(careAt).toBeGreaterThan(adoptAt);
+    expect(html).toContain('class="btn btn-tall btn-action"');
+    expect(html).toContain('class="btn btn-outline"');
+    // Anchored to the attribute for the same reason as the ground above: the
+    // green-ground button classes are defined in the inlined stylesheet on
+    // every screen, so a bare substring would never fail.
+    expect(html).not.toContain('class="btn btn-tall btn-on-clear"');
+  });
+
+  it('says all of it in Spanish too', async () => {
+    const html = await (await fetch(`${openOrigin}/t/${TAG}?lang=es`)).text();
+    expect(html).toContain(DOOR_UNSTEWARDED.adopt.es);
+    expect(html).toContain(DOOR_UNSTEWARDED.sub.es);
+    expect(html).toContain(COMMON.needsCare.es);
+    // Still the beige ground, whichever language it is read in.
+    expect(html).toContain('class="frame ground-page"');
+    expect(html).not.toContain('class="screen screen-clear"');
+    expect(html).not.toContain('class="hl"');
+  });
+});
+
+describe('a steward who asked not to be named', () => {
+  it('is nowhere on the public screen, which still reads as adopted', async () => {
+    const response = await fetch(`${origin}/t/${TAG}`);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+
+    // Neither the handle nor the initials, in either language's attribute.
+    expect(html).not.toContain('marisol_r');
+    expect(html).not.toContain('M. R.');
+    // Anchored to the element that carries the initials: a bare `MR` would be
+    // matched against the whole document, script and stylesheet included.
+    expect(html).not.toContain('class="av">MR<');
+    // And no empty stewards panel left standing over nobody.
+    expect(html).not.toContain(COMMON.stewards.en);
+
+    // Door 2 all the same: adopted, applause, and the way to report a problem.
+    expect(html).toContain(DOOR_STEWARDED.headAfter.en);
+    expect(html).toContain(DOOR_STEWARDED.applaud.en);
+    expect(html).toContain(COMMON.needsCare.en);
+    // Never door 1 — the bed is taken, and inviting a stranger to adopt it
+    // would be the worse mistake.
+    expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.en);
+    expect(html).not.toContain(DOOR_UNSTEWARDED.headAfter.en);
+  });
+
+  it('still sees their own bed, and themselves on it', async () => {
+    // Hiding is about the public screen. A steward who is invisible on the
+    // sidewalk must not be invisible to themselves on the view that carries
+    // the clear button and the weekly photo.
+    const signedIn = await fetch(`${origin}/t/${TAG}/auth`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: 'username=marisol_r&pin=1234',
+      redirect: 'manual',
+    });
+    const cookie = signedIn.headers
+      .getSetCookie()
+      .find((c) => c.startsWith('tg_session='))
+      ?.split(';')[0];
+    expect(cookie, `sign-in handed out no session (${signedIn.status})`).toBeTruthy();
+
+    const mine = await fetch(`${origin}/t/${TAG}/mine`, { headers: { cookie: cookie! } });
+    expect(mine.status).toBe(200);
+    const html = await mine.text();
+    expect(html).toContain('marisol_r');
+    expect(html).toContain('M. R.');
+  });
+
+  it("reads what a second neighbour said about the open report", async () => {
+    // Two cookie-less presses are two identities (`/report` mints), so the
+    // second adds weight rather than opening a duplicate. Their category and
+    // their sentence must reach the person who has to go and fix it.
+    const send = (body: string) =>
+      fetch(`${origin}/t/${TAG}/report`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+        body,
+        redirect: 'manual',
+      });
+    expect((await send('category=litter&note=bolsas+en+la+esquina')).status).toBe(303);
+    expect((await send('category=guard&note=la+reja+est%C3%A1+doblada')).status).toBe(303);
+
+    const signedIn = await fetch(`${origin}/t/${TAG}/auth`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: 'username=marisol_r&pin=1234',
+      redirect: 'manual',
+    });
+    const cookie = signedIn.headers
+      .getSetCookie()
+      .find((c) => c.startsWith('tg_session='))
+      ?.split(';')[0];
+    const mine = await fetch(`${origin}/t/${TAG}/mine`, { headers: { cookie: cookie! } });
+    const html = await mine.text();
+    expect(html).toContain('bolsas en la esquina');
+    expect(html).toContain('la reja está doblada');
+    expect(html).toContain(problemFor('guard').label.en);
+  });
+});

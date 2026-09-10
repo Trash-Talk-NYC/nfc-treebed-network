@@ -1,7 +1,19 @@
 // Display formatting. All street-facing times are America/New_York — the
 // beds are physically in Harlem; the server's zone is irrelevant.
+//
+// Everything a visitor or a steward reads comes back as a `Phrase`, for the
+// same reason the copy table does (design-record.md, constraint 11): a
+// helper that returned an English string would be an untranslated string on a
+// bilingual screen, and one the toggle could not swap either — the swap sets
+// `textContent` off `data-en`/`data-es`, which a bare text node has not got.
+
+import type { Phrase } from './i18n';
+import { LANGUAGES } from './i18n';
 
 const NY = 'America/New_York';
+
+/** The Intl locale each language formats dates in. */
+const LOCALE: Record<(typeof LANGUAGES)[number], string> = { en: 'en-US', es: 'es-ES' };
 
 /** YYYY-MM-DD in NY time; the unit of the one-report-per-day rule. */
 export function nyCalendarDay(date: Date): string {
@@ -13,37 +25,31 @@ export function nyCalendarDay(date: Date): string {
   }).format(date);
 }
 
-/** Receipt timestamp, e.g. "15:41 · MON AUG 11". */
-export function receiptTime(date: Date): string {
-  const time = new Intl.DateTimeFormat('en-US', {
-    timeZone: NY,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
-  const day = new Intl.DateTimeFormat('en-US', {
-    timeZone: NY,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  })
-    .format(date)
-    .toUpperCase()
-    .replace(/,/g, '');
-  return `${time} · ${day}`;
-}
-
-/** Relative age for report bands, e.g. "JUST NOW", "35 MIN AGO", "6 HRS AGO". */
-export function relativeAge(from: Date, now: Date = new Date()): string {
+/** Relative age for report bands, e.g. "35 MIN AGO" / "HACE 35 MIN". */
+export function relativeAge(from: Date, now: Date = new Date()): Phrase {
   const mins = Math.max(0, Math.floor((now.getTime() - from.getTime()) / 60_000));
-  if (mins < 2) return 'JUST NOW';
-  if (mins < 60) return `${mins} MIN AGO`;
+  if (mins < 2) return { en: 'JUST NOW', es: 'AHORA MISMO' };
+  if (mins < 60) return { en: `${mins} MIN AGO`, es: `HACE ${mins} MIN` };
   const hrs = Math.floor(mins / 60);
-  if (hrs < 48) return `${hrs} ${hrs === 1 ? 'HR' : 'HRS'} AGO`;
-  return `${Math.floor(hrs / 24)} DAYS AGO`;
+  if (hrs < 48) {
+    return {
+      en: `${hrs} ${hrs === 1 ? 'HR' : 'HRS'} AGO`,
+      es: `HACE ${hrs} ${hrs === 1 ? 'HORA' : 'HORAS'}`,
+    };
+  }
+  const days = Math.floor(hrs / 24);
+  return { en: `${days} DAYS AGO`, es: `HACE ${days} DÍAS` };
 }
 
-/** Adopter chip suffix, e.g. "since May 2026". */
-export function sinceLabel(date: Date): string {
-  return `since ${new Intl.DateTimeFormat('en-US', { timeZone: NY, month: 'short', year: 'numeric' }).format(date)}`;
+/** Steward chip suffix, e.g. "since May 2026" / "desde mayo de 2026". */
+export function sinceLabel(date: Date): Phrase {
+  // Intl carries the month name in each language, so nothing here holds a
+  // table of month names to fall out of date or to be half-translated.
+  const month = (lang: (typeof LANGUAGES)[number]): string =>
+    new Intl.DateTimeFormat(LOCALE[lang], {
+      timeZone: NY,
+      month: lang === 'en' ? 'short' : 'long',
+      year: 'numeric',
+    }).format(date);
+  return { en: `since ${month('en')}`, es: `desde ${month('es')}` };
 }

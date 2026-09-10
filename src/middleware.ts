@@ -9,7 +9,7 @@
 // The request context installed below is not a check at all; it is here
 // because middleware is the one place that wraps every route's work.
 //
-// A PIN-hash bound of zero disables sign-in and adoption the same way, quietly
+// A PIN-hash bound of zero disables sign-in the same way, quietly
 // rather than fatally, and belongs beside it for the same reason: at
 // service.ts's own module scope the warning waits for the first request that
 // happens to load a route chunk importing it, which on this app can be several

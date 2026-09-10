@@ -63,7 +63,10 @@ export async function requireBoundTagForForm(
       ? new Response('Not a tag on this network.', { status: 404 })
       : new Response(null, {
           status: seeOther ? 303 : 302,
-          headers: { location: `/t/${resolved.tag}` },
+          // The query string rides along, as the plaque's own canonical
+          // redirect does: it may hold the language a cookie-refusing visitor
+          // picked, or our post-action flag.
+          headers: { location: `/t/${resolved.tag}${new URL(request.url).search}` },
         });
   await abandonBody(request);
   return { bound: null, refused };
@@ -72,7 +75,8 @@ export async function requireBoundTagForForm(
 /**
  * The same for a screen that never reads a body at all.
  *
- * `mine`, `too-large` and the receipt are rendered by Astro for any method, so
+ * `mine`, `care`, the two takeovers and `too-large` are rendered by Astro for
+ * any method, so
  * a hand-built POST reaches them exactly as a tap does — and one they answer
  * without touching is one Node dumps to its end. Draining here rather than in
  * each of them keeps that with the resolution it belongs to: a screen with no

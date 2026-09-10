@@ -1,10 +1,14 @@
 # NFC Tree Bed Network
 
-The tap screen ("plaque") for Trash Talk NYC's NFC tree bed network.
-Tap a tag on a tree guard, get that bed's plaque: its plate, who adopted it, its condition, and two actions — report litter, or claim an open adopter slot.
+The post-tap experience for Trash Talk NYC's NFC tree bed network.
+Tap a tag on a tree guard and the bed's own state picks one of two screens.
+A bed with no steward yet asks to be adopted; a bed that has one shows who stewards it and offers applause.
+Either door's second button is "this bed needs care" — thirsty plants, litter, guard damage or something else, with an optional photo — and both actions end on a full-screen takeover.
+
+Every visitor-facing string exists in English and Spanish, with a toggle the visitor operates (no browser-language guessing), and the whole flow works with JavaScript disabled.
 
 A tag's URL is `/t/<id>` — an opaque 8-character ID that carries no meaning at all.
-Which bed the tag speaks for is a server-side fact (`src/lib/tag-bindings.ts`); the bed's plate (`BED-HRL-0847`) is display text on the plaque, never the URL.
+Which bed the tag speaks for is a server-side fact (`src/lib/tag-bindings.ts`); the bed's plate (`BED-HRL-0847`) is the internal join key every report, adoption and event hangs on, and is never rendered — public screens key off NYC Parks' planting space ID instead.
 
 ## Run it
 
@@ -29,7 +33,7 @@ Generate it **once**, with `openssl rand -hex 32`, and keep that same value — 
 Generating it inside the run command is the failure the requirement exists to prevent.
 Dev needs nothing — it falls back to `.data/session-secret`.
 
-Local state lives in `.data/store.json` (gitignored), seeded on first boot with the one demo bed `BED-HRL-0847` and adopter `marisol_r` (PIN `1234`); the checked-in registry binds demo tag `2mq2amhv` to it.
+Local state lives in `.data/store.json` (gitignored), seeded on first boot with the one demo bed `BED-HRL-0847` and steward `marisol_r` (PIN `1234`); the checked-in registry binds demo tag `2mq2amhv` to it.
 Delete `.data/` to reset.
 `TREEBED_DATA_DIR` puts that directory — the store and the dev session secret both — somewhere else; the end-to-end suite uses it to give every server it spawns a fresh one.
 
@@ -51,6 +55,7 @@ NETLIFY_SITE_ID=449a9585-ae51-4e23-9614-fe5b3ac669f1 npx netlify-cli@latest depl
 `netlify.toml` is the sole source for the build-time environment (`TREEBED_ADAPTER`, `NODE_VERSION`, `AWS_LAMBDA_JS_RUNTIME`); the site's own environment carries only the runtime keys, `TREEBED_SESSION_SECRET` and `TREEBED_STORE=blobs`.
 Don't set the build-time three with `netlify env:set` — a site-level variable silently overrides this file.
 The Blobs store seeds `marisol_r` with a PIN nobody knows, so the `1234` above is a local convenience and never a way in to the deployed site.
+`TREEBED_SEED_PIN` is the development-only seam for driving sign-in against a local `blobs` store; a netlify build ignores it however it is set, so it can never open the deployed one.
 
 ## Contributing
 

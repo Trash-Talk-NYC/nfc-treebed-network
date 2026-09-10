@@ -1,5 +1,5 @@
 // POST: "I CLEANED IT — CLOSE THE REPORT". The guardian view's button, and
-// only that: the route is gated on a signed-in adopter of this bed.
+// only that: the route is gated on a signed-in steward of this bed.
 //
 // Spec §2 says anyone can mark clear, and `closeReport` still can — the rule
 // is untouched, the gate is here. Closing a report is what lets the next one be
@@ -15,9 +15,10 @@ import { RuleError, closeReport, getBedView } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { discardBody } from '../../../lib/request-body';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { langLink, readLang } from '../../../lib/i18n';
 import { refuseWithBody, requireBoundTagForPost, postOnly } from '../../../lib/tag-route';
 
-export const POST: APIRoute = async ({ params, request, cookies, redirect }) => {
+export const POST: APIRoute = async ({ params, request, cookies, redirect, url }) => {
   // Resolved before anything else, and its body accounted for either way: a
   // POST at a tag nobody bound has no bed behind it, and a body left untouched
   // is one Node dumps to its end for us.
@@ -26,10 +27,11 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   const { plate, base } = bound;
   const refused = await discardBody(request, 'update');
   if (refused) return refused;
+  const lang = readLang(url, cookies);
   const userId = getSessionUserId(cookies);
-  // The guardian's own view logs no tap; the plaque does, so the way back for
+  // The steward's own view logs no tap; the plaque does, so the way back for
   // anyone else carries the flag that says this render is our redirect.
-  const plaque = ourPlaqueLink(base);
+  const plaque = langLink(ourPlaqueLink(base), lang);
   if (!userId) return redirect(plaque, 303);
 
   const store = getStore();
@@ -37,9 +39,9 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect }) => 
   if (!view) {
     return await refuseWithBody(request, new Response('No bed with that plate.', { status: 404 }));
   }
-  if (!view.adopters.some((a) => a.user.id === userId)) return redirect(plaque, 303);
+  if (!view.stewards.some((a) => a.user.id === userId)) return redirect(plaque, 303);
 
-  const back = `${base}/mine`;
+  const back = langLink(`${base}/mine`, lang);
   try {
     await closeReport(store, { plate, actorId: userId });
     return redirect(back, 303);
