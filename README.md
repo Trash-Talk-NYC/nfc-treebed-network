@@ -37,7 +37,8 @@ Generate it **once**, with `openssl rand -hex 32`, and keep that same value — 
 Generating it inside the run command is the failure the requirement exists to prevent.
 Dev needs nothing — it falls back to `.data/session-secret`.
 
-Local state lives in `.data/store.json` (gitignored), seeded on first boot with the captain's real block — W 171st between Fort Washington and Haven, six beds `BED-WH-1711`…`1716`, each bound to its real NYC planting space and all unoffered until the admin page opens them — plus the demo bed `BED-HRL-0847` and steward `marisol_r` (PIN `1234`) in its own demo-flagged block; the checked-in registry binds demo tag `2mq2amhv` to that bed.
+Local state lives in `.data/store.json` (gitignored), seeded on first boot with the captain's real block — W 171st between Fort Washington and Haven, six beds `BED-WH-1711`…`1716`, each bound to its real NYC planting space and all unoffered until the admin page opens them — plus the demo bed `BED-HRL-0847` and steward `marisol_r` (PIN `1234`) in its own demo-flagged block; the checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed and real tags to four of the W 171st beds.
+The site root redirects to the demo binding by name, so monitors and crawlers hitting `/` never land on a real bed.
 The checked-in blocks and beds also backfill into an already-seeded store on its next load, insert-only, so a live store gains them without a migration step.
 Delete `.data/` to reset.
 `TREEBED_DATA_DIR` puts that directory — the store and the dev session secret both — somewhere else; the end-to-end suite uses it to give every server it spawns a fresh one.

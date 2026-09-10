@@ -348,6 +348,8 @@ One hand-seeded DEMO bed `BED-HRL-0847` — planting space `#15850293`, which is
 It deliberately lives in its own `demo`-flagged block (`w-138-acp-demo`), never in the captain's, so the admin can reach its live pilot history without a fake bed reading as part of a real street.
 On the local store it is created on first boot with PIN `1234` — demo credentials for driving the sign-in flow locally.
 The checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed, so `/t/2mq2amhv` renders on first run; the e2e suite and the site-root redirect both key off that binding.
+It is not the only binding — four of the captain's real W 171st beds (`BED-WH-1711`…`1714`) carry real tags there too, so read `tag-bindings.ts` rather than assuming a single demo row.
+The site root redirects to the demo binding **by name** (`DEMO_TAG_ID`), never to whichever row sits first, and answers 500 if that binding is gone: root traffic is monitors, crawlers and typed domains, and a real bed's tap count must not absorb it.
 
 **`BlobsStore` seeds the same steward with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the door screen engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open steward account on the internet — `/mine`, `/photo`, and the deliberately auth-gated `/clear`.
 `TREEBED_SEED_PIN` is a **development-only** seam, for driving the sign-in flow against a store that seeds without one.

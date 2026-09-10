@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEMO_TAG_ID,
   TAG_BINDINGS,
   assertValidBindings,
+  demoBinding,
   resolveTagParam,
   type TagBinding,
 } from '../src/lib/tag-bindings';
@@ -31,6 +33,27 @@ describe('the shipped registry', () => {
     for (const [tagId, plate] of Object.entries(expected)) {
       expect(resolveTagParam(tagId)).toEqual({ state: 'bound', tag: tagId, plate });
     }
+  });
+});
+
+describe('the binding the site root redirects to', () => {
+  const boundAt = '2026-08-26T12:00:00.000Z';
+  const real: TagBinding = { tagId: 'jjhq9gfj', sitePlate: 'BED-WH-1711', boundAt, retiredAt: null };
+  const demo: TagBinding = { tagId: DEMO_TAG_ID, sitePlate: 'BED-HRL-0847', boundAt, retiredAt: null };
+
+  it('is the demo bed in the shipped registry', () => {
+    expect(demoBinding()?.sitePlate).toBe('BED-HRL-0847');
+  });
+
+  it('is the demo tag even when a real bed sits first — root traffic must never land on one', () => {
+    // Monitors, crawlers and typed domains all arrive here; a positional pick
+    // would inflate whichever real bed happened to lead the table.
+    expect(demoBinding([real, demo])).toEqual(demo);
+  });
+
+  it('is null once the demo tag is retired, so the root fails loudly instead of picking a real bed', () => {
+    expect(demoBinding([real, { ...demo, retiredAt: '2026-09-01T09:00:00.000Z' }])).toBeNull();
+    expect(demoBinding([real])).toBeNull();
   });
 });
 
