@@ -38,6 +38,16 @@ export interface TagBinding {
 export const TAG_BINDINGS: readonly TagBinding[] = [
   // The one hand-seeded bed (store-local.ts) and the demo tag bound to it.
   { tagId: '2mq2amhv', sitePlate: 'BED-HRL-0847', boundAt: '2026-08-26T12:00:00.000Z', retiredAt: null },
+  // The four willow oaks at the Haven end of W 171st (positions 1–4, fronting
+  // 718 and 708 — store-dataset.ts): the first real beds the captain taps.
+  // Bound by paperwork ahead of the guards going in; the guards these tags
+  // will mount on are ordered, not installed, and the beds stay unoffered
+  // (`offeredSlots: 0`) until the captain opens them — so each of these
+  // renders the not-yet-open door, which is the state being shown, not a bug.
+  { tagId: 'jjhq9gfj', sitePlate: 'BED-WH-1711', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
+  { tagId: '1hc0t9cj', sitePlate: 'BED-WH-1712', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
+  { tagId: '729v19w4', sitePlate: 'BED-WH-1713', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
+  { tagId: 'jpv8bksx', sitePlate: 'BED-WH-1714', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
 ];
 
 /**

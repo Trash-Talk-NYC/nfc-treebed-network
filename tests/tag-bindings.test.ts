@@ -16,6 +16,22 @@ describe('the shipped registry', () => {
       plate: 'BED-HRL-0847',
     });
   });
+
+  it('binds the four Haven-end W 171st beds, one tag each', () => {
+    // The first real tags of the pilot: positions 1–4, the willow oaks with
+    // guards on order (store-dataset.ts). Pinned tag-by-tag because these IDs
+    // are what firstmate hands the captain as links — a swapped pair would
+    // still be a valid registry and still be wrong.
+    const expected: Record<string, string> = {
+      jjhq9gfj: 'BED-WH-1711',
+      '1hc0t9cj': 'BED-WH-1712',
+      '729v19w4': 'BED-WH-1713',
+      jpv8bksx: 'BED-WH-1714',
+    };
+    for (const [tagId, plate] of Object.entries(expected)) {
+      expect(resolveTagParam(tagId)).toEqual({ state: 'bound', tag: tagId, plate });
+    }
+  });
 });
 
 describe('resolving a tag param', () => {
