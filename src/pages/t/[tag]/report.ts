@@ -9,6 +9,7 @@ import { noteFrom, problemFrom, type ProblemCategory } from '../../../lib/proble
 import {
   MAX_FORM_BYTES,
   categoryFromHead,
+  multipartBoundary,
   noteFromHead,
   photoAttachedFromHead,
   readCappedHead,
@@ -50,7 +51,8 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
   // anonymous callers, exactly as the visitor cookie already is (AGENTS.md).
   const actor = getActorId(cookies);
 
-  const contentType = request.headers.get('content-type')?.toLowerCase() ?? '';
+  const rawContentType = request.headers.get('content-type') ?? '';
+  const contentType = rawContentType.toLowerCase();
   let category: ProblemCategory | null = null;
   let note = '';
   let photoAttached = false;
@@ -62,14 +64,18 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
     // markup puts the category and the note ahead of the file input and
     // browsers send parts in DOM order — keep it that way if it gains a field.
     const { head, refusal } = await readCappedHead(request, MAX_PHOTO_BODY_BYTES);
+    // The delimiter the client declared: what tells a part's headers from a
+    // sentence somebody typed that happens to look like one. Off the raw
+    // header, because a boundary is case-sensitive and browsers mix case.
+    const boundary = multipartBoundary(rawContentType);
     // Every refusal lands on the same screen, because what the visitor told us
     // is the thing being rescued and the head already holds it whichever way
     // the upload ended. Only the words differ, and an upload that stalled is
     // never told it was too large.
-    if (refusal !== null) return redirect(tooLarge(base, head, refusal, lang), 303);
-    category = categoryFromHead(head);
-    note = noteFromHead(head);
-    photoAttached = photoAttachedFromHead(head);
+    if (refusal !== null) return redirect(tooLarge(base, head, boundary, refusal, lang), 303);
+    category = categoryFromHead(head, boundary);
+    note = noteFromHead(head, boundary);
+    photoAttached = photoAttachedFromHead(head, boundary);
   } else {
     // The too-large screen's one-tap resend: the same choice, no attachment.
     const { form, refused } = await readFormOrRefuse(request, MAX_FORM_BYTES, 'report');
@@ -112,11 +118,17 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
  * from the person holding the phone. `over-limit` is the screen's default and
  * needs no parameter.
  */
-function tooLarge(base: string, head: Uint8Array, refusal: Refusal, lang: Lang): string {
-  const kept = categoryFromHead(head);
+function tooLarge(
+  base: string,
+  head: Uint8Array,
+  boundary: string,
+  refusal: Refusal,
+  lang: Lang,
+): string {
+  const kept = categoryFromHead(head, boundary);
   const params = new URLSearchParams();
   if (kept !== null) params.set('category', kept);
-  const note = noteFromHead(head);
+  const note = noteFromHead(head, boundary);
   if (note !== '') params.set('note', note);
   if (refusal === 'busy') params.set('reason', 'busy');
   // Timed out or broken off: both are one upload that never all arrived, and

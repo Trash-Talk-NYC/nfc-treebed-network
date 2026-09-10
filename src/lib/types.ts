@@ -205,8 +205,10 @@ export interface BedEvent {
   category: ProblemCategory | null;
   note: string;
   /**
-   * The report this event is about, where it is about one: `report` and
-   * `confirm` name it, everything else is null. `report → clear → report` is a
+   * The report this event is about, where it is about one: `report`,
+   * `confirm`, `escalate` and `clear` all name it. The rest — `tap`,
+   * `applause`, `adopt`, `photo` — are not about a report and are null.
+   * `report → clear → report` is a
    * supported loop on one bed, so the id is what says which lap an event
    * belongs to. Events written before this field have null and match nothing —
    * a steward sees no neighbour's words rather than the wrong lap's.

@@ -394,7 +394,9 @@ export async function escalateReport(
     }
     const raised: Report = { ...open, escalatedFrom: open.severity, severity: 'dumping' };
     await tx.updateReport(raised);
-    await appendEvent(tx, args.plate, 'escalate', args.actorId, 'dumping', args.now);
+    await appendEvent(tx, args.plate, 'escalate', args.actorId, 'dumping', args.now, {
+      reportId: open.id,
+    });
     return raised;
   });
 }
@@ -417,7 +419,7 @@ export async function closeReport(
     if (!open) throw new RuleError('no-open-report', `No open report on ${args.plate}`);
     const closed: Report = { ...open, closedAt: now.toISOString(), closedBy: args.actorId };
     await tx.updateReport(closed);
-    await appendEvent(tx, args.plate, 'clear', args.actorId, null, now);
+    await appendEvent(tx, args.plate, 'clear', args.actorId, null, now, { reportId: open.id });
     return closed;
   });
 }
@@ -717,7 +719,7 @@ async function appendEvent(
   actorId: string | null,
   severity: Severity | null,
   now?: Date,
-  said?: { category: ProblemCategory | null; note: string; reportId: string },
+  said?: { category?: ProblemCategory | null; note?: string; reportId: string },
 ): Promise<void> {
   await store.appendEvent({
     id: `event-${randomUUID()}`,

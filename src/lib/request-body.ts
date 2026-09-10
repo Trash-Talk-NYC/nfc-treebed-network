@@ -780,39 +780,91 @@ export async function readFormOrRefuse(
 }
 
 /**
+ * The delimiter a multipart body's parts are separated by, off the request's
+ * own `content-type`, or `''` when it names none.
+ *
+ * This is the authority for where one part ends and the next begins, which is
+ * why the helpers below take it rather than pattern-matching the body: without
+ * it, a `name="..."` a visitor typed into the note is indistinguishable from
+ * the header of a part they never sent.
+ */
+export function multipartBoundary(contentType: string): string {
+  const match = /boundary=(?:"([^"]*)"|([^;\s]+))/i.exec(contentType);
+  return match ? (match[1] ?? match[2] ?? '') : '';
+}
+
+/**
+ * The parts of a multipart head, each split into its header block and the
+ * value beneath it.
+ *
+ * Never throws and expects truncation: the head is the first `HEAD_BYTES` of a
+ * body, so the last part is normally cut mid-anything. A part whose header
+ * block hasn't finished arriving is skipped rather than half-read, and the
+ * whole walk is over an 8KB string.
+ */
+function headParts(head: Uint8Array, boundary: string): Array<{ headers: string; value: string }> {
+  if (boundary === '') return [];
+  const parts: Array<{ headers: string; value: string }> = [];
+  for (const chunk of headText(head).split(`--${boundary}`).slice(1)) {
+    const blank = /\r?\n\r?\n/.exec(chunk);
+    if (!blank) continue;
+    parts.push({
+      headers: chunk.slice(0, blank.index),
+      // The CRLF before the next delimiter belongs to the delimiter, not to
+      // what the visitor typed.
+      value: chunk.slice(blank.index + blank[0].length).replace(/\r?\n$/, ''),
+    });
+  }
+  return parts;
+}
+
+function partName(headers: string): string | null {
+  const match = /name="([^"]*)"/.exec(headers);
+  return match ? (match[1] ?? '') : null;
+}
+
+/**
  * A named text field out of a multipart body's head, or null if it isn't in
  * there.
  *
  * A truncated body can't go through formData(), and the report route
- * deliberately never buffers one, so the fields it needs are read off the part
- * that precedes the file. That only works while the form puts those parts
+ * deliberately never buffers one, so the fields it needs are read off the
+ * parts that precede the file. That only works while the form puts those parts
  * FIRST — browsers send parts in DOM order, so the care screen's markup keeps
  * the category, the note and the hidden fields ahead of the file input. Keep
  * it that way if the screen ever gains a field.
+ *
+ * The name is matched against a part's HEADER block only, never against the
+ * head at large: the note is a sentence a neighbour typed, and a sentence that
+ * happens to read like multipart structure must not be able to answer for a
+ * part nobody sent.
  */
-export function textFieldFromHead(head: Uint8Array, name: string): string | null {
-  const pattern = new RegExp(`name="${name}"[^]*?\\r?\\n\\r?\\n([^\\r\\n]*)`);
-  const match = pattern.exec(headText(head));
-  return match ? (match[1] ?? '') : null;
+export function textFieldFromHead(
+  head: Uint8Array,
+  name: string,
+  boundary: string,
+): string | null {
+  for (const part of headParts(head, boundary)) {
+    if (partName(part.headers) === name) return part.value;
+  }
+  return null;
 }
 
 /** The problem category the care screen sent, or null if the head lacks it. */
-export function categoryFromHead(head: Uint8Array): ProblemCategory | null {
-  return problemFrom(textFieldFromHead(head, 'category'));
+export function categoryFromHead(head: Uint8Array, boundary: string): ProblemCategory | null {
+  return problemFrom(textFieldFromHead(head, 'category', boundary));
 }
 
 /**
  * The free-text note, from the same head.
  *
  * A note is at most `MAX_NOTE_CHARS`, so it fits inside `HEAD_BYTES` several
- * times over — but a note containing a CR or LF would be truncated at the
- * first one by the line-oriented match above. The textarea is one sentence by
- * design and the server caps it anyway; a note that arrives shortened is a
- * note that still says what it says, which beats holding megabytes of body to
- * read it exactly.
+ * times over, and a note containing a CR or LF — which a textarea can produce
+ * — survives whole, because the value runs to the part's delimiter rather than
+ * to the first line break.
  */
-export function noteFromHead(head: Uint8Array): string {
-  return noteFrom(textFieldFromHead(head, 'note'));
+export function noteFromHead(head: Uint8Array, boundary: string): string {
+  return noteFrom(textFieldFromHead(head, 'note', boundary));
 }
 
 /**
@@ -820,11 +872,16 @@ export function noteFromHead(head: Uint8Array): string {
  *
  * A browser sends the file part with `filename=""` when nobody picked
  * anything, and a real filename when they did — which is the only thing the
- * MVP records about the photo anyway (spec §12).
+ * MVP records about the photo anyway (spec §12). Read off the photo part's own
+ * headers, so a `filename="..."` typed into the note answers for nothing.
  */
-export function photoAttachedFromHead(head: Uint8Array): boolean {
-  const match = /name="photo"[^]*?filename="([^"]*)"/.exec(headText(head));
-  return match !== null && match[1]!.length > 0;
+export function photoAttachedFromHead(head: Uint8Array, boundary: string): boolean {
+  for (const part of headParts(head, boundary)) {
+    if (partName(part.headers) !== 'photo') continue;
+    const filename = /filename="([^"]*)"/.exec(part.headers);
+    return filename !== null && (filename[1] ?? '').length > 0;
+  }
+  return false;
 }
 
 /**

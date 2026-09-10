@@ -353,6 +353,23 @@ describe('escalate and clear', () => {
     expect(closed.closedBy).toBe('visitor-77');
     expect((await getBedView(store, PLATE))?.openReport).toBeNull();
   });
+
+  it('names the report on the events that end it, so a later lap cannot claim them', async () => {
+    const first = (await store.getOpenReport(PLATE))!;
+    await escalateReport(store, { plate: PLATE, actorId: 'visitor-2' });
+    await closeReport(store, { plate: PLATE, actorId: 'visitor-77' });
+    // A second lap of report -> clear -> report on the same bed: the trail says
+    // which report each ending belongs to, rather than leaving it to timestamps.
+    await reportProblem(store, careInput({ actorId: 'visitor-3' }));
+    const second = (await store.getOpenReport(PLATE))!;
+    await closeReport(store, { plate: PLATE, actorId: 'visitor-77' });
+
+    expect((await store.getEvents(PLATE, 'escalate')).map((e) => e.reportId)).toEqual([first.id]);
+    expect((await store.getEvents(PLATE, 'clear')).map((e) => e.reportId).sort()).toEqual(
+      [first.id, second.id].sort(),
+    );
+    expect(first.id).not.toBe(second.id);
+  });
 });
 
 describe('concurrent taps', () => {

@@ -32,7 +32,7 @@ Two consequences worth knowing before you "fix" something:
   `reportProblem` adds their weight to the open report (the `confirmedBy` array, same `MAX_CONFIRMATIONS` bound) instead of opening a duplicate — two open reports on one bed is unrecoverable through the UI, because `closeReport` only ever finds the first.
   What they said is carried, not dropped: their category and their note ride on the `confirm` event (`BedEvent.category` / `BedEvent.note`), and a photo they attached sets `photoAttached` on the open report.
   The steward reads them under the open-report band on `mine.astro`, headed "Neighbours also said" so they are not mistaken for the first reporter's own second thought.
-  Which report a `report` or `confirm` event is about is `BedEvent.reportId`, so that join is exact rather than a time window — `report → clear → report` is a supported loop and only the id says which lap an event belongs to.
+  Which report an event is about is `BedEvent.reportId` — `report`, `confirm`, `escalate` and `clear` all name it — so that join is exact rather than a time window — `report → clear → report` is a supported loop and only the id says which lap an event belongs to.
   Events written before that field carry null and match nothing, which is the right way for it to degrade.
   The note is capped at `MAX_NOTE_CHARS` and the confirmations are bounded, so carrying the payload reopens no growth concern.
 - **Nobody standing at a tree is shown a rule.**

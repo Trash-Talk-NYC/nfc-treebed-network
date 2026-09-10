@@ -122,13 +122,13 @@ describe('capped request bodies', () => {
     expect(capped.refusal).toBe('over-limit');
     // Only the head is retained — the upload is not buffered past it.
     expect(capped.head.byteLength).toBeLessThanOrEqual(8 * 1024);
-    expect(categoryFromHead(capped.head)).toBe('guard');
+    expect(categoryFromHead(capped.head, BOUNDARY)).toBe('guard');
   });
 
   it('refuses a body whose declared length is over the cap', async () => {
     const capped = await readCappedBody(request(reportBody('thirsty', 1024)), 512);
     expect(capped.body).toBeNull();
-    expect(categoryFromHead(capped.head)).toBe('thirsty');
+    expect(categoryFromHead(capped.head, BOUNDARY)).toBe('thirsty');
   });
 
   it('reads a refused body to its end instead of cancelling it', async () => {
@@ -138,7 +138,7 @@ describe('capped request bodies', () => {
     const { req, wasCancelled, deliveredBytes } = streamedRequest(body, 16 * 1024);
     const capped = await readCappedBody(req, 64 * 1024);
     expect(capped.body).toBeNull();
-    expect(categoryFromHead(capped.head)).toBe('guard');
+    expect(categoryFromHead(capped.head, BOUNDARY)).toBe('guard');
     expect(wasCancelled()).toBe(false);
     expect(deliveredBytes()).toBe(body.byteLength);
   });
@@ -158,7 +158,7 @@ describe('capped request bodies', () => {
     const { req, wasCancelled, deliveredBytes } = streamedRequest(body, 64 * 1024);
     const capped = await readCappedBody(req, 1024 * 1024);
     expect(capped.refusal).toBe('over-limit');
-    expect(categoryFromHead(capped.head)).toBe('litter');
+    expect(categoryFromHead(capped.head, BOUNDARY)).toBe('litter');
     expect(wasCancelled()).toBe(false);
     expect(deliveredBytes()).toBe(body.byteLength);
   });
@@ -237,7 +237,7 @@ describe('capped request bodies', () => {
     expect(wasCancelled()).toBe(false);
     // Still answerable: the head made it, so the screen still carries their
     // category — the whole request just fits inside the one deadline.
-    expect(categoryFromHead(capped.head)).toBe('guard');
+    expect(categoryFromHead(capped.head, BOUNDARY)).toBe('guard');
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(deliveredBytes()).toBeLessThan(2 * 1024 * 1024);
   });
@@ -322,7 +322,7 @@ describe('capped request bodies', () => {
       });
       const capped = await readCappedBody(req, 64 * 1024);
       expect(capped.refusal).toBe('over-limit');
-      expect(categoryFromHead(capped.head)).toBe('guard');
+      expect(categoryFromHead(capped.head, BOUNDARY)).toBe('guard');
       // A cancelled upload is not an incident: one quiet line, no stack.
       expect(warn).toHaveBeenCalledTimes(1);
       expect(error).not.toHaveBeenCalled();
@@ -355,19 +355,44 @@ describe('capped request bodies', () => {
     ]);
     const capped = await readCappedHead(request(body), 12 * 1024 * 1024);
     expect(capped.refusal).toBeNull();
-    expect(noteFromHead(capped.head)).toBe(note);
-    expect(categoryFromHead(capped.head)).toBe('guard');
-    expect(photoAttachedFromHead(capped.head)).toBe(true);
+    expect(noteFromHead(capped.head, BOUNDARY)).toBe(note);
+    expect(categoryFromHead(capped.head, BOUNDARY)).toBe('guard');
+    expect(photoAttachedFromHead(capped.head, BOUNDARY)).toBe(true);
+  });
+
+  it('reads only part headers, so a note cannot claim a photo nobody attached', async () => {
+    // A neighbour is free to type anything into the free-text box, including
+    // something shaped like multipart structure. What decides the fields is the
+    // boundary the client declared, so a value can never answer for a part.
+    const note =
+      'Content-Disposition: form-data; name="photo"; filename="x.jpg"\r\n\r\nname="category"\r\n\r\nlitter';
+    const body = Buffer.from(
+      `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="category"\r\n\r\nguard\r\n' +
+        `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="note"\r\n\r\n' +
+        `${note}\r\n` +
+        `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="photo"; filename=""\r\n' +
+        'Content-Type: application/octet-stream\r\n\r\n' +
+        `\r\n--${BOUNDARY}--\r\n`,
+      'utf8',
+    );
+    const capped = await readCappedHead(request(body), 12 * 1024 * 1024);
+    expect(capped.refusal).toBeNull();
+    expect(photoAttachedFromHead(capped.head, BOUNDARY)).toBe(false);
+    expect(categoryFromHead(capped.head, BOUNDARY)).toBe('guard');
+    expect(noteFromHead(capped.head, BOUNDARY)).toBe(note);
   });
 
   it('reports no category rather than guessing one', async () => {
-    expect(categoryFromHead(new Uint8Array())).toBeNull();
+    expect(categoryFromHead(new Uint8Array(), BOUNDARY)).toBeNull();
     const noField = Buffer.from(
       `--${BOUNDARY}\r\nContent-Disposition: form-data; name="photo"\r\n\r\nxx\r\n--${BOUNDARY}--\r\n`,
     );
-    expect(categoryFromHead(new Uint8Array(noField))).toBeNull();
+    expect(categoryFromHead(new Uint8Array(noField), BOUNDARY)).toBeNull();
     const notACategory = reportBody('nope', 16);
-    expect(categoryFromHead(new Uint8Array(notACategory))).toBeNull();
+    expect(categoryFromHead(new Uint8Array(notACategory), BOUNDARY)).toBeNull();
   });
 });
 
@@ -378,8 +403,8 @@ describe('head-only reads', () => {
     const capped = await readCappedHead(req, 12 * 1024 * 1024);
 
     expect(capped.refusal).toBeNull();
-    expect(categoryFromHead(capped.head)).toBe('guard');
-    expect(photoAttachedFromHead(capped.head)).toBe(true);
+    expect(categoryFromHead(capped.head, BOUNDARY)).toBe('guard');
+    expect(photoAttachedFromHead(capped.head, BOUNDARY)).toBe(true);
     // The whole body arrived and was counted; only the head was ever held.
     expect(capped.bytes).toBe(body.byteLength);
     expect(capped.head.byteLength).toBe(HEAD_BYTES);
@@ -392,7 +417,7 @@ describe('head-only reads', () => {
     const { req, wasCancelled } = streamedRequest(reportBody('thirsty', 512 * 1024), 64 * 1024);
     const capped = await readCappedHead(req, 64 * 1024);
     expect(capped.refusal).toBe('over-limit');
-    expect(categoryFromHead(capped.head)).toBe('thirsty');
+    expect(categoryFromHead(capped.head, BOUNDARY)).toBe('thirsty');
     expect(wasCancelled()).toBe(false);
   });
 
@@ -405,9 +430,9 @@ describe('head-only reads', () => {
         'Content-Type: application/octet-stream\r\n\r\n' +
         `\r\n--${BOUNDARY}--\r\n`,
     );
-    expect(photoAttachedFromHead(new Uint8Array(empty))).toBe(false);
-    expect(photoAttachedFromHead(new Uint8Array())).toBe(false);
-    expect(photoAttachedFromHead(new Uint8Array(reportBody('litter', 16)))).toBe(true);
+    expect(photoAttachedFromHead(new Uint8Array(empty), BOUNDARY)).toBe(false);
+    expect(photoAttachedFromHead(new Uint8Array(), BOUNDARY)).toBe(false);
+    expect(photoAttachedFromHead(new Uint8Array(reportBody('litter', 16)), BOUNDARY)).toBe(true);
   });
 });
 
@@ -489,7 +514,7 @@ describe('the in-flight budget', () => {
     expect(crowded.refusal).toBe('busy');
     expect(crowded.body).toBeNull();
     // Enough was kept to carry their severity to the screen that offers a retry.
-    expect(categoryFromHead(crowded.head)).toBe('guard');
+    expect(categoryFromHead(crowded.head, BOUNDARY)).toBe('guard');
 
     holding.release();
     expect((await holding.settled()).refusal).toBeNull();
@@ -582,11 +607,11 @@ describe('the in-flight budget', () => {
     // Not cancelled: the socket has to survive to carry the busy screen.
     expect(wasCancelled()).toBe(false);
     // The cost: no head means no severity, which the busy screen does without.
-    expect(categoryFromHead(beyond.head)).toBeNull();
+    expect(categoryFromHead(beyond.head, BOUNDARY)).toBeNull();
 
     expect(shedRefusals.every((shed) => shed.refusal === 'busy')).toBe(true);
     expect(after.refusal).toBe('busy');
-    expect(categoryFromHead(after.head)).toBe('thirsty');
+    expect(categoryFromHead(after.head, BOUNDARY)).toBe('thirsty');
   });
 
   it('tells a shed read that was also oversized which of the two it was', async () => {
@@ -714,7 +739,7 @@ describe('the in-flight budget', () => {
       expect(settled).toBe(true);
       const capped = await reading;
       expect(capped.refusal).toBe('timed-out');
-      expect(categoryFromHead(capped.head)).toBe('guard');
+      expect(categoryFromHead(capped.head, BOUNDARY)).toBe('guard');
     } finally {
       vi.useRealTimers();
     }
@@ -731,7 +756,7 @@ describe('the in-flight budget', () => {
     const crowded = await readCappedHead(req, 12 * 1024 * 1024);
     expect(crowded.refusal).toBe('busy');
     expect(deliveredBytes()).toBe(body.byteLength);
-    expect(categoryFromHead(crowded.head)).toBe('litter');
+    expect(categoryFromHead(crowded.head, BOUNDARY)).toBe('litter');
 
     holding.release();
     await holding.settled();
