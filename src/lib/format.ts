@@ -69,3 +69,46 @@ export function sinceLabel(date: Date): Phrase {
     }).format(date);
   return { en: `since ${month('en')}`, es: `desde ${month('es')}` };
 }
+
+/**
+ * "Both slots are taken." — how many slots a bed has is data, not a constant:
+ * the six W 171st beds hold one, the demo bed holds two, and a sentence that
+ * names two is false on the captain's own block.
+ */
+function slotsTakenClause(slots: number): Phrase {
+  if (slots <= 1) return { en: 'The only slot is taken.', es: 'El único lugar está ocupado.' };
+  if (slots === 2) return { en: 'Both slots are taken.', es: 'Los dos lugares están ocupados.' };
+  return { en: `All ${slots} slots are taken.`, es: `Los ${slots} lugares están ocupados.` };
+}
+
+/** The same count, as the thing that just happened while the form was open. */
+function slotsJustFilledClause(slots: number): Phrase {
+  if (slots <= 1) {
+    return { en: 'The only slot just filled up.', es: 'El único lugar se acaba de ocupar.' };
+  }
+  if (slots === 2) {
+    return { en: 'Both slots just filled up.', es: 'Los dos lugares se acaban de ocupar.' };
+  }
+  return {
+    en: `All ${slots} slots just filled up.`,
+    es: `Los ${slots} lugares se acaban de ocupar.`,
+  };
+}
+
+/** The adopt screen's refusal for a bed whose slots were already all taken. */
+export function slotsAllTakenMessage(slots: number): Phrase {
+  const clause = slotsTakenClause(slots);
+  return {
+    en: `${clause.en} This bed has the people it needs — but others on the block are still waiting.`,
+    es: `${clause.es} Este cantero ya tiene quien lo cuide, pero otros de la cuadra siguen esperando.`,
+  };
+}
+
+/** The adopt screen's refusal for a slot lost between the render and the POST. */
+export function slotsJustFilledMessage(slots: number): Phrase {
+  const clause = slotsJustFilledClause(slots);
+  return {
+    en: `${clause.en} This bed has the people it needs.`,
+    es: `${clause.es} Este cantero ya tiene quien lo cuide.`,
+  };
+}

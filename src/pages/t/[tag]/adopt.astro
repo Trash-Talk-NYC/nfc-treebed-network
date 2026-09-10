@@ -42,6 +42,7 @@ import {
 import { setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
+import { slotsAllTakenMessage, slotsJustFilledMessage } from '../../../lib/format';
 import { ADOPT, ADOPT_ERRORS, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
@@ -67,7 +68,8 @@ let openSlots = view.openSlots;
 // captain has simply not offered yet. Two different facts, and the screen must
 // not tell the visitor the wrong one.
 const slotsAllTaken = view.stewards.length >= bed.slots;
-const noSlotCopy = (): Phrase => (slotsAllTaken ? ADOPT.full : ADOPT.noOpenSlot);
+const noSlotCopy = (): Phrase =>
+  slotsAllTaken ? slotsAllTakenMessage(bed.slots) : ADOPT.noOpenSlot;
 let errors: AdoptErrors = {};
 let formError: Phrase | null = null;
 // Everything the visitor typed, echoed back on a validation failure. All of it
@@ -102,7 +104,8 @@ if (Astro.request.method === 'POST') {
         // rather than chosen, so there is no collision to report either.
         // Fully offered, so losing the last slot to somebody else is what
         // just happened; on a bed with a slot held back it never was one.
-        formError = bed.offeredSlots >= bed.slots ? ADOPT.slotsJustFilled : ADOPT.noOpenSlot;
+        formError =
+          bed.offeredSlots >= bed.slots ? slotsJustFilledMessage(bed.slots) : ADOPT.noOpenSlot;
         openSlots = 0;
       } else {
         throw err;

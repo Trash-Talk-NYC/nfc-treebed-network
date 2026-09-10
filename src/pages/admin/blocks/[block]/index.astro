@@ -207,14 +207,23 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     <button type="submit" hidden aria-hidden="true" tabindex="-1"></button>
     <div class={`admin-body mode-${mode}`}>
       <div class="admin-left">
+        {/* The steward view has no save button, so it gets no editable
+            address either: an Enter in the field there would submit through
+            the hidden default button, save the block with no `plate`, and
+            drop both the open bed and the steward being read. A view with
+            nothing to submit cannot submit the wrong thing. */}
         <label class="addrbar">
           <span class="addr-label" {...bi(ADMIN.refAddress, lang)}>{ADMIN.refAddress[lang]}</span>
-          <input
-            name="referenceAddress"
-            maxlength={MAX_ADDRESS_CHARS}
-            value={submitted ? submitted.address : block.referenceAddress}
-            autocomplete="off"
-          />
+          {steward ? (
+            <span class="addr-static">{block.referenceAddress}</span>
+          ) : (
+            <input
+              name="referenceAddress"
+              maxlength={MAX_ADDRESS_CHARS}
+              value={submitted ? submitted.address : block.referenceAddress}
+              autocomplete="off"
+            />
+          )}
         </label>
         <div class="blockmeta">
           {
@@ -538,6 +547,15 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     text-decoration: none;
     display: block;
   }
+  /* Reads exactly as the field it stands in for, minus the caret. */
+  .addr-static {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--theme-ink);
+  }
 </style>
 
 <script is:inline>
@@ -547,9 +565,13 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   // plain submit either way.
   (function () {
     var form = document.querySelector('[data-admin-form]');
+    if (!form) return;
+    // The line itself only renders with a bed open, but the address field is
+    // on every view — so the guard is installed from the form alone and the
+    // line is what is optional, not the protection.
     var state = document.querySelector('[data-save-state]');
-    if (!form || !state) return;
     function dirty() {
+      if (!state) return;
       state.setAttribute('data-en', state.getAttribute('data-unsaved-en'));
       state.setAttribute('data-es', state.getAttribute('data-unsaved-es'));
       state.textContent = state.getAttribute('data-' + document.documentElement.lang);
@@ -562,7 +584,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     // An add-slot press and a refused save both come back dirty from the
     // server with no client event to observe, so the flag starts from what
     // the rendered line already says.
-    var changed = state.getAttribute('data-dirty') === 'true';
+    var changed = !!state && state.getAttribute('data-dirty') === 'true';
     function touched() {
       changed = true;
       dirty();

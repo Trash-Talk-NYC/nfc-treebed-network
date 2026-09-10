@@ -109,20 +109,15 @@ export const ADOPT = {
     es: 'En la placa solo aparecen tu nombre de usuario y tus iniciales. Tu correo y tu teléfono nunca se muestran en público.',
   },
   submit: { en: 'PUT MY NAME ON IT', es: 'PON MI NOMBRE' },
-  full: {
-    en: 'Both slots are taken. This bed has the people it needs — but others on the block are still waiting.',
-    es: 'Los dos lugares están ocupados. Este cantero ya tiene quien lo cuide, pero otros de la cuadra siguen esperando.',
-  },
+  // How many slots a bed has is data (`Bed.slots`), so the two sentences that
+  // count them are built in `format.ts` — `slotsAllTakenMessage` and
+  // `slotsJustFilledMessage` — rather than naming two here.
   // A bed with slots built but not OFFERED on the admin page (`offeredSlots`).
-  // "Both slots are taken" would be a lie there, and this screen is only
+  // A sentence about taken slots would be a lie there, and this screen is only
   // reachable by typing the URL — the door screen shows no invitation at all.
   noOpenSlot: {
     en: 'There’s no open slot on this bed right now — but others on the block are still waiting, and this one still needs eyes on it.',
     es: 'Ahora mismo no hay ningún lugar libre en este cantero, pero otros de la cuadra siguen esperando y este sigue necesitando quien lo mire.',
-  },
-  slotsJustFilled: {
-    en: 'Both slots just filled up. This bed has the people it needs.',
-    es: 'Los dos lugares se acaban de ocupar. Este cantero ya tiene quien lo cuide.',
   },
 } satisfies Record<string, Phrase>;
 
