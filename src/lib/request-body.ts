@@ -9,8 +9,8 @@
 // What bounds every publicly reachable route. "Screen" below means a styled
 // page; no bound is ever enforced by dropping the connection on a visitor.
 //
-//   GET  /                             A redirect to the first live tag, built
-//                                      by ourPlaqueLink; no body, no buffer,
+//   GET  /                             A redirect to the demo tag (DEMO_TAG_ID),
+//                                      built by ourPlaqueLink; no body, no buffer,
 //                                      and no store read at all.
 //   GET  /t/<tag>                      No body to read, so no size, time or
 //                                      concurrency bound applies. Peak heap is

@@ -1,8 +1,9 @@
 # NFC Tree Bed Network
 
 The post-tap experience for Trash Talk NYC's NFC tree bed network.
-Tap a tag on a tree guard and the bed's own state picks one of two screens.
+Tap a tag on a tree guard and the bed's own state picks the screen.
 A bed with no steward yet asks to be adopted; a bed that has one shows who stewards it and offers applause.
+A bed the admin has opened no slot on says so instead of inviting anyone — the adoption invitation is withheld on either door until a slot is offered, which is the state the W 171st tags open today.
 Either door's second button is "this bed needs care" — thirsty plants, litter, guard damage or something else, as many as apply, with an optional photo — and both actions end on a full-screen takeover.
 
 Every visitor-facing string exists in English and Spanish, with a two-state toggle the visitor operates — both languages shown, the one now speaking filled in — and no browser-language guessing; the whole flow works with JavaScript disabled.
@@ -19,7 +20,9 @@ Requires Node >= 22.
 
 ```sh
 npm install
-npm run dev            # http://localhost:4321/t/2mq2amhv
+npm run dev            # http://localhost:4321/t/2mq2amhv — the adopted demo bed
+                       # http://localhost:4321/t/jjhq9gfj — a real W 171st bed,
+                       #   not open for adoption yet (see src/lib/tag-bindings.ts)
                        # http://localhost:4321/admin — key in .data/admin-key
 ```
 
@@ -37,7 +40,8 @@ Generate it **once**, with `openssl rand -hex 32`, and keep that same value — 
 Generating it inside the run command is the failure the requirement exists to prevent.
 Dev needs nothing — it falls back to `.data/session-secret`.
 
-Local state lives in `.data/store.json` (gitignored), seeded on first boot with the captain's real block — W 171st between Fort Washington and Haven, six beds `BED-WH-1711`…`1716`, each bound to its real NYC planting space and all unoffered until the admin page opens them — plus the demo bed `BED-HRL-0847` and steward `marisol_r` (PIN `1234`) in its own demo-flagged block; the checked-in registry binds demo tag `2mq2amhv` to that bed.
+Local state lives in `.data/store.json` (gitignored), seeded on first boot with the captain's real block — W 171st between Fort Washington and Haven, six beds `BED-WH-1711`…`1716`, each bound to its real NYC planting space and all unoffered until the admin page opens them — plus the demo bed `BED-HRL-0847` and steward `marisol_r` (PIN `1234`) in its own demo-flagged block; the checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed and real tags to four of the W 171st beds.
+The site root redirects to the demo binding by name, so monitors and crawlers hitting `/` never land on a real bed.
 The checked-in blocks and beds also backfill into an already-seeded store on its next load, insert-only, so a live store gains them without a migration step.
 Delete `.data/` to reset.
 `TREEBED_DATA_DIR` puts that directory — the store and the dev session secret both — somewhere else; the end-to-end suite uses it to give every server it spawns a fresh one.

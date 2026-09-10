@@ -232,6 +232,56 @@ describe('the door a bed nobody has offered a slot on opens', () => {
   });
 });
 
+describe('the shipped W 171st tags', () => {
+  // The four Haven-end willow oaks (tag-bindings.ts) against the SHIPPED seed
+  // — no data surgery, unlike the doors measured above — because these tags
+  // are handed to the captain as links, and what each must open is decided by
+  // the registry row plus the seeded bed together. All four beds seed
+  // unoffered (`offeredSlots: 0`, store-dataset.ts), so every one renders the
+  // not-yet-open door until the captain opens a slot; flipping one open is a
+  // data change, and this test then follows the data, not the code.
+  // The server behind `origin` mutates only the demo bed's adoption, so for
+  // these beds it IS the shipped seed.
+  const shipped: Record<string, string> = {
+    jjhq9gfj: '2332471',
+    '1hc0t9cj': '2332470',
+    '729v19w4': '2332469',
+    jpv8bksx: '2332468',
+  };
+
+  it('each opens the not-yet-open door for its own bed', async () => {
+    for (const [tagId, plantingSpaceId] of Object.entries(shipped)) {
+      const response = await fetch(`${origin}/t/${tagId}`);
+      expect(response.status, tagId).toBe(200);
+      const html = await response.text();
+
+      // The right bed: the NYC planting space ID is the one public identity.
+      expect(html, tagId).toContain(`#${plantingSpaceId}`);
+      expect(html, tagId).toContain('data-es="Roble sauce"');
+
+      // The not-yet-open door, with no invitation anywhere on it.
+      expect(html, tagId).toContain(DOOR_NOT_OFFERED.headAfter.en);
+      expect(html, tagId).toContain(DOOR_NOT_OFFERED.sub.en);
+      expect(html, tagId).not.toContain(DOOR_UNSTEWARDED.adopt.en);
+      expect(html, tagId).not.toContain(DOOR_UNSTEWARDED.headAfter.en);
+      expect(html, tagId).toContain(COMMON.needsCare.en);
+      expect(html, tagId).not.toContain(DOOR_STEWARDED.applaud.en);
+
+      // Door 1's ground, not the adopted green.
+      expect(html, tagId).toContain('class="frame ground-page"');
+      expect(html, tagId).not.toContain('class="screen screen-clear"');
+    }
+  });
+
+  it('says it in Spanish too', async () => {
+    const html = await (await fetch(`${origin}/t/jjhq9gfj?lang=es`)).text();
+    expect(html).toContain(DOOR_NOT_OFFERED.headAfter.es);
+    expect(html).toContain(DOOR_NOT_OFFERED.sub.es);
+    expect(html).toContain('Roble sauce');
+    expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.es);
+  });
+});
+
 describe('a steward who asked not to be named', () => {
   it('is nowhere on the public screen, which still reads as adopted', async () => {
     const response = await fetch(`${origin}/t/${TAG}`);

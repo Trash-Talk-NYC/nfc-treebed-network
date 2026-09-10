@@ -297,8 +297,8 @@ function w171Beds(): Bed[] {
  *
  * The demo bed is deliberately NOT placed in the captain's block: it gets its
  * own block, flagged `demo`, so the admin page can show it — it holds the
- * pilot's live history and the only bound tag — without a fake bed ever
- * reading as part of a real street.
+ * pilot's live history — without a fake bed ever reading as part of a real
+ * street.
  */
 export function ensureCheckedInBlocks(data: Data): void {
   for (const block of checkedInBlocks()) {

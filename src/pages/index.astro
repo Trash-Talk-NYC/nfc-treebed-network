@@ -1,21 +1,26 @@
 ---
 import { ourPlaqueLink } from '../lib/plaque-url';
-import { TAG_BINDINGS } from '../lib/tag-bindings';
+import { demoBinding } from '../lib/tag-bindings';
 import { abandonBody } from '../lib/request-body';
 
 // Rendered for any method, and an answer given without touching its body
 // leaves Node to read that body to its end. Nothing here wants one.
 await abandonBody(Astro.request);
 
-// The root has no content of its own — a tag URL always names a tag.
-// Send strays to the first live tag for now.
+// The root has no content of its own — a tag URL always names a tag, so
+// strays go to the DEMO bed by name (`DEMO_TAG_ID`), never to whichever row
+// happens to sit first: root traffic is monitors, crawlers and typed domains,
+// and sending it to a real bed would inflate that bed's tap count.
 //
 // Flagged like every other navigation of ours: a tag never sends anyone here,
 // so what does is an uptime check, a crawler, or somebody typing the domain —
 // and a monitor polling this once a minute would be 1,440 taps a day on the
-// only seeded bed.
-const demo = TAG_BINDINGS.find((b) => b.retiredAt === null);
-if (!demo) return new Response('No tags are live.', { status: 404 });
+// bed it lands on.
+const demo = demoBinding();
+if (!demo) {
+  console.error('root redirect: the demo tag has no active binding (tag-bindings.ts)');
+  return new Response('The demo tag is not bound.', { status: 500 });
+}
 const seeOther = Astro.request.method !== 'GET' && Astro.request.method !== 'HEAD';
 return Astro.redirect(ourPlaqueLink(`/t/${demo.tagId}`), seeOther ? 303 : 302);
 ---
