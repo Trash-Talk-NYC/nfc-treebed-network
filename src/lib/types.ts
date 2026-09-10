@@ -184,6 +184,19 @@ export interface Bed {
   /** The care this bed needs right now — admin-typed, shown as typed. */
   careNote: string;
   /**
+   * Set when the captain deletes this bed on the admin page.
+   *
+   * Deleting is retiring, never erasing: the plate is the join key every
+   * report, adoption and event hangs on, and the checked-in seed
+   * (`ensureCheckedInBlocks`) re-inserts a missing seeded bed on every load —
+   * so a removed ROW would both orphan its history and quietly resurrect.
+   * A retired bed keeps every row keyed to its plate, drops out of the admin
+   * lists, and stops resolving from a tap: a tag still bound to it renders the
+   * calm "not assigned to a bed yet" screen (service.ts treats a retired bed
+   * as not found). The plate is never reused — `nextPlate` still sees the row.
+   */
+  retiredAt: string | null;
+  /**
    * The block this bed belongs to and where it stands in it, or null for a
    * bed outside any block. Admin-only grouping — see `Block`.
    */

@@ -26,7 +26,9 @@ import {
   getBedView,
   getBlockView,
   reportProblem,
+  retireBedByAdmin,
   saveBlockSettings,
+  sendApplause,
   validateAdminStewardInput,
 } from '../src/lib/service';
 import { UNRECORDED_CHOICE, bedFactFrom, guardMaterialFrom } from '../src/lib/types';
@@ -791,6 +793,118 @@ describe('writing a steward in, pen and paper', () => {
       stewardInput({ firstName: 'a'.repeat(MAX_NAME_CHARS + 500) }),
     );
     expect(values.firstName).toHaveLength(MAX_NAME_CHARS);
+  });
+});
+
+describe('deleting a bed', () => {
+  it('retires the bed rather than erasing it: the list drops it, every record keyed to the plate survives', async () => {
+    const store = freshStore();
+    // A live bed: a steward on it and a report open against it.
+    await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
+    const outcome = await reportProblem(store, {
+      plate: W171_PLATE,
+      actorId: 'visitor-1',
+      category: 'litter',
+      note: '',
+      photoAttached: false,
+    });
+    expect(outcome.kind).toBe('filed');
+
+    await retireBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+
+    // Gone from the admin list and from every screen read…
+    const view = await getBlockView(store, W171_BLOCK_ID);
+    expect(view!.beds.map((b) => b.bed.plate)).not.toContain(W171_PLATE);
+    expect(await getBedView(store, W171_PLATE)).toBeNull();
+
+    // …but nothing keyed to the plate was destroyed or orphaned.
+    const row = await store.getBed(W171_PLATE);
+    expect(row).not.toBeNull();
+    expect(row!.retiredAt).not.toBeNull();
+    expect(await store.getActiveAdoptions(W171_PLATE)).toHaveLength(1);
+    expect((await store.getReports(W171_PLATE)).map((r) => r.id)).toEqual([outcome.report!.id]);
+    expect((await store.getEvents(W171_PLATE, 'adopt')).length).toBe(1);
+    expect((await store.getEvents(W171_PLATE, 'report')).length).toBe(1);
+  });
+
+  it('is idempotent: a resubmitted confirmation keeps the original date', async () => {
+    const store = freshStore();
+    await retireBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+    const retiredAt = (await store.getBed(W171_PLATE))!.retiredAt;
+    await retireBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+    expect((await store.getBed(W171_PLATE))!.retiredAt).toBe(retiredAt);
+  });
+
+  it('refuses a plate outside the named block', async () => {
+    await expect(
+      retireBedByAdmin(freshStore(), { blockId: DEMO_BLOCK_ID, plate: W171_PLATE }),
+    ).rejects.toMatchObject({ code: 'bed-not-found' });
+  });
+
+  it('answers not-found to every street and admin write once retired', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ guard: 'none', offeredSlotNumbers: [1] }),
+    });
+    await retireBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+    const notFound = { code: 'bed-not-found' };
+    await expect(
+      reportProblem(store, {
+        plate: W171_PLATE,
+        actorId: 'visitor-1',
+        category: 'litter',
+        note: '',
+        photoAttached: false,
+      }),
+    ).rejects.toMatchObject(notFound);
+    await expect(
+      adoptBed(store, {
+        plate: W171_PLATE,
+        input: { firstName: 'Rita', lastName: 'Okafor', email: 'r@example.com', phone: '' },
+      }),
+    ).rejects.toMatchObject(notFound);
+    await expect(
+      sendApplause(store, { plate: W171_PLATE, actorId: 'visitor-1' }),
+    ).rejects.toMatchObject(notFound);
+    await expect(
+      addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() }),
+    ).rejects.toMatchObject(notFound);
+    await expect(
+      saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: bedSave({ guard: 'metal' }),
+      }),
+    ).rejects.toMatchObject(notFound);
+  });
+
+  it('stays deleted through the checked-in seed backfill — the trap that rules out erasing the row', async () => {
+    // `ensureCheckedInBlocks` re-inserts a MISSING seeded bed on every load,
+    // so a hard delete of one of the six would quietly resurrect. The
+    // tombstone occupies the key, and insert-only means it is never touched.
+    const data = await seedData();
+    data.beds[W171_PLATE]!.retiredAt = '2026-09-10T12:00:00.000Z';
+    ensureCheckedInBlocks(data);
+    expect(data.beds[W171_PLATE]!.retiredAt).toBe('2026-09-10T12:00:00.000Z');
+
+    // And a record from before the field existed simply was never deleted.
+    const legacy = data.beds['BED-WH-1712']! as unknown as Record<string, unknown>;
+    delete legacy.retiredAt;
+    normalizeData(data);
+    expect(data.beds['BED-WH-1712']!.retiredAt).toBeNull();
+  });
+
+  it('continues the plate series and positions past a deleted bed rather than reusing them', async () => {
+    const store = freshStore();
+    await retireBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: 'BED-WH-1716' });
+    const bed = await addBedByAdmin(store, {
+      blockId: W171_BLOCK_ID,
+      treeType: { en: 'Pin oak', es: 'Roble palustre' },
+    });
+    expect(bed.plate).toBe('BED-WH-1717');
+    expect(bed.blockPosition).toBe(7);
   });
 });
 

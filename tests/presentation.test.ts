@@ -28,6 +28,7 @@ const BED: Bed = {
   blockPosition: null,
   nycSyncedAt: null,
   nycMissingSince: null,
+  retiredAt: null,
 };
 
 /** WCAG relative luminance, then the contrast ratio between two sRGB hexes. */

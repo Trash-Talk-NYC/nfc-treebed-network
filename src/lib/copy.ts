@@ -541,6 +541,27 @@ export const ADMIN = {
     en: 'Every slot on this bed is filled.',
     es: 'Todos los lugares de este cantero están ocupados.',
   },
+  /** The bed panel's way into the delete confirmation — never the delete itself. */
+  deleteBedLink: { en: 'DELETE THIS BED', es: 'ELIMINAR ESTE CANTERO' },
+  deleteBedTitle: { en: 'Delete this bed', es: 'Eliminar este cantero' },
+  deleteBedBody: {
+    en: 'The bed comes off this block, and a tap on its tag shows the “not assigned to a bed yet” screen. Its record — stewards, reports, activity — is kept, and its plate is never reused.',
+    es: 'El cantero sale de esta cuadra, y al tocar su etiqueta se muestra la pantalla de “aún sin cantero asignado”. Su registro — cuidadores, reportes, actividad — se conserva, y su placa nunca se reutiliza.',
+  },
+  /** Only when the bed being deleted has stewards on it. */
+  deleteBedHasStewards: {
+    en: 'People steward this bed. Their record stays, but the tag will no longer open their bed.',
+    es: 'Hay personas cuidando este cantero. Su registro se mantiene, pero la etiqueta ya no abrirá su cantero.',
+  },
+  /** Only when the bed being deleted has an open care report. */
+  deleteBedHasReport: {
+    en: 'A care report is open on this bed. It stays in the record.',
+    es: 'Este cantero tiene un reporte de cuidado abierto. Queda en el registro.',
+  },
+  deleteBedSubmit: { en: 'DELETE THIS BED', es: 'ELIMINAR ESTE CANTERO' },
+  deleteBedCancel: { en: 'KEEP THIS BED', es: 'CONSERVAR EL CANTERO' },
+  /** The block page's flash after a delete. */
+  bedDeleted: { en: 'Bed deleted. Its record is kept.', es: 'Cantero eliminado. Su registro se conserva.' },
   addBedTitle: { en: 'Add a bed', es: 'Añadir un cantero' },
   addBedBody: {
     en: 'A new bed starts closed, with one slot, its guard not yet recorded and no NYC number — the NYC bed is matched from the city’s own data, never typed.',

@@ -195,6 +195,10 @@ const selected = beds.find((b) => b.bed.plate === Astro.url.searchParams.get('be
 const steward =
   selected?.stewards.find((s) => s.user.id === Astro.url.searchParams.get('steward')) ?? null;
 const savedFlash = Astro.url.searchParams.get('saved') === '1';
+// The delete confirmation (`delete-bed.astro`) lands back here with this flag:
+// the bed is gone from the list, and the page says so rather than leaving the
+// captain to count beds.
+const deletedFlash = Astro.url.searchParams.get('deleted') === '1';
 const mode = selected ? 'panel' : 'list';
 // The slot count the panel draws. A "+ ADD SLOT" press — and a refused save
 // that had made one — comes back with that slot on the page, and a hidden
@@ -363,6 +367,13 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
             )
           }
         </div>
+        {
+          deletedFlash && (
+            <div class="deleted-flash" {...bi(ADMIN.bedDeleted, lang)}>
+              {ADMIN.bedDeleted[lang]}
+            </div>
+          )
+        }
 
         <div class="street">
           {
@@ -934,6 +945,16 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               <p class="pii" {...bi(ADMIN.piiNote, lang)}>
                 {ADMIN.piiNote[lang]}
               </p>
+              {/* A LINK, deliberately: it opens the confirmation page and
+                  writes nothing, so a mis-tap on a phone costs a navigation.
+                  The delete itself is the confirmation page's own POST. */}
+              <a
+                class="delete-bed"
+                href={langLink(`${base}/delete-bed?bed=${selected.bed.plate}`, lang)}
+                {...bi(ADMIN.deleteBedLink, lang)}
+              >
+                {ADMIN.deleteBedLink[lang]}
+              </a>
             </>
           ) : (
             <div class="blockmeta select-hint" {...bi(ADMIN.selectBed, lang)}>
@@ -1104,6 +1125,26 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     letter-spacing: 0.05em;
     color: var(--theme-action);
     cursor: pointer;
+  }
+  /* The one destructive affordance on the page: the alert role's ink — the
+     yellow itself cannot carry text on beige (presentation.ts) — quiet, at
+     the very bottom, past everything the captain came to edit. */
+  .delete-bed {
+    display: block;
+    margin-top: 6px;
+    padding: 11px 0;
+    font-family: 'Barlow', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--theme-alert-ink);
+    text-decoration: none;
+  }
+  .deleted-flash {
+    margin-top: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theme-muted);
   }
   /* Reads exactly as the field it stands in for, minus the caret. */
   .addr-static {

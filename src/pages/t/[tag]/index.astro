@@ -92,10 +92,15 @@ const base = `/t/${tag}`;
 const store = getStore();
 const view = resolved.state === 'bound' ? await getBedView(store, resolved.plate) : null;
 if (resolved.state === 'bound' && view === null) {
-  // A binding pointing at a plate the store has never heard of is a registry
-  // typo, not a state a visitor can act on — same honest answer as unbound,
-  // but this one is our mistake, so it is also said on stderr.
-  console.error(`[plaque] tag ${tag} is bound to unknown site ${resolved.plate}`);
+  // Two ways a bound tag can have no bed behind it, and only one is ours to
+  // say on stderr. A bed deleted on the admin page is RETIRED, not erased
+  // (service.ts) — the row is still in the store, the tag legitimately shows
+  // the calm screen, and a line per tap would let a tag we chose to retire
+  // write the log. A plate the store has never heard of at all is a registry
+  // typo, and that one is our mistake.
+  if ((await store.getBed(resolved.plate)) === null) {
+    console.error(`[plaque] tag ${tag} is bound to unknown site ${resolved.plate}`);
+  }
 }
 
 // Unbound: still 404. There is no site here for a crawler or a monitor to

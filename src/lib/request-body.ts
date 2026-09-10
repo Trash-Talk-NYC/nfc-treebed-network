@@ -118,8 +118,9 @@
 //                                      for an unbounded body, and an
 //                                      unauthenticated POST here reaches no
 //                                      store read and writes nothing.
-//   POST /admin/sign-out               Closes the admin session. Behind the
-//                                      same gate, and it carries nothing but
+//   POST /admin/sign-out,              Close the admin session; retire the
+//        /admin/blocks/…/delete-bed    bed the URL names. Behind the same
+//                                      gate, and each carries nothing but
 //                                      the press, so the body is
 //                                      `abandonBody`'d rather than read: a
 //                                      form with no fields has no form to

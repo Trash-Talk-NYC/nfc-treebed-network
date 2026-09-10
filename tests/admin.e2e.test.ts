@@ -516,6 +516,93 @@ describe('the admin sees what a neighbour reported', () => {
   });
 });
 
+describe('deleting a bed', () => {
+  // BED-WH-1712 carries a real checked-in tag, which is the point: the
+  // registry cannot be edited at runtime, so a deleted bed's tag has to
+  // degrade to the calm "not assigned" screen on its own.
+  const PLATE = 'BED-WH-1712';
+  const TAG = '1hc0t9cj';
+
+  it('reaches the delete only through its own confirmation page — the panel link writes nothing', async () => {
+    const cookie = await adminCookie();
+    const panel = await (
+      await fetch(`${origin}${BLOCK_PATH}?bed=${PLATE}`, { headers: { cookie } })
+    ).text();
+    // A link to the confirmation, not a submit that deletes from the panel.
+    expect(panel).toContain(`/delete-bed?bed=${PLATE}`);
+    expect(panel).toContain('data-es="ELIMINAR ESTE CANTERO"');
+
+    const confirm = await fetch(`${origin}${BLOCK_PATH}/delete-bed?bed=${PLATE}`, {
+      headers: { cookie },
+    });
+    expect(confirm.status).toBe(200);
+    const html = await confirm.text();
+    // Says which bed, in both languages, and offers the way out beside the act.
+    expect(html).toContain(PLATE);
+    expect(html).toContain('Delete this bed');
+    expect(html).toContain('data-es="Eliminar este cantero"');
+    expect(html).toContain('data-es="CONSERVAR EL CANTERO"');
+    // And the bed was NOT deleted by looking at the page.
+    const list = await (await fetch(`${origin}${BLOCK_PATH}`, { headers: { cookie } })).text();
+    expect(list).toContain(PLATE);
+  });
+
+  it('deletes on the confirmation POST: off the list, with the record-is-kept flash', async () => {
+    const cookie = await adminCookie();
+    const deleted = await fetch(`${origin}${BLOCK_PATH}/delete-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    expect(deleted.status).toBe(303);
+    const location = deleted.headers.get('location')!;
+    expect(location).toContain('deleted=1');
+    const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    expect(after).not.toContain(PLATE);
+    expect(after).toContain('Bed deleted');
+    expect(after).toContain('data-es="Cantero eliminado. Su registro se conserva."');
+  });
+
+  it('degrades the still-bound tag to the calm not-assigned screen, never a 500', async () => {
+    const tap = await fetch(`${origin}/t/${TAG}`);
+    expect(tap.status).toBe(404);
+    const html = await tap.text();
+    expect(html).toContain('assigned to a bed yet');
+    expect(html).toContain(TAG);
+    // And a POST at its report route answers plain text, before any rule runs.
+    const report = await fetch(`${origin}/t/${TAG}/report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: new URLSearchParams({ category: 'litter' }),
+      redirect: 'manual',
+    });
+    expect(report.status).toBe(404);
+    expect((report.headers.get('content-type') ?? '').startsWith('text/plain')).toBe(true);
+  });
+
+  it('leaves the live tap flow untouched: the neighbouring bed and the demo bed still answer', async () => {
+    const neighbour = await fetch(`${origin}/t/jjhq9gfj`);
+    expect(neighbour.status).toBe(200);
+    expect(await neighbour.text()).not.toContain('assigned to a bed yet');
+    const demo = await fetch(`${origin}/t/2mq2amhv`);
+    expect(demo.status).toBe(200);
+    expect(await demo.text()).toContain('@marisol_r');
+  });
+
+  it('answers a resubmitted confirmation with the block page, not an error', async () => {
+    const cookie = await adminCookie();
+    const again = await fetch(`${origin}${BLOCK_PATH}/delete-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    expect(again.status).toBe(303);
+    expect(again.headers.get('location')).toContain('deleted=1');
+  });
+});
+
 describe('the way out of the admin', () => {
   it('offers sign-out on the admin page and clears the session cookie', async () => {
     const cookie = await adminCookie();
