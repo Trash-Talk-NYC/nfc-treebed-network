@@ -62,7 +62,8 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
     // buffered: the fields that matter are taken off the head instead, which
     // keeps a 12MB upload at kilobytes of heap. Safe because the care screen's
     // markup puts the category and the note ahead of the file input and
-    // browsers send parts in DOM order — keep it that way if it gains a field.
+    // browsers send parts in DOM order — keep it that way if it gains a field
+    // (`tests/care-form-order.e2e.test.ts` posts the rendered form's own order).
     const { head, refusal } = await readCappedHead(request, MAX_PHOTO_BODY_BYTES);
     // The delimiter the client declared: what tells a part's headers from a
     // sentence somebody typed that happens to look like one. Off the raw

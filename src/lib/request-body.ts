@@ -832,7 +832,9 @@ function partName(headers: string): string | null {
  * parts that precede the file. That only works while the form puts those parts
  * FIRST — browsers send parts in DOM order, so the care screen's markup keeps
  * the category, the note and the hidden fields ahead of the file input. Keep
- * it that way if the screen ever gains a field.
+ * it that way if the screen ever gains a field:
+ * `tests/care-form-order.e2e.test.ts` reads the order off the rendered care
+ * screen and posts a body built in it, so a reordering fails the suite.
  *
  * The name is matched against a part's HEADER block only, never against the
  * head at large: the note is a sentence a neighbour typed, and a sentence that

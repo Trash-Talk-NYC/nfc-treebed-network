@@ -20,8 +20,10 @@
 //   Deep Purple      the positive ownership action (adopt), and its takeover
 //   Street Sign Yellow attention / something needs doing — ALWAYS with Roadtop
 //                    Black on top, never white: yellow with white fails WCAG AA
-//   Post No Bills Green  all clear, adopted, the ground both doors stand on
-//   Poster Beige     the page ground, and buttons placed on the green ground
+//   Post No Bills Green  all clear, adopted, and the ground the stewarded
+//                    door stands on
+//   Poster Beige     the page ground — which is also the no-steward door's
+//                    ground — and buttons placed on the green ground
 //   Roadtop Black    ink, dark surfaces
 //
 // Contrast, checked against WCAG AA (4.5:1 for body text, 3:1 for large text

@@ -20,7 +20,7 @@ The tap resolves to a bed server-side and the bed's state picks one of two scree
 **The two doors stand on different grounds, deliberately.**
 Door 1 is Poster Beige — the page ground — with no highlight on the tree type, so its headline reads as one plain sentence; its buttons are the page ground's pair, Deep Purple for adopt and a Roadtop Black outline for care.
 Door 2 is Post No Bills Green with the tree type picked out in beige (`.hl`).
-The captain changed door 1 to beige after the review; it is not an oversight to normalize, and `.hl` does not go back on it.
+The captain changed door 1 to beige after the review; it is not an oversight to normalize, and `.hl` does not go back on it — `tests/steward-privacy.e2e.test.ts` asserts the ground, the button pair and the absent highlight in both languages.
 No yellow appears on door 1 at all, which is what keeps it clear of the one pairing that cannot work on that ground.
 
 `THIS BED NEEDS CARE` opens the problem picker (`care.astro`): thirsty plants / litter / guard damage / something else, plus an optional photo.
@@ -212,7 +212,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Fleet-wide peak heap and bcrypt concurrency there are these numbers times however many instances the platform is running, and a single warm instance serving concurrent invocations sheds legitimate sign-ins at the hash limit exactly as it sheds a flood.
   They are per-instance costs, not the pilot's surface-wide DoS ceiling — bounding the surface is the per-IP limiting at the platform tier already noted as owed.
 - The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the category, the note and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
-  `textFieldFromHead` is what reads them, which only works while the care screen's markup keeps its text parts ahead of the file input — browsers send parts in DOM order. Keep it that way if the screen gains a field.
+  `textFieldFromHead` is what reads them, which only works while the care screen's markup keeps its text parts ahead of the file input — browsers send parts in DOM order. Keep it that way if the screen gains a field; `tests/care-form-order.e2e.test.ts` pins it by reading the order off the rendered care screen and posting a body built in it, so a reordered field fails the suite rather than the street.
   The photo is discarded either way (spec §12) — this only stops it being copied on the way to being discarded.
   `readCappedForm` still buffers the text-only forms, where the whole body is 64KB and two copies of it are ~128KB.
 - A refused body is read to its end and discarded rather than cancelled: cancelling the reader destroys the socket, and a client still uploading gets a connection reset instead of the response.
@@ -283,7 +283,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 
 - The palette is the identity the captain approved across the tap-flow review (`design-record.md`, constraint 2), and it lives in `src/lib/presentation.ts` — **not** in `src/styles/global.css`, which names no colour at all.
   See "Presentation is data-driven" above.
-  Poster Beige `#eae9da` · Post No Bills Green `#4e6e65` · Deep Purple `#65409a` · Street Sign Yellow `#f3cf02` · Roadtop Black `#1d1d23`, with roles: purple = the positive ownership action, yellow = attention (**always with black on it, never white — white on yellow is 1.53:1**), green = all-clear/adopted and the ground both doors stand on, beige = the page ground and the buttons placed on the green.
+  Poster Beige `#eae9da` · Post No Bills Green `#4e6e65` · Deep Purple `#65409a` · Street Sign Yellow `#f3cf02` · Roadtop Black `#1d1d23`, with roles: purple = the positive ownership action, yellow = attention (**always with black on it, never white — white on yellow is 1.53:1**), green = all-clear/adopted and the ground door 2 stands on, beige = the page ground — which is door 1's ground — and the buttons placed on the green.
   Four values are one step off the review mock because the mock's own value does not clear WCAG AA; each moved the minimum distance and no hue changed.
   `tests/presentation.test.ts` holds every pair to it.
 - Type is two families and nothing else (constraint 3): **Londrina Solid** on headlines, the plate and buttons; **Barlow** on everything else.

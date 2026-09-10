@@ -72,7 +72,9 @@ const backToChoices = langLink(`${base}/care`, lang);
 
     {/* multipart, and the text parts first: the route reads the category and
         the note off the head of the body and never buffers the photo, which
-        only works while the file input is last in the DOM (request-body.ts). */}
+        only works while the file input is last in the DOM (request-body.ts).
+        `tests/care-form-order.e2e.test.ts` posts this form in its rendered
+        order, so moving the file input up fails the suite. */}
     <form class="care-form" method="POST" action={action} enctype="multipart/form-data">
       {
         telling ? (
