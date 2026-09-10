@@ -49,7 +49,7 @@ function careInput(overrides: Partial<Parameters<typeof reportProblem>[1]> = {})
   return {
     plate: PLATE,
     actorId: 'visitor-1',
-    category: 'litter' as const,
+    categories: ['litter' as const],
     note: '',
     photoAttached: false,
     ...overrides,
@@ -62,7 +62,7 @@ function tapEvent(id: string) {
     bedPlate: PLATE,
     eventType: 'tap' as const,
     severity: null,
-    category: null,
+    categories: [],
     note: '',
     reportId: null,
     actorId: 'visitor-1',
@@ -188,19 +188,53 @@ describe('two-slot cap', () => {
 
 describe('what SEND IT is worth', () => {
   it('files a report with a receipt-format id and the category the visitor picked', async () => {
-    const outcome = await reportProblem(store, careInput({ category: 'thirsty' }));
+    const outcome = await reportProblem(store, careInput({ categories: ['thirsty'] }));
     expect(outcome.kind).toBe('filed');
     expect(outcome.report?.id).toMatch(/^RPT-\d+-0847$/);
-    expect(outcome.report?.category).toBe('thirsty');
+    expect(outcome.report?.categories).toEqual(['thirsty']);
     // Nothing on the street sets severity: the problem screen asks what is
     // wrong, not how bad.
     expect(outcome.report?.severity).toBeNull();
   });
 
+  it('files every tile the visitor pressed, deduplicated, in tile order', async () => {
+    // The picker is multi-select: a bed that is thirsty AND full of litter is
+    // one report. Submission order and a hand-built duplicate change nothing —
+    // the record reads in tile order either way.
+    const outcome = await reportProblem(
+      store,
+      careInput({ categories: ['guard', 'thirsty', 'guard'] }),
+    );
+    expect(outcome.kind).toBe('filed');
+    expect(outcome.report?.categories).toEqual(['thirsty', 'guard']);
+    const [filed] = await store.getEvents(PLATE, 'report');
+    expect(filed?.categories).toEqual(['thirsty', 'guard']);
+  });
+
+  it('refuses a report naming no problem at all', async () => {
+    // The route redirects an empty picker back to the screen; this is the
+    // rule under it, for a caller that skips the screen entirely.
+    await expect(reportProblem(store, careInput({ categories: [] }))).rejects.toMatchObject({
+      code: 'invalid-input',
+    });
+    expect(await store.getReports(PLATE)).toHaveLength(0);
+  });
+
   it('keeps the sentence behind "something else", capped', async () => {
     const long = 'x'.repeat(MAX_NOTE_CHARS + 50);
-    const outcome = await reportProblem(store, careInput({ category: 'other', note: long }));
+    const outcome = await reportProblem(store, careInput({ categories: ['other'], note: long }));
+    expect(outcome.report?.categories).toEqual(['other']);
     expect(outcome.report?.note).toHaveLength(MAX_NOTE_CHARS);
+  });
+
+  it('keeps the sentence when "something else" rides alongside another tile', async () => {
+    const outcome = await reportProblem(
+      store,
+      careInput({ categories: ['other', 'litter'], note: 'hay una rata muerta' }),
+    );
+    expect(outcome.kind).toBe('filed');
+    expect(outcome.report?.categories).toEqual(['litter', 'other']);
+    expect(outcome.report?.note).toBe('hay una rata muerta');
   });
 
   it("adds a second reporter's weight to the open report instead of opening a duplicate", async () => {
@@ -217,29 +251,29 @@ describe('what SEND IT is worth', () => {
   it("keeps what the second neighbour said, and their photo", async () => {
     // The screen thanks them either way, so what they picked and typed has to
     // survive somewhere a steward reads it — the `confirm` event.
-    await reportProblem(store, careInput({ actorId: 'visitor-1', category: 'litter', note: '' }));
+    await reportProblem(store, careInput({ actorId: 'visitor-1', categories: ['litter'], note: '' }));
     const second = await reportProblem(
       store,
       careInput({
         actorId: 'visitor-2',
-        category: 'guard',
+        categories: ['guard', 'thirsty'],
         note: 'la reja está doblada y hay un clavo suelto',
         photoAttached: true,
       }),
     );
     expect(second.kind).toBe('added-weight');
     const [confirm] = await store.getEvents(PLATE, 'confirm');
-    expect(confirm?.category).toBe('guard');
+    expect(confirm?.categories).toEqual(['thirsty', 'guard']);
     expect(confirm?.note).toBe('la reja está doblada y hay un clavo suelto');
     // A photo attached to the second press is still a photo of the bed's open
     // problem.
     expect((await store.getOpenReport(PLATE))?.photoAttached).toBe(true);
   });
 
-  it('records the category and the note on the report event too', async () => {
-    await reportProblem(store, careInput({ category: 'thirsty', note: 'la tierra está seca' }));
+  it('records the categories and the note on the report event too', async () => {
+    await reportProblem(store, careInput({ categories: ['thirsty'], note: 'la tierra está seca' }));
     const [filed] = await store.getEvents(PLATE, 'report');
-    expect(filed?.category).toBe('thirsty');
+    expect(filed?.categories).toEqual(['thirsty']);
     expect(filed?.note).toBe('la tierra está seca');
   });
 
@@ -405,10 +439,10 @@ describe('store contract', () => {
   it('hands out detached copies, so mutating a read never reaches stored state', async () => {
     await reportProblem(store, careInput({ actorId: 'visitor-1' }));
     const read = await store.getOpenReport(PLATE);
-    read!.category = 'guard';
+    read!.categories.push('guard');
     read!.confirmedBy.push('never-happened');
     const stored = await store.getOpenReport(PLATE);
-    expect(stored?.category).toBe('litter');
+    expect(stored?.categories).toEqual(['litter']);
     expect(stored?.confirmedBy).toEqual([]);
   });
 

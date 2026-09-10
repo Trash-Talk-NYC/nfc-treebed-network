@@ -3,7 +3,7 @@
 // counterpart in the approved screens, and it exists for a reason the approved
 // screens make load-bearing: telling us a bed needs care is the core street
 // action, so an OPTIONAL attachment must never cost somebody what they already
-// told us. The category they picked and the sentence they typed are carried
+// told us. The categories they picked and the sentence they typed are carried
 // here, and one tap sends them without the photo.
 //
 // Three refusals, one screen, three sets of words: a photo to shrink, a queue
@@ -19,7 +19,7 @@ import { bi } from '../../../lib/bilingual';
 import { TOO_LARGE } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor, themeVar } from '../../../lib/presentation';
-import { noteFrom, problemFor, problemFrom } from '../../../lib/problem';
+import { noteFrom, problemFor, problemsFrom } from '../../../lib/problem';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
 
@@ -35,10 +35,10 @@ if (!view) {
 const lang = resolveLang(Astro.url, Astro.cookies);
 const presentation = presentationFor(view.bed);
 
-// Null when the upload was refused before the category arrived — then the only
-// honest offer is the picker again, not a category we guessed.
-const category = problemFrom(Astro.url.searchParams.get('category'));
-const picked = category === null ? null : problemFor(category);
+// Empty when the upload was refused before any category arrived — then the
+// only honest offer is the picker again, not a category we guessed.
+const categories = problemsFrom(Astro.url.searchParams.getAll('category'));
+const picked = categories.map(problemFor);
 const note = noteFrom(Astro.url.searchParams.get('note'));
 
 const reasonParam = Astro.url.searchParams.get('reason');
@@ -76,19 +76,30 @@ const copy = COPY[reason];
     <p class="body-copy" {...bi(copy.body, lang)}>{copy.body[lang]}</p>
     <div class="spacer" />
     {
-      picked ? (
+      picked.length > 0 ? (
         <>
           <p class="body-copy">
             <span {...bi(TOO_LARGE.youPicked, lang)}>{TOO_LARGE.youPicked[lang]}</span>{' '}
-            <strong class="picked" style={`color:${themeVar(picked.ink)}`} {...bi(picked.label, lang)}>
-              {picked.label[lang]}
-            </strong>
+            {picked.map((problem, i) => (
+              <Fragment>
+                {i > 0 && <span class="picked-sep">·</span>}
+                <strong
+                  class="picked"
+                  style={`color:${themeVar(problem.ink)}`}
+                  {...bi(problem.label, lang)}
+                >
+                  {problem.label[lang]}
+                </strong>
+              </Fragment>
+            ))}
           </p>
           {note !== '' && <p class="body-copy note-echo">“{note}”</p>}
           {/* urlencoded, not multipart: there is no photo this time, and the
               route's text-only branch is what reads it. */}
           <form method="POST" action={langLink(`${base}/report`, lang)}>
-            <input type="hidden" name="category" value={picked.value} />
+            {categories.map((value) => (
+              <input type="hidden" name="category" value={value} />
+            ))}
             {note !== '' && <input type="hidden" name="note" value={note} />}
             <button class="btn btn-tall btn-alert" type="submit" {...bi(copy.action, lang)}>
               {copy.action[lang]}
@@ -113,5 +124,6 @@ const copy = COPY[reason];
 <style>
   .standing { margin-top: 12px; font-size: 11px; letter-spacing: 0.1em; line-height: 1.5; }
   .picked { font-weight: 700; }
+  .picked-sep { color: var(--theme-faint); padding: 0 3px; }
   .note-echo { font-style: italic; margin-top: -6px; }
 </style>

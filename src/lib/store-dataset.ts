@@ -7,6 +7,7 @@
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
 import type { Store } from './store';
+import type { ProblemCategory } from './problem';
 import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
 
 export interface Data {
@@ -110,17 +111,25 @@ function normalizeAdoption(adoption: Adoption): void {
 function normalizeEvent(event: BedEvent): void {
   // Events written before a `confirm` carried what the second neighbour said
   // have nothing to say; `events` is append-only, so this fills the shape in
-  // on the way past rather than rewriting the row.
-  event.category ??= null;
+  // on the way past rather than rewriting the row. An event from before the
+  // picker went multi-select carried one nullable `category`: it becomes the
+  // one-entry (or empty) list it always meant, and the stored field is left
+  // in place rather than deleted — additive and lossless, like everything
+  // here.
+  const legacy = event as BedEvent & { category?: ProblemCategory | null };
+  event.categories ??= legacy.category != null ? [legacy.category] : [];
   event.note ??= '';
   event.reportId ??= null;
 }
 
 function normalizeReport(report: Report): void {
-  // Reports filed before the problem picker said only how bad it was. "Litter"
-  // is what the severity sheet was for — it asked how much trash there was —
-  // so that is what those rows meant, not a guess.
-  report.category ??= 'litter';
+  // A report from before the picker went multi-select carried one `category`;
+  // it becomes the one-entry list it always meant. Reports filed before the
+  // problem picker existed said only how bad it was: "litter" is what the
+  // severity sheet was for — it asked how much trash there was — so that is
+  // what those rows meant, not a guess.
+  const legacy = report as Report & { category?: ProblemCategory };
+  report.categories ??= [legacy.category ?? 'litter'];
   report.note ??= '';
   report.severity ??= null;
 }

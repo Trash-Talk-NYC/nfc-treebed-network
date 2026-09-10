@@ -28,12 +28,15 @@
 
 import type { Phrase } from './i18n';
 
-/** The toggle itself: each language names itself in its own language. */
+/** The language toggle — the control itself, not its segments. */
 export const LANG_COPY = {
-  /** The accessible name of the control, in the language now showing. */
-  toggleLabel: { en: 'Cambiar a español', es: 'Switch to English' } satisfies Phrase,
-  /** What the toggle prints — the language it switches TO. */
-  toggleText: { en: 'ES', es: 'EN' } satisfies Phrase,
+  /**
+   * The accessible name of the whole control. The two segments inside it name
+   * themselves in their own language ("EN" / "ES", labelled English /
+   * Español) and never change with the page language, so they are literals in
+   * the component rather than Phrases here.
+   */
+  toggleLabel: { en: 'Language', es: 'Idioma' } satisfies Phrase,
 };
 
 export const COMMON = {
@@ -151,11 +154,11 @@ export const CARE = {
     en: 'The guard is bent where a car hit it, and the soil has washed out on that side.',
     es: 'El protector está doblado donde lo golpeó un carro y la tierra se lavó por ese lado.',
   },
-  photoHelp: {
-    en: 'Add a photo if you can — it helps whoever comes to clear it.',
-    es: 'Añade una foto si puedes: le ayuda a quien venga a arreglarlo.',
-  },
-  pickOne: { en: 'Pick one to send it.', es: 'Elige una para enviarlo.' },
+  // The tiles are checkboxes: several problems are one report, and this is
+  // the server's answer to SEND IT with none of them pressed.
+  pickOne: { en: 'Pick at least one to send it.', es: 'Elige al menos una para enviarlo.' },
+  /** The sentence screen, when tiles were carried along with "something else". */
+  alsoSending: { en: 'Also sending:', es: 'También se enviará:' },
 } satisfies Record<string, Phrase>;
 
 /** The full-screen green moment after a report or an applause. */

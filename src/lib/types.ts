@@ -205,8 +205,15 @@ export interface Report {
    * the one-report-per-person-per-day rule is enforceable.
    */
   reporterId: string;
-  /** What the visitor picked on the problem screen. */
-  category: ProblemCategory;
+  /**
+   * What the visitor picked on the problem screen — every tile they pressed,
+   * in tile order, at least one. The picker is multi-select: a bed that is
+   * both thirsty and full of litter is one report, not a choice between the
+   * two. Reports stored before multi-select carried a single `category`;
+   * `normalizeData` reads that into a one-entry list on the way in, so an old
+   * row still says what it always said.
+   */
+  categories: ProblemCategory[];
   /** The sentence behind "something else". Empty for the other three. */
   note: string;
   /**
@@ -259,14 +266,15 @@ export interface BedEvent {
   severity: Severity | null;
   /**
    * What the person said, where the event was somebody saying something: the
-   * problem they picked and the sentence they typed.
+   * problems they picked and the sentence they typed.
    *
    * A `confirm` carries these because the second neighbour on an open report
-   * writes nothing else — their category and their words would otherwise reach
-   * nobody, on a screen that thanked them for telling us. Null and empty
-   * everywhere else.
+   * writes nothing else — their categories and their words would otherwise
+   * reach nobody, on a screen that thanked them for telling us. Empty
+   * everywhere else. Events written before multi-select carried a single
+   * nullable `category`; `normalizeData` reads that into this list.
    */
-  category: ProblemCategory | null;
+  categories: ProblemCategory[];
   note: string;
   /**
    * The report this event is about, where it is about one: `report`,

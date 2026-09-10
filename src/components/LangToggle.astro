@@ -1,33 +1,50 @@
 ---
 // The language control, on every screen including the takeovers.
 //
-// A plain link, deliberately. The captain asked for a toggle the visitor
-// operates rather than a browser-language guess, and a link is the version of
-// that which works with JavaScript disabled: it carries `?lang=`, the server
-// resolves it and sets the preference (i18n.ts). The inline script in the
-// layout upgrades the same element to an instant, no-reload swap.
+// A two-state toggle, the captain's own word for it: both languages are shown
+// and the one now speaking is visibly selected, rather than a single button
+// printing the language it would switch to. Each segment is a plain link,
+// deliberately — the captain asked for a control the visitor operates rather
+// than a browser-language guess, and links are the version of that which
+// works with JavaScript disabled: each carries `?lang=`, the server resolves
+// it and sets the preference (i18n.ts). The inline script in the layout
+// upgrades the same elements to an instant, no-reload swap.
 //
-// It prints the language it switches TO — "ES" while showing English — so what
-// it does is legible without reading a word of the language you don't speak.
-import { bi, biAttr } from '../lib/bilingual';
+// The segments name themselves in their own language — "EN" for the English
+// reader, "ES" for the Spanish one — so each is legible to exactly the person
+// who needs it, and neither ever changes with the page language. That is why
+// they are literals here rather than Phrases in copy.ts.
+import { biAttr } from '../lib/bilingual';
 import { LANG_COPY } from '../lib/copy';
-import { otherLang, withLang, type Lang } from '../lib/i18n';
+import { LANGUAGES, withLang, type Lang } from '../lib/i18n';
 
 interface Props {
   lang: Lang;
   url: URL;
 }
 const { lang, url } = Astro.props;
+
+const SEGMENT_LABELS: Record<Lang, { text: string; name: string }> = {
+  en: { text: 'EN', name: 'English' },
+  es: { text: 'ES', name: 'Español' },
+};
 ---
 
-<a
-  class="lang-toggle"
-  data-lang-toggle
-  href={withLang(url, otherLang(lang))}
-  {...biAttr('aria-label', LANG_COPY.toggleLabel, lang)}
-  {...bi(LANG_COPY.toggleText, lang)}
-  >{LANG_COPY.toggleText[lang]}</a
->
+<nav class="lang-toggle" {...biAttr('aria-label', LANG_COPY.toggleLabel, lang)}>
+  {
+    LANGUAGES.map((segment) => (
+      <a
+        class="lang-choice"
+        data-lang-choice={segment}
+        href={withLang(url, segment)}
+        aria-label={SEGMENT_LABELS[segment].name}
+        aria-current={segment === lang ? 'true' : undefined}
+      >
+        {SEGMENT_LABELS[segment].text}
+      </a>
+    ))
+  }
+</nav>
 
 <style>
   /* Fixed rather than in flow: every screen below is a full-height column that
@@ -50,16 +67,20 @@ const { lang, url } = Astro.props;
     right: calc(max(0px, (100% - 430px) / 2) + 10px + env(safe-area-inset-right, 0px));
     z-index: 40;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    /* 44px is the smallest thing a thumb reliably hits. */
-    min-width: 44px;
-    min-height: 44px;
-    padding: 0 10px;
     border-radius: 22px;
     border: 2px solid var(--theme-border);
     background: var(--theme-surface);
-    color: var(--theme-ink);
+    overflow: hidden;
+  }
+  .lang-choice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* 44px is the smallest thing a thumb reliably hits — per segment. */
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 6px;
+    color: var(--theme-muted);
     font-family: 'Barlow', sans-serif;
     font-size: 13px;
     font-weight: 700;
@@ -67,8 +88,14 @@ const { lang, url } = Astro.props;
     text-decoration: none;
     -webkit-tap-highlight-color: transparent;
   }
-  .lang-toggle:active {
+  .lang-choice:active {
     background: var(--theme-ground);
+  }
+  /* The language now speaking: filled, not ticked — selection legible at
+     arm's length in the sun, the same standard the picker tiles are held to. */
+  .lang-choice[aria-current='true'] {
+    background: var(--theme-ink);
+    color: var(--theme-surface);
   }
 
   /* On the coloured grounds — the two doors and the takeovers — it reads as
@@ -76,11 +103,23 @@ const { lang, url } = Astro.props;
   :global(.ground-clear) .lang-toggle {
     border-color: var(--theme-on-clear-muted);
     background: transparent;
-    color: var(--theme-on-clear);
+  }
+  :global(.ground-clear) .lang-choice {
+    color: var(--theme-on-clear-muted);
+  }
+  :global(.ground-clear) .lang-choice[aria-current='true'] {
+    background: var(--theme-on-clear);
+    color: var(--theme-clear);
   }
   :global(.ground-action) .lang-toggle {
     border-color: var(--theme-on-action);
     background: transparent;
+  }
+  :global(.ground-action) .lang-choice {
     color: var(--theme-on-action);
+  }
+  :global(.ground-action) .lang-choice[aria-current='true'] {
+    background: var(--theme-on-action);
+    color: var(--theme-action);
   }
 </style>

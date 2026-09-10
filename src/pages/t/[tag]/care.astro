@@ -6,10 +6,14 @@
 //   default    the four quadrants + an optional photo + SEND IT
 //   ?tell=1    the free-text box + an optional photo + SEND IT
 //
-// Both are plain HTML forms. Picking "Something else" is a LINK to `?tell=1`
-// rather than a radio, which is what makes the second screen reachable with
-// JavaScript disabled — the approved screens show it as its own screen, and
-// this is that, without a script deciding when it appears.
+// Both are plain HTML forms, and the picker is MULTI-select: the tiles are
+// checkboxes, because a bed that is thirsty AND full of litter is one report,
+// not a choice between the two. Picking "Something else" is a GET submit of
+// the same form back to this route rather than a link, which is what carries
+// the tiles already pressed onto the sentence screen with JavaScript disabled
+// — a link's href cannot know what is checked, a GET form's query does. The
+// sentence screen stays its own screen, as the approved screens show it, and
+// sends the carried tiles back out as hidden fields beside `other`.
 //
 // The photo is attached on whichever screen the visitor sends from. Nothing
 // stores it (spec §12): the report keeps only that one was attached, and the
@@ -21,7 +25,7 @@ import { bi, biAttr } from '../../../lib/bilingual';
 import { CARE, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor, themeVar } from '../../../lib/presentation';
-import { MAX_NOTE_CHARS, PROBLEMS } from '../../../lib/problem';
+import { MAX_NOTE_CHARS, PROBLEMS, problemFor, problemsFrom } from '../../../lib/problem';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
 import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
 
@@ -48,9 +52,21 @@ const nothingPicked = Astro.url.searchParams.has('pick');
 const tiles = PROBLEMS.filter((p) => !p.wantsNote);
 const other = PROBLEMS.find((p) => p.wantsNote)!;
 
+// Tiles named on the URL: what "Something else"'s GET submit carried onto the
+// sentence screen, and what the back links and the too-large screen's "pick
+// it again" hand back so nobody re-presses what they already pressed.
+const named = problemsFrom(Astro.url.searchParams.getAll('category'));
+// Picker screen: these arrive pressed.
+const checked = new Set(named);
+// Sentence screen: these ride along as hidden fields beside `other`, and the
+// visitor is shown what they are sending (`carriedProblems`).
+const carried = named.filter((value) => value !== other.value);
+const carriedProblems = carried.map(problemFor);
+const carriedQuery = carried.map((value) => `category=${value}`).join('&');
+
 const action = langLink(`${base}/report`, lang);
 const backToBed = langLink(ourPlaqueLink(base), lang);
-const backToChoices = langLink(`${base}/care`, lang);
+const backToChoices = langLink(`${base}/care${carriedQuery ? `?${carriedQuery}` : ''}`, lang);
 ---
 
 <Screen
@@ -80,6 +96,9 @@ const backToChoices = langLink(`${base}/care`, lang);
         telling ? (
           <>
             <input type="hidden" name="category" value={other.value} />
+            {carried.map((value) => (
+              <input type="hidden" name="category" value={value} />
+            ))}
             <p class="body-copy" {...bi(CARE.noteHelp, lang)}>
               {CARE.noteHelp[lang]}
             </p>
@@ -91,6 +110,23 @@ const backToChoices = langLink(`${base}/care`, lang);
               {...biAttr('placeholder', CARE.notePlaceholder, lang)}
             />
             <div class="charcount" data-charcount>0 / {MAX_NOTE_CHARS}</div>
+            {carriedProblems.length > 0 && (
+              <p class="also-sending">
+                <span {...bi(CARE.alsoSending, lang)}>{CARE.alsoSending[lang]}</span>{' '}
+                {carriedProblems.map((problem, i) => (
+                  <Fragment>
+                    {i > 0 && <span class="also-sep">·</span>}
+                    <span
+                      class="also-cat"
+                      style={`color:${themeVar(problem.ink)}`}
+                      {...bi(problem.label, lang)}
+                    >
+                      {problem.label[lang]}
+                    </span>
+                  </Fragment>
+                ))}
+              </p>
+            )}
           </>
         ) : (
           <>
@@ -99,21 +135,28 @@ const backToChoices = langLink(`${base}/care`, lang);
                 {CARE.pickOne[lang]}
               </p>
             )}
+            {/* What carries the language through the GET submit below: a GET
+                replaces its action's query string, so `?lang=` on the action
+                would be lost — the field rides instead, and the layout's
+                toggle script keeps its value current. Harmless on the POST,
+                whose action still carries the language. */}
+            <input type="hidden" name="lang" value={lang} />
             <div class="catgrid">
-              {/* Radio + label: the whole tile is the hit target, the chosen
-                  state is `:checked`, and none of it needs script. The input is
-                  a direct child of the grid so the adjacent-sibling selector
-                  reaches its label; being absolutely positioned, it creates no
-                  track of its own. The ink is a theme role, never a hex. */}
+              {/* Checkbox + label: the whole tile is the hit target, every
+                  chosen state is `:checked`, and none of it needs script. The
+                  input is a direct child of the grid so the adjacent-sibling
+                  selector reaches its label; being absolutely positioned, it
+                  creates no track of its own. The ink is a theme role, never
+                  a hex. */}
               {tiles.map((problem) => (
                 <Fragment>
                   <input
                     class="quad-input"
-                    type="radio"
+                    type="checkbox"
                     id={`cat-${problem.value}`}
                     name="category"
                     value={problem.value}
-                    required
+                    checked={checked.has(problem.value)}
                   />
                   <label
                     class="quad"
@@ -124,23 +167,25 @@ const backToChoices = langLink(`${base}/care`, lang);
                   </label>
                 </Fragment>
               ))}
-              {/* The fourth quadrant is a link: choosing it opens the sentence
-                  box, which is its own screen with or without JavaScript. */}
-              <a
-                class="quad quad-link"
-                href={langLink(`${base}/care?tell=1`, lang)}
+              {/* The fourth quadrant opens the sentence box — its own screen,
+                  as approved, with or without JavaScript. A GET submit of this
+                  same form rather than a link, so the tiles already pressed
+                  ride its query string onto that screen. */}
+              <button
+                class="quad quad-tell"
+                name="tell"
+                value="1"
+                formmethod="get"
+                formaction={`${base}/care`}
                 style={`color:${themeVar(other.ink)};border-color:${themeVar(other.edge)}`}
               >
                 <span {...bi(other.label, lang)}>{other.label[lang]}</span>
-              </a>
+              </button>
             </div>
           </>
         )
       }
 
-      <p class="body-copy photo-help" {...bi(CARE.photoHelp, lang)}>
-        {CARE.photoHelp[lang]}
-      </p>
       {/* Both states are in the document, and the class picks which shows.
           Nothing rewrites text, so the language toggle keeps working on the
           one that is visible. */}
@@ -192,9 +237,21 @@ const backToChoices = langLink(`${base}/care`, lang);
     flex: 1;
     min-height: 0;
   }
-  /* The link tile is an anchor, so it needs the label's own reset. */
-  .quad-link { text-decoration: none; }
-  .photo-help { font-size: 13px; }
+  /* The sentence tile is a button, so it needs the label's own resets. */
+  .quad-tell {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+  }
+  .also-sending {
+    font-family: 'Barlow', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theme-muted);
+    margin: -4px 0 0;
+  }
+  .also-sending .also-cat { font-weight: 700; }
+  .also-sending .also-sep { color: var(--theme-faint); padding: 0 2px; }
   .photo-on { display: none; }
   .photo-row.attached .photo-idle { display: none; }
   .photo-row.attached .photo-on { display: inline; }

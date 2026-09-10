@@ -5,10 +5,10 @@ import type { APIRoute } from 'astro';
 import { getStore } from '../../../lib/store';
 import { RuleError, reportProblem } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
-import { noteFrom, problemFrom, type ProblemCategory } from '../../../lib/problem';
+import { noteFrom, problemsFrom, type ProblemCategory } from '../../../lib/problem';
 import {
   MAX_FORM_BYTES,
-  categoryFromHead,
+  categoriesFromHead,
   multipartBoundary,
   noteFromHead,
   photoAttachedFromHead,
@@ -53,7 +53,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
 
   const rawContentType = request.headers.get('content-type') ?? '';
   const contentType = rawContentType.toLowerCase();
-  let category: ProblemCategory | null = null;
+  let categories: ProblemCategory[] = [];
   let note = '';
   let photoAttached = false;
 
@@ -74,27 +74,28 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
     // the upload ended. Only the words differ, and an upload that stalled is
     // never told it was too large.
     if (refusal !== null) return redirect(tooLarge(base, head, boundary, refusal, lang), 303);
-    category = categoryFromHead(head, boundary);
+    categories = categoriesFromHead(head, boundary);
     note = noteFromHead(head, boundary);
     photoAttached = photoAttachedFromHead(head, boundary);
   } else {
-    // The too-large screen's one-tap resend: the same choice, no attachment.
+    // The too-large screen's one-tap resend: the same choices, no attachment.
     const { form, refused } = await readFormOrRefuse(request, MAX_FORM_BYTES, 'report');
     if (refused) return refused;
-    category = problemFrom(form.get('category'));
+    categories = problemsFrom(form.getAll('category'));
     note = noteFrom(form.get('note'));
   }
 
-  // Nothing picked. `required` on the tiles is what a browser enforces; this is
-  // the server saying the same thing, and it says it on the screen the visitor
-  // is already looking at rather than in a status code they cannot act on.
-  if (!category) return redirect(langLink(`${base}/care?pick=1`, lang), 303);
+  // Nothing picked. The tiles are checkboxes, which no browser can hold to
+  // "at least one" the way a radio's `required` held one tile — so the server
+  // is the rule, and it says it on the screen the visitor is already looking
+  // at rather than in a status code they cannot act on.
+  if (categories.length === 0) return redirect(langLink(`${base}/care?pick=1`, lang), 303);
 
   try {
     await reportProblem(getStore(), {
       plate,
       actorId: actor,
-      category,
+      categories,
       note,
       photoAttached,
     });
@@ -112,7 +113,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
 };
 
 /**
- * Where a refused upload lands. The category and the note are carried across
+ * Where a refused upload lands. The categories and the note are carried across
  * when the head got far enough to hold them, so the screen can offer the whole
  * thing back — and the reason is carried too, because a photo to shrink, a
  * queue to retry and an upload that stopped halfway ask for different things
@@ -126,9 +127,8 @@ function tooLarge(
   refusal: Refusal,
   lang: Lang,
 ): string {
-  const kept = categoryFromHead(head, boundary);
   const params = new URLSearchParams();
-  if (kept !== null) params.set('category', kept);
+  for (const kept of categoriesFromHead(head, boundary)) params.append('category', kept);
   const note = noteFromHead(head, boundary);
   if (note !== '') params.set('note', note);
   if (refusal === 'busy') params.set('reason', 'busy');

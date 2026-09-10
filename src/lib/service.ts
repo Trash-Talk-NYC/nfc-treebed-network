@@ -10,7 +10,7 @@ import { boundFromEnv } from './bounds';
 import type { Store } from './store';
 import type { Adoption, Bed, BedEvent, Block, Report, Severity, User } from './types';
 import type { ProblemCategory } from './problem';
-import { MAX_NOTE_CHARS } from './problem';
+import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
 
 export class RuleError extends Error {
@@ -249,7 +249,8 @@ export type ProblemOutcome =
 export interface ProblemInput {
   plate: string;
   actorId: string;
-  category: ProblemCategory;
+  /** Every tile the visitor pressed — the picker is multi-select. */
+  categories: ProblemCategory[];
   note: string;
   photoAttached: boolean;
   now?: Date;
@@ -275,7 +276,14 @@ export interface ProblemInput {
  *  - the note is capped server-side; the browser's counter is a courtesy.
  */
 export async function reportProblem(store: Store, args: ProblemInput): Promise<ProblemOutcome> {
-  const { plate, actorId, category, photoAttached } = args;
+  const { plate, actorId, photoAttached } = args;
+  // Re-derived here rather than trusted: the route already parses, but this
+  // rule is server-side like every other, and a caller is free to hand it
+  // duplicates or values naming no tile (spec §7).
+  const categories = problemsFrom(args.categories);
+  if (categories.length === 0) {
+    throw new RuleError('invalid-input', 'A report names at least one problem');
+  }
   const note = args.note.slice(0, MAX_NOTE_CHARS);
   const now = args.now ?? new Date();
   return store.transaction(async (tx) => {
@@ -292,14 +300,15 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
       if (open.confirmedBy.length >= MAX_CONFIRMATIONS) {
         return { kind: 'already-said', report: open };
       }
-      // Their category and their sentence ride on the `confirm` event: the
+      // Their categories and their sentence ride on the `confirm` event: the
       // report already belongs to the first reporter, but what the second
       // neighbour said has to reach the steward rather than be thanked for and
       // dropped. The photo flag moves onto the report, because it is true of
       // the bed's open problem that somebody attached one.
-      // No new growth concern: the note is capped at `MAX_NOTE_CHARS` above and
-      // the confirmations this rides alongside are bounded by
-      // `MAX_CONFIRMATIONS`, so both the array and the events it adds stop.
+      // No new growth concern: the note is capped at `MAX_NOTE_CHARS` above,
+      // the categories are bounded by the four tiles, and the confirmations
+      // this rides alongside are bounded by `MAX_CONFIRMATIONS`, so both the
+      // array and the events it adds stop.
       const weighted: Report = {
         ...open,
         confirmedBy: [...open.confirmedBy, actorId],
@@ -307,7 +316,7 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
       };
       await tx.updateReport(weighted);
       await appendEvent(tx, plate, 'confirm', actorId, null, now, {
-        category,
+        categories,
         note,
         reportId: open.id,
       });
@@ -325,7 +334,7 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
       id: `RPT-${number}-${suffix}`,
       bedPlate: plate,
       reporterId: actorId,
-      category,
+      categories,
       note,
       // Nothing on the street sets this: the approved problem screen asks what
       // is wrong, not how bad. Escalation is what writes it (`escalateReport`).
@@ -339,7 +348,7 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
     };
     await tx.createReport(report);
     await appendEvent(tx, plate, 'report', actorId, null, now, {
-      category,
+      categories,
       note,
       reportId: report.id,
     });
@@ -1094,14 +1103,14 @@ async function appendEvent(
   actorId: string | null,
   severity: Severity | null,
   now?: Date,
-  said?: { category?: ProblemCategory | null; note?: string; reportId: string },
+  said?: { categories?: ProblemCategory[]; note?: string; reportId: string },
 ): Promise<void> {
   await store.appendEvent({
     id: `event-${randomUUID()}`,
     bedPlate,
     eventType,
     severity,
-    category: said?.category ?? null,
+    categories: said?.categories ?? [],
     note: said?.note ?? '',
     reportId: said?.reportId ?? null,
     actorId,

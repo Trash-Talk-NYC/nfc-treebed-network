@@ -105,7 +105,10 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
    reserving the gutter there would push the whole thing off centre by half of
    it, which on a screen whose only job is one word is the visible kind of
    wrong. Nothing on a takeover reaches the corner anyway. */
-.screen:not(.takeover) > :first-child { padding-right: 52px; }
+/* 94px: the two-segment toggle is ~92px wide (two 44px thumb targets plus its
+   border), sitting 10px off the column edge, and the screen's own 18px side
+   padding covers the rest. */
+.screen:not(.takeover) > :first-child { padding-right: 94px; }
 
 .screen-clear { background: var(--theme-clear); color: var(--theme-on-clear); }
 .screen-action { background: var(--theme-action); color: var(--theme-on-action); }

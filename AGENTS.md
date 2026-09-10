@@ -31,7 +31,8 @@ The captain changed door 1 to beige after the review; it is not an oversight to 
 No yellow appears on door 1 at all, which is what keeps it clear of the one pairing that cannot work on that ground.
 
 `THIS BED NEEDS CARE` opens the problem picker (`care.astro`): thirsty plants / litter / guard damage / something else, plus an optional photo.
-"Something else" is a LINK to `?tell=1`, which is the same route rendering the free-text box — a link rather than a script, so the second screen exists with JavaScript disabled.
+The picker is MULTI-select — the tiles are checkboxes and a report carries `categories`, a non-empty list in tile order (a bed that is thirsty AND full of litter is one report); an empty submission is the server's refusal, back to the picker with the bilingual pick-one line, because checkboxes have no `required` that means "at least one".
+"Something else" is a GET submit of the same form back to `?tell=1`, which is the same route rendering the free-text box — a form GET rather than a link or a script, so the second screen exists with JavaScript disabled AND the tiles already pressed ride its query string (a link's href cannot know what is checked); the sentence screen sends them back out as hidden fields beside `other`, and a hidden `lang` field carries the language because a GET replaces its action's query string.
 Both send to `report.ts`, which lands on the full-screen "Thank you" (`thanks.astro`).
 Adoption lands on the full-screen purple "Adopted!" (`adopted.astro`).
 
@@ -43,7 +44,7 @@ Their RULES are untouched in `service.ts` (`escalateReport`, `closeReport`), the
 Two consequences worth knowing before you "fix" something:
 - **A second neighbour reporting an open problem is not refused.**
   `reportProblem` adds their weight to the open report (the `confirmedBy` array, same `MAX_CONFIRMATIONS` bound) instead of opening a duplicate — two open reports on one bed is unrecoverable through the UI, because `closeReport` only ever finds the first.
-  What they said is carried, not dropped: their category and their note ride on the `confirm` event (`BedEvent.category` / `BedEvent.note`), and a photo they attached sets `photoAttached` on the open report.
+  What they said is carried, not dropped: their categories and their note ride on the `confirm` event (`BedEvent.categories` / `BedEvent.note`), and a photo they attached sets `photoAttached` on the open report.
   The steward reads them under the open-report band on `mine.astro`, headed "Neighbours also said" so they are not mistaken for the first reporter's own second thought.
   Which report an event is about is `BedEvent.reportId` — `report`, `confirm`, `escalate` and `clear` all name it — so that join is exact rather than a time window — `report → clear → report` is a supported loop and only the id says which lap an event belongs to.
   Events written before that field carry null and match nothing, which is the right way for it to degrade.
@@ -93,7 +94,7 @@ Washington Heights is heavily Spanish-speaking.
   That script builds the netlify target *and* runs `scripts/smoke-netlify.mjs`, which imports the emitted `.netlify/v1/functions/ssr/ssr.mjs` and renders one request through it: the break this repo actually hit (`app.getLogger()`) is a load-time crash that a build alone passes green, so the build without the boot would prove only that the adapter resolves and the bundle emits.
   The request it drives is the root redirect, the one route that reaches a rendered response without touching the store, so the gate needs no Blobs backend.
 - The tap flow ships two small inline scripts and nothing else: the language toggle's instant swap (`Screen.astro`) and the care screen's photo-attached state plus note counter (`care.astro`).
-  Both are enhancements. Every form is a plain HTML POST, the language toggle is a plain link, and the whole flow works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
+  Both are enhancements. Every form is a plain HTML POST (plus the care picker's one GET submit, above), the language toggle is a pair of plain links — a two-state control showing both languages with the active one marked `aria-current`, per the captain's ask (`LangToggle.astro`; the admin bar carries the same shape) — and the whole flow works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
 
 ## The tag URL (read before touching routing)
 

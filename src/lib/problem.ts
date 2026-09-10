@@ -89,6 +89,25 @@ export function problemFrom(raw: unknown): ProblemCategory | null {
 }
 
 /**
+ * Every category a set of submitted values names — the picker's tiles are
+ * checkboxes, so a report carries every one the visitor pressed.
+ *
+ * Deduplicated and returned in tile order rather than submission order, so
+ * two visitors picking the same pair store the same record whatever order
+ * they tapped in, and a hand-built body repeating one value buys nothing.
+ * Values naming no category are dropped, not refused: `problemFrom`'s
+ * strictness per value, over however many arrived.
+ */
+export function problemsFrom(raw: Iterable<unknown>): ProblemCategory[] {
+  const picked = new Set<ProblemCategory>();
+  for (const value of raw) {
+    const category = problemFrom(value);
+    if (category !== null) picked.add(category);
+  }
+  return PROBLEMS.filter((p) => picked.has(p.value)).map((p) => p.value);
+}
+
+/**
  * A submitted note, trimmed and capped.
  *
  * Only `other` carries one; anything else arriving with a note keeps it,

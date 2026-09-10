@@ -185,7 +185,7 @@
 // the rule that spends it lives.
 
 import { boundFromEnv } from './bounds';
-import { noteFrom, problemFrom, type ProblemCategory } from './problem';
+import { noteFrom, problemsFrom, type ProblemCategory } from './problem';
 
 /**
  * Why a body was refused.
@@ -881,9 +881,17 @@ export function textFieldFromHead(
   return null;
 }
 
-/** The problem category the care screen sent, or null if the head lacks it. */
-export function categoryFromHead(head: Uint8Array, boundary: string): ProblemCategory | null {
-  return problemFrom(textFieldFromHead(head, 'category', boundary));
+/**
+ * Every problem category the care screen sent — the picker's tiles are
+ * checkboxes, so a browser sends one `category` part per pressed tile, and
+ * all of them sit ahead of the file input. Empty if the head holds none.
+ */
+export function categoriesFromHead(head: Uint8Array, boundary: string): ProblemCategory[] {
+  return problemsFrom(
+    headParts(head, boundary)
+      .filter((part) => partName(part.headers) === 'category')
+      .map((part) => part.value),
+  );
 }
 
 /**
