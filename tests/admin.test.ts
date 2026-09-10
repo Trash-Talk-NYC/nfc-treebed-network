@@ -19,7 +19,6 @@ import {
   MAX_ADDRESS_CHARS,
   MAX_BED_SLOTS,
   MAX_NAME_CHARS,
-  RuleError,
   addBedByAdmin,
   addStewardByAdmin,
   adoptBed,
