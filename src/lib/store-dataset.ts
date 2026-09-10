@@ -101,14 +101,14 @@ function normalizeReport(report: Report): void {
 }
 
 // The one hand-seeded bed for the Popl card field test, matching the
-// approved prototype exactly. No provisioning flow exists yet by design.
+// approved screens exactly. No provisioning flow exists yet by design.
 //
 // `demoPin` is what the backend decides, because it is a deployment question
-// rather than a data one: the plaque engraves `@marisol_r` on a public screen
-// and sign-in has no rate limiting yet (see the security notes), so a
+// rather than a data one: the door screen engraves `@marisol_r` on a public
+// screen and sign-in has no rate limiting yet (see the security notes), so a
 // well-known PIN on a publicly reachable store hands any passer-by the bed's
-// guardian — `/mine`, `/photo` and the deliberately auth-gated `/clear`.
-// Passing `null` seeds the adopter with a hash of a random secret nobody
+// steward — `/mine`, `/photo` and the deliberately auth-gated `/clear`.
+// Passing `null` seeds the steward with a hash of a random secret nobody
 // holds: the adoption still renders exactly as approved, and no PIN opens it
 // until a real one is issued.
 export async function seedData(demoPin: string | null = DEMO_ADOPTER_PIN): Promise<Data> {

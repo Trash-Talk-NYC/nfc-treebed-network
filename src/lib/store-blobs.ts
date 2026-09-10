@@ -245,13 +245,13 @@ export class BlobsStore implements Store {
    * First contact: write the seed as revision 1, unless another instance beats
    * us to it.
    *
-   * The seeded adopter gets no demo PIN here. This store is the deployed,
-   * publicly tappable one, its plaque engraves `@marisol_r`, and sign-in has
-   * no rate limiting yet — a PIN everybody knows would be an open guardian
+   * The seeded steward gets no demo PIN here. This store is the deployed,
+   * publicly tappable one, its door screen engraves `@marisol_r`, and sign-in
+   * has no rate limiting yet — a PIN everybody knows would be an open steward
    * account on the internet. TREEBED_SEED_PIN is a development-only seam for
    * driving the sign-in flow against this backend locally, and the netlify
    * target ignores it outright: a production build that cannot honour the
-   * variable cannot be talked into an open guardian account by a stray
+   * variable cannot be talked into an open steward account by a stray
    * `netlify env:set`. Unset — and on netlify, always — no PIN opens it.
    */
   private async seed(): Promise<Loaded | null> {

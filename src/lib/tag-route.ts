@@ -75,7 +75,8 @@ export async function requireBoundTagForForm(
 /**
  * The same for a screen that never reads a body at all.
  *
- * `mine`, `too-large` and the receipt are rendered by Astro for any method, so
+ * `mine`, `care`, the two takeovers and `too-large` are rendered by Astro for
+ * any method, so
  * a hand-built POST reaches them exactly as a tap does — and one they answer
  * without touching is one Node dumps to its end. Draining here rather than in
  * each of them keeps that with the resolution it belongs to: a screen with no

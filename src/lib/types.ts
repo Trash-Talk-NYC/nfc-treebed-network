@@ -207,7 +207,8 @@ export interface BedEvent {
   /**
    * The report this event is about, where it is about one: `report`,
    * `confirm`, `escalate` and `clear` all name it. The rest — `tap`,
-   * `applause`, `adopt`, `photo` — are not about a report and are null.
+   * `applause`, `adopt`, `release`, `photo` — are not about a report and are
+   * null.
    * `report → clear → report` is a
    * supported loop on one bed, so the id is what says which lap an event
    * belongs to. Events written before this field have null and match nothing —

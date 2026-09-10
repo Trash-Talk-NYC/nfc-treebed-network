@@ -21,8 +21,10 @@
 //  - plain-text refusals for machine callers (405, "Not a tag on this
 //    network."). Nothing renders those to a person standing at a tree; they
 //    answer a script, and a script does not read Spanish.
-//  - the wordmark, the signup URL and the bed's locality. Those are the bed's,
-//    not the product's, and come from `presentation.ts`.
+//  - the wordmark and the bed's locality. Those are the bed's, not the
+//    product's, and come from `presentation.ts`. (The mailing-list signup
+//    line is not here either, and not anywhere: it is deliberately absent
+//    until there is a real URL — see `thanks.astro`.)
 
 import type { Phrase } from './i18n';
 
