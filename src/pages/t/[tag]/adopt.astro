@@ -31,6 +31,8 @@
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import {
+  MAX_EMAIL_CHARS,
+  MAX_NAME_CHARS,
   RuleError,
   adoptBed,
   getBedView,
@@ -40,6 +42,7 @@ import {
 import { setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
+import { slotsAllTakenMessage, slotsJustFilledMessage } from '../../../lib/format';
 import { ADOPT, ADOPT_ERRORS, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
@@ -61,6 +64,12 @@ const presentation = presentationFor(view.bed);
 const bed = view.bed;
 
 let openSlots = view.openSlots;
+// Why there is nothing to fill in: every physical slot taken, or a slot the
+// captain has simply not offered yet. Two different facts, and the screen must
+// not tell the visitor the wrong one.
+const slotsAllTaken = view.stewards.length >= bed.slots;
+const noSlotCopy = (): Phrase =>
+  slotsAllTaken ? slotsAllTakenMessage(bed.slots) : ADOPT.noOpenSlot;
 let errors: AdoptErrors = {};
 let formError: Phrase | null = null;
 // Everything the visitor typed, echoed back on a validation failure. All of it
@@ -93,7 +102,10 @@ if (Astro.request.method === 'POST') {
         // The only rule this form can lose to now. Nothing here hashes, so
         // there is no CPU bound left to be shed at, and the handle is derived
         // rather than chosen, so there is no collision to report either.
-        formError = ADOPT.slotsJustFilled;
+        // Fully offered, so losing the last slot to somebody else is what
+        // just happened; on a bed with a slot held back it never was one.
+        formError =
+          bed.offeredSlots >= bed.slots ? slotsJustFilledMessage(bed.slots) : ADOPT.noOpenSlot;
         openSlots = 0;
       } else {
         throw err;
@@ -123,8 +135,8 @@ if (Astro.request.method === 'POST') {
     {
       openSlots === 0 ? (
         <>
-          <p class="body-copy" {...bi(formError ?? ADOPT.full, lang)}>
-            {(formError ?? ADOPT.full)[lang]}
+          <p class="body-copy" {...bi(formError ?? noSlotCopy(), lang)}>
+            {(formError ?? noSlotCopy())[lang]}
           </p>
           <div class="spacer" />
           <a
@@ -151,6 +163,7 @@ if (Astro.request.method === 'POST') {
                 id="firstName"
                 name="firstName"
                 type="text"
+                maxlength={MAX_NAME_CHARS}
                 value={values.firstName}
                 autocomplete="given-name"
                 required
@@ -165,6 +178,7 @@ if (Astro.request.method === 'POST') {
                 id="lastName"
                 name="lastName"
                 type="text"
+                maxlength={MAX_NAME_CHARS}
                 value={values.lastName}
                 autocomplete="family-name"
                 required
@@ -191,6 +205,7 @@ if (Astro.request.method === 'POST') {
               id="email"
               name="email"
               type="email"
+              maxlength={MAX_EMAIL_CHARS}
               value={values.email}
               autocomplete="email"
               required

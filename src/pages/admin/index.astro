@@ -1,0 +1,129 @@
+---
+// The admin's front door: the key screen, and the block list behind it.
+//
+// Everything under /admin is behind the admin session (src/lib/session.ts —
+// the whole surface is contact details, which no public screen may carry).
+// This page is the one that opens it: it takes the key, and it is also the
+// only /admin route that answers a session-less caller with anything but a
+// redirect here.
+import AdminScreen from '../../layouts/AdminScreen.astro';
+import { bi, biAttr } from '../../lib/bilingual';
+import { ADMIN } from '../../lib/copy';
+import { bedCountLabel } from '../../lib/format';
+import { langLink, resolveLang, type Phrase } from '../../lib/i18n';
+import { defaultPresentation } from '../../lib/presentation';
+import { MAX_FORM_BYTES, abandonBody, readFormOrRefuse } from '../../lib/request-body';
+import { adminEnabled, isAdminSession, setAdminSession, verifyAdminKey } from '../../lib/session';
+import { getStore } from '../../lib/store';
+import type { Block } from '../../lib/types';
+
+// A deploy with no key has no admin — 404, not a sign-in for a keyless door.
+if (!adminEnabled()) {
+  await abandonBody(Astro.request);
+  return new Response('Not found.', { status: 404 });
+}
+
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = defaultPresentation();
+
+let error: Phrase | null = null;
+if (Astro.request.method === 'POST') {
+  // Public and unauthenticated until the key matches, so the body is read
+  // under the same bounds as every other short form (request-body.ts).
+  const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'admin key');
+  if (refused) return refused;
+  if (verifyAdminKey(String(form.get('key') ?? ''))) {
+    setAdminSession(Astro.cookies);
+    return Astro.redirect(langLink('/admin', lang), 303);
+  }
+  // One answer for every wrong key; the compare is constant-time and there is
+  // no username half to enumerate. The key never comes back in the form.
+  error = ADMIN.badKey;
+  Astro.response.status = 403;
+}
+
+const signedIn = isAdminSession(Astro.cookies);
+
+// The block list, only once the session exists.
+const blocks: Array<{ block: Block; count: Phrase }> = [];
+if (signedIn) {
+  const store = getStore();
+  for (const block of await store.getBlocks()) {
+    blocks.push({ block, count: bedCountLabel((await store.getBedsInBlock(block.id)).length) });
+  }
+}
+---
+
+<AdminScreen
+  title={`${(signedIn ? ADMIN.blocksTitle : ADMIN.signInTitle)[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  {
+    signedIn ? (
+      <div class="admin-narrow">
+        <h1 class="admin-title" {...bi(ADMIN.blocksTitle, lang)}>
+          {ADMIN.blocksTitle[lang]}
+        </h1>
+        <div class="block-list">
+          {blocks.map(({ block, count }) => (
+            <a class="block-row" href={langLink(`/admin/blocks/${block.id}`, lang)}>
+              <span class="addr">
+                {block.referenceAddress}
+                <small {...bi(count, lang)}>{count[lang]}</small>
+              </span>
+              {block.demo && (
+                <span class="badge b-demo" {...bi(ADMIN.demoBadge, lang)}>
+                  {ADMIN.demoBadge[lang]}
+                </span>
+              )}
+              <span class="go">›</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    ) : (
+      <div class="admin-narrow">
+        <h1 class="admin-title" {...bi(ADMIN.signInTitle, lang)}>
+          {ADMIN.signInTitle[lang]}
+        </h1>
+        <p class="body-copy" {...bi(ADMIN.signInSub, lang)}>
+          {ADMIN.signInSub[lang]}
+        </p>
+        <form method="POST" action={langLink('/admin', lang)} class="key-form">
+          <div>
+            <label class="field-label" for="key" {...bi(ADMIN.keyLabel, lang)}>
+              {ADMIN.keyLabel[lang]}
+            </label>
+            <input
+              class="field-input"
+              id="key"
+              name="key"
+              type="password"
+              autocomplete="current-password"
+              {...biAttr('aria-label', ADMIN.keyLabel, lang)}
+              required
+            />
+          </div>
+          {error && (
+            <div class="field-error" {...bi(error, lang)}>
+              {error[lang]}
+            </div>
+          )}
+          <button class="btn btn-action" type="submit" {...bi(ADMIN.signInSubmit, lang)}>
+            {ADMIN.signInSubmit[lang]}
+          </button>
+        </form>
+      </div>
+    )
+  }
+</AdminScreen>
+
+<style>
+  .key-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+</style>

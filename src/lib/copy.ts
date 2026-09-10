@@ -61,6 +61,24 @@ export const DOOR_UNSTEWARDED = {
   adopt: { en: 'ADOPT THIS BED', es: 'ADOPTA ESTE CANTERO' },
 } satisfies Record<string, Phrase>;
 
+/**
+ * Door 1, on a bed the captain has not offered a slot on yet (`offeredSlots`).
+ * The invitation is withheld rather than shown and then refused: a screen may
+ * not ask someone to put their name on a bed it has no way to accept.
+ */
+export const DOOR_NOT_OFFERED = {
+  /** Split around the tree type, the same shape as the invitation above. */
+  headBefore: { en: 'This ', es: 'El cantero de este ' },
+  headAfter: {
+    en: '’s bed isn’t open for adoption yet.',
+    es: ' todavía no está abierto para adopción.',
+  },
+  sub: {
+    en: 'We’re still getting this block ready. You can still tell us if it needs care.',
+    es: 'Todavía estamos preparando esta cuadra. Aun así, puedes avisarnos si necesita cuidado.',
+  },
+} satisfies Record<string, Phrase>;
+
 /** Door 2 — a bed that already has a steward. */
 export const DOOR_STEWARDED = {
   headBefore: { en: 'This ', es: '¡El cantero de este ' },
@@ -91,13 +109,15 @@ export const ADOPT = {
     es: 'En la placa solo aparecen tu nombre de usuario y tus iniciales. Tu correo y tu teléfono nunca se muestran en público.',
   },
   submit: { en: 'PUT MY NAME ON IT', es: 'PON MI NOMBRE' },
-  full: {
-    en: 'Both slots are taken. This bed has the people it needs — but others on the block are still waiting.',
-    es: 'Los dos lugares están ocupados. Este cantero ya tiene quien lo cuide, pero otros de la cuadra siguen esperando.',
-  },
-  slotsJustFilled: {
-    en: 'Both slots just filled up. This bed has the people it needs.',
-    es: 'Los dos lugares se acaban de ocupar. Este cantero ya tiene quien lo cuide.',
+  // How many slots a bed has is data (`Bed.slots`), so the two sentences that
+  // count them are built in `format.ts` — `slotsAllTakenMessage` and
+  // `slotsJustFilledMessage` — rather than naming two here.
+  // A bed with slots built but not OFFERED on the admin page (`offeredSlots`).
+  // A sentence about taken slots would be a lie there, and this screen is only
+  // reachable by typing the URL — the door screen shows no invitation at all.
+  noOpenSlot: {
+    en: 'There’s no open slot on this bed right now — but others on the block are still waiting, and this one still needs eyes on it.',
+    es: 'Ahora mismo no hay ningún lugar libre en este cantero, pero otros de la cuadra siguen esperando y este sigue necesitando quien lo mire.',
   },
 } satisfies Record<string, Phrase>;
 
@@ -213,6 +233,132 @@ export const AUTH = {
   busy: {
     en: 'Too many people are signing in at once. Give it a moment and try again.',
     es: 'Demasiada gente está entrando a la vez. Espera un momento e inténtalo otra vez.',
+  },
+} satisfies Record<string, Phrase>;
+
+/**
+ * The block admin — every string, both languages, like every other screen
+ * (design-record.md, constraint 11): the captain reads it, and so does
+ * whoever the captain hands a phone to on the sidewalk.
+ *
+ * Three values are identical in both languages and legitimately so — "ADMIN",
+ * "NFC" and "DEMO" are the same words in the Spanish of this block — and
+ * tests/i18n.test.ts names each one, so anything else identical still fails.
+ */
+export const ADMIN = {
+  /** After the wordmark in the admin bar: TRASH TALK NYC · ADMIN. */
+  adminLabel: { en: 'ADMIN', es: 'ADMIN' },
+  signInTitle: { en: 'Admin', es: 'Administración' },
+  signInSub: {
+    en: 'This page holds stewards’ contact details. Enter the admin key to open it.',
+    es: 'Esta página guarda los datos de contacto de quienes cuidan los canteros. Escribe la clave de administración para abrirla.',
+  },
+  keyLabel: { en: 'Admin key', es: 'Clave de administración' },
+  signInSubmit: { en: 'OPEN THE ADMIN', es: 'ABRIR LA ADMINISTRACIÓN' },
+  /** In the admin bar on every admin screen: the way back out of the PII. */
+  signOut: { en: 'SIGN OUT', es: 'CERRAR SESIÓN' },
+  badKey: { en: 'That key doesn’t open this.', es: 'Esa clave no abre esto.' },
+  blocksTitle: { en: 'Blocks', es: 'Cuadras' },
+  demoBadge: { en: 'DEMO', es: 'DEMO' },
+  refAddress: { en: 'Reference address', es: 'Dirección de referencia' },
+  addBed: { en: '+ ADD A BED', es: '+ AÑADIR UN CANTERO' },
+  legendAdopted: { en: 'Adopted', es: 'Adoptado' },
+  legendOpen: { en: 'Open for adoption', es: 'En adopción' },
+  legendClosed: { en: 'Closed / not yet offered', es: 'Cerrado / aún no ofrecido' },
+  badgeNfc: { en: 'NFC ADOPTED', es: 'ADOPTADO NFC' },
+  badgePaper: { en: 'PEN & PAPER ADOPTED', es: 'ADOPTADO EN PAPEL' },
+  badgeNfcShort: { en: 'NFC', es: 'NFC' },
+  badgePaperShort: { en: 'PEN', es: 'PAPEL' },
+  badgeOpen: { en: 'OPEN', es: 'EN ADOPCIÓN' },
+  badgeClosed: { en: 'NOT OPEN', es: 'CERRADO' },
+  /** The bed list's small line: which guard state the bed is in. */
+  guardOrdered: { en: 'guard ordered', es: 'protector pedido' },
+  guardInstalled: { en: 'guard installed', es: 'protector instalado' },
+  guardNone: { en: 'no guard', es: 'sin protector' },
+  guardToggle: { en: 'Guard installed', es: 'Protector instalado' },
+  guardToggleSub: { en: 'Marks the bed as protected', es: 'Marca el cantero como protegido' },
+  /** `#<NYC id> · ours BED-…` — the one surface that shows our plate. */
+  oursLabel: { en: 'ours', es: 'la nuestra' },
+  /**
+   * A bed with no NYC planting space matched. Explicitly unresolved — the
+   * admin never invents a number, and this is what it says instead.
+   */
+  nycUnresolved: { en: 'NYC bed not matched yet', es: 'Cantero NYC sin emparejar todavía' },
+  slotWord: { en: 'Slot', es: 'Lugar' },
+  slotOpen: { en: 'open for adoption', es: 'en adopción' },
+  slotNotOffered: { en: 'not offered', es: 'no ofrecido' },
+  addSlot: { en: '+ ADD SLOT', es: '+ AÑADIR LUGAR' },
+  stewardHint: {
+    en: 'Open a steward for their full name, email and phone.',
+    es: 'Abre a una persona para ver su nombre completo, correo y teléfono.',
+  },
+  addStewardLink: { en: '+ ADD A STEWARD', es: '+ AÑADIR A ALGUIEN' },
+  /** The steward detail's "how they came to be here" row. */
+  kvKind: { en: 'Signed up', es: 'Se apuntó' },
+  save: { en: 'SAVE CHANGES', es: 'GUARDAR CAMBIOS' },
+  saveAddress: { en: 'SAVE ADDRESS', es: 'GUARDAR DIRECCIÓN' },
+  noUnsaved: { en: 'No unsaved changes', es: 'No hay cambios sin guardar' },
+  unsaved: { en: 'Unsaved changes', es: 'Hay cambios sin guardar' },
+  saved: { en: 'Changes saved', es: 'Cambios guardados' },
+  piiNote: {
+    en: 'Contact details are admin-only. They are never rendered on the public plaque — a passer-by sees a username and initials, nothing more.',
+    es: 'Los datos de contacto son solo para la administración. Nunca aparecen en la placa pública: quien pasa ve un nombre de usuario y unas iniciales, nada más.',
+  },
+  selectBed: { en: 'Open a bed to edit it.', es: 'Abre un cantero para editarlo.' },
+  /** Steward detail: how this steward came to be on the bed. */
+  kindNfc: { en: 'Adopted at the tag (NFC)', es: 'Adoptado en la etiqueta (NFC)' },
+  kindPaper: { en: 'Written in — pen & paper', es: 'Anotado a mano — en papel' },
+  noContactValue: { en: 'none', es: 'ninguno' },
+  noEmailNote: {
+    en: 'No email — they cannot sign in, and the record is held on their behalf. A missing email is never consent to be contacted.',
+    es: 'Sin correo: no puede iniciar sesión y el registro se guarda en su nombre. Que falte el correo nunca es permiso para contactar.',
+  },
+  addStewardTitle: { en: 'Add a steward', es: 'Añadir a alguien que lo cuide' },
+  addStewardBody: {
+    en: 'They said yes on the sidewalk. Their tag still works for reporting care.',
+    es: 'Dijo que sí en la acera. Su etiqueta sigue sirviendo para reportar cuidados.',
+  },
+  optionalHere: { en: 'optional here', es: 'opcional aquí' },
+  noEmailWarning: {
+    en: 'Without an email they cannot sign in later — you would be looking after the record for them.',
+    es: 'Sin correo no podrá iniciar sesión más adelante: tú te encargarías de su registro.',
+  },
+  addStewardSubmit: { en: 'ADD AS PEN & PAPER', es: 'AÑADIR EN PAPEL' },
+  usernameTaken: { en: 'That username is taken.', es: 'Ese nombre de usuario ya está en uso.' },
+  usernameInvalid: {
+    en: 'Usernames are lowercase letters, numbers and underscores.',
+    es: 'Los nombres de usuario llevan minúsculas, números y guiones bajos.',
+  },
+  bedFull: {
+    en: 'Every slot on this bed is filled.',
+    es: 'Todos los lugares de este cantero están ocupados.',
+  },
+  addBedTitle: { en: 'Add a bed', es: 'Añadir un cantero' },
+  addBedBody: {
+    en: 'A new bed starts closed, with one slot, no guard and no NYC number — the NYC bed is matched from the city’s own data, never typed.',
+    es: 'Un cantero nuevo empieza cerrado, con un lugar, sin protector y sin número NYC: el cantero NYC se empareja con los datos de la ciudad, nunca se escribe a mano.',
+  },
+  treeTypeEn: { en: 'Tree type (English)', es: 'Tipo de árbol (inglés)' },
+  treeTypeEs: { en: 'Tree type (Spanish)', es: 'Tipo de árbol (español)' },
+  addBedSubmit: { en: 'ADD THE BED', es: 'AÑADIR EL CANTERO' },
+  treeTypeMissing: { en: 'Name the tree.', es: 'Dinos el árbol.' },
+  /**
+   * A slot selection with a gap in it. `offeredSlots` is a count covering
+   * slots 1..n, so the switches have to run from the first open one — saving
+   * the size of a gapped selection would re-render a switch nobody flipped.
+   */
+  slotsNotContiguous: {
+    en: 'Open slots run in order. Switch on the first free slot before the one after it.',
+    es: 'Los lugares se abren en orden. Enciende el primer lugar libre antes del siguiente.',
+  },
+  /**
+   * A slot number this bed does not have — a tab left open while the bed
+   * changed, or a hand-built request. Nothing was saved, and reordering the
+   * switches is not what would fix it.
+   */
+  slotOutOfRange: {
+    en: 'That slot isn’t on this bed any more. Nothing was saved — reload the page and try again.',
+    es: 'Ese lugar ya no existe en este cantero. No se guardó nada: recarga la página e inténtalo de nuevo.',
   },
 } satisfies Record<string, Phrase>;
 

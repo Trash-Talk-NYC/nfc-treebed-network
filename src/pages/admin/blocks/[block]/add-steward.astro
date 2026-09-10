@@ -1,0 +1,234 @@
+---
+// Adding a steward on the spot — the sidewalk case (design-record.md,
+// answered open question 3, and the approved phone flow's third screen).
+//
+// Email is OPTIONAL HERE, unlike the visitor adopt form: somebody who said
+// yes on the sidewalk may have nothing to type. What that costs is recorded
+// on the person explicitly — no sign-in route, record held on their behalf —
+// and a missing email is never read as consent to be contacted; no outreach
+// exists and none is invented (service.ts, `addStewardByAdmin`).
+import AdminScreen from '../../../../layouts/AdminScreen.astro';
+import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
+import { bi, biAttr } from '../../../../lib/bilingual';
+import { ADMIN, ADOPT, ADOPT_ERRORS, AUTH, COMMON } from '../../../../lib/copy';
+import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
+import { presentationFor } from '../../../../lib/presentation';
+import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
+import {
+  MAX_EMAIL_CHARS,
+  MAX_NAME_CHARS,
+  RuleError,
+  addStewardByAdmin,
+  validateAdminStewardInput,
+  type AdminStewardErrors,
+  type AdminStewardInput,
+} from '../../../../lib/service';
+import { getStore } from '../../../../lib/store';
+
+const lang: Lang = resolveLang(Astro.url, Astro.cookies);
+const gate = await requireAdmin(Astro.request, Astro.cookies, langLink('/admin', lang));
+if (gate.refused) return gate.refused;
+
+const store = getStore();
+const blockId = Astro.params.block ?? '';
+const plate = Astro.url.searchParams.get('bed') ?? '';
+const bed = plate === '' ? null : await store.getBed(plate);
+if (!bed || bed.blockId !== blockId) {
+  return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
+}
+
+const base = `/admin/blocks/${blockId}`;
+const bedLink = langLink(`${base}?bed=${plate}`, lang);
+
+let values: AdminStewardInput = { firstName: '', lastName: '', username: '', email: '', phone: '' };
+let errors: AdminStewardErrors = {};
+let formError: Phrase | null = null;
+
+if (Astro.request.method === 'POST') {
+  const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'steward form');
+  if (refused) return refused;
+  const raw: AdminStewardInput = {
+    firstName: String(form.get('firstName') ?? ''),
+    lastName: String(form.get('lastName') ?? ''),
+    username: String(form.get('username') ?? ''),
+    email: String(form.get('email') ?? ''),
+    phone: String(form.get('phone') ?? ''),
+  };
+  const checked = validateAdminStewardInput(raw);
+  values = checked.values;
+  errors = checked.errors;
+  if (Object.keys(errors).length === 0) {
+    try {
+      await addStewardByAdmin(store, { plate, input: values });
+      return Astro.redirect(bedLink, 303);
+    } catch (err) {
+      if (err instanceof RuleError && err.code === 'slots-full') {
+        formError = ADMIN.bedFull;
+      } else if (err instanceof RuleError && err.code === 'invalid-input') {
+        // The one thing the rules refuse past field validation: a typed
+        // handle that collides. Refused rather than mutated (service.ts).
+        errors = { username: 'username' };
+        formError = ADMIN.usernameTaken;
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+const presentation = presentationFor(bed);
+const heading: Phrase = {
+  en: `${bed.treeType.en} · bed #${bed.blockPosition ?? ''}`,
+  es: `${bed.treeType.es} · cantero #${bed.blockPosition ?? ''}`,
+};
+---
+
+<AdminScreen
+  title={`${ADMIN.addStewardTitle[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <form method="POST" action={langLink(`${base}/add-steward?bed=${plate}`, lang)} class="admin-narrow steward-form">
+    <a class="admin-backlink admin-backlink--always" href={bedLink}>
+      ← <span {...bi(heading, lang)}>{heading[lang]}</span>
+    </a>
+    <h1 class="admin-title" {...bi(ADMIN.addStewardTitle, lang)}>{ADMIN.addStewardTitle[lang]}</h1>
+    <p class="body-copy" {...bi(ADMIN.addStewardBody, lang)}>{ADMIN.addStewardBody[lang]}</p>
+
+    <div class="field-row">
+      <div>
+        <label class="field-label" for="firstName" {...bi(ADOPT.firstName, lang)}
+          >{ADOPT.firstName[lang]}</label
+        >
+        <input
+          class="field-input"
+          id="firstName"
+          name="firstName"
+          type="text"
+          maxlength={MAX_NAME_CHARS}
+          value={values.firstName}
+          autocomplete="off"
+        />
+        {
+          errors.firstName && (
+            <div class="field-error" {...bi(ADOPT_ERRORS.firstName, lang)}>
+              {ADOPT_ERRORS.firstName[lang]}
+            </div>
+          )
+        }
+      </div>
+      <div>
+        <label class="field-label" for="lastName" {...bi(ADOPT.lastName, lang)}
+          >{ADOPT.lastName[lang]}</label
+        >
+        <input
+          class="field-input"
+          id="lastName"
+          name="lastName"
+          type="text"
+          maxlength={MAX_NAME_CHARS}
+          value={values.lastName}
+          autocomplete="off"
+        />
+        {
+          errors.lastName && (
+            <div class="field-error" {...bi(ADOPT_ERRORS.lastName, lang)}>
+              {ADOPT_ERRORS.lastName[lang]}
+            </div>
+          )
+        }
+      </div>
+    </div>
+
+    <div>
+      <label class="field-label" for="username">
+        <span {...bi(AUTH.username, lang)}>{AUTH.username[lang]}</span>{' '}
+        <span class="field-note">· <span {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span></span>
+      </label>
+      <input
+        class="field-input"
+        id="username"
+        name="username"
+        type="text"
+        placeholder="@"
+        value={values.username}
+        autocapitalize="none"
+        autocomplete="off"
+      />
+      {
+        errors.username && (
+          <div class="field-error" {...bi(formError ?? ADMIN.usernameInvalid, lang)}>
+            {(formError ?? ADMIN.usernameInvalid)[lang]}
+          </div>
+        )
+      }
+    </div>
+
+    <div>
+      <label class="field-label" for="email">
+        <span {...bi(ADOPT.email, lang)}>{ADOPT.email[lang]}</span>{' '}
+        <span class="field-note">· <span {...bi(ADMIN.optionalHere, lang)}>{ADMIN.optionalHere[lang]}</span></span>
+      </label>
+      <input
+        class="field-input"
+        id="email"
+        name="email"
+        type="email"
+        maxlength={MAX_EMAIL_CHARS}
+        value={values.email}
+        autocomplete="off"
+      />
+      {
+        errors.email && (
+          <div class="field-error" {...bi(ADOPT_ERRORS.email, lang)}>
+            {ADOPT_ERRORS.email[lang]}
+          </div>
+        )
+      }
+    </div>
+
+    <div>
+      <label class="field-label" for="phone">
+        <span {...bi(ADOPT.phone, lang)}>{ADOPT.phone[lang]}</span>{' '}
+        <span class="field-note">· <span {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span></span>
+      </label>
+      <input
+        class="field-input"
+        id="phone"
+        name="phone"
+        type="tel"
+        value={values.phone}
+        autocomplete="off"
+      />
+      {
+        errors.phone && (
+          <div class="field-error" {...bi(ADOPT_ERRORS.phone, lang)}>
+            {ADOPT_ERRORS.phone[lang]}
+          </div>
+        )
+      }
+    </div>
+
+    <p class="body-copy small-note" {...bi(ADMIN.noEmailWarning, lang)}>{ADMIN.noEmailWarning[lang]}</p>
+    {
+      formError && formError !== ADMIN.usernameTaken && (
+        <div class="field-error" {...bi(formError, lang)}>
+          {formError[lang]}
+        </div>
+      )
+    }
+    <button class="btn btn-tall btn-action" type="submit" {...biAttr('aria-label', ADMIN.addStewardSubmit, lang)} {...bi(ADMIN.addStewardSubmit, lang)}>
+      {ADMIN.addStewardSubmit[lang]}
+    </button>
+  </form>
+</AdminScreen>
+
+<style>
+  .steward-form {
+    margin: 0 auto;
+  }
+  .small-note {
+    font-size: 13px;
+  }
+</style>

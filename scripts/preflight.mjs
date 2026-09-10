@@ -40,3 +40,13 @@ if (pinHashes !== undefined && pinHashes !== '' && Number(pinHashes) < 1) {
     `TREEBED_MAX_INFLIGHT_PIN_HASHES=${pinHashes}: sign-in is disabled, every attempt answers busy.`,
   );
 }
+
+// Not an error, by design: a production server with no admin key has no
+// admin surface at all (every /admin route answers 404 — src/lib/session.ts).
+// Said out loud here because "the admin is 404" otherwise reads as a broken
+// route rather than the safe default it is.
+if (!process.env.TREEBED_ADMIN_KEY) {
+  console.warn(
+    'TREEBED_ADMIN_KEY is not set: the block admin (/admin) is disabled and answers 404.',
+  );
+}

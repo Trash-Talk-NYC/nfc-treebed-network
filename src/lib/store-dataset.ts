@@ -7,10 +7,11 @@
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
 import type { Store } from './store';
-import type { Adoption, Bed, BedEvent, Report, User } from './types';
+import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
 
 export interface Data {
   beds: Record<string, Bed>;
+  blocks: Record<string, Block>;
   users: Record<string, User>;
   adoptions: Adoption[];
   reports: Report[];
@@ -37,7 +38,14 @@ export const DEMO_STEWARD_PIN = '1234';
  * keeps its value. The same rule the NYC sync is held to.
  */
 export function normalizeData(data: Data): Data {
+  data.blocks ??= {};
+  // Insert BEFORE the loops, so a freshly inserted checked-in record goes
+  // through exactly the same normalization a stored one does: the next field
+  // added to `Bed` or `Block` is then filled in for both, rather than only
+  // for the stores that had already persisted these.
+  ensureCheckedInBlocks(data);
   for (const bed of Object.values(data.beds)) normalizeBed(bed);
+  for (const block of Object.values(data.blocks)) normalizeBlock(block);
   for (const user of Object.values(data.users)) normalizeUser(user);
   for (const adoption of data.adoptions) normalizeAdoption(adoption);
   for (const report of data.reports) normalizeReport(report);
@@ -51,11 +59,28 @@ function normalizeBed(bed: Bed): void {
   // Falling back to `plate` would put our own ID — which encodes site type and
   // neighbourhood — on a public screen.
   bed.plantingSpaceId ??= null;
+  bed.plantingSpaceGlobalId ??= null;
   if (typeof legacy.treeType !== 'object' || legacy.treeType === null) {
     bed.treeType = { en: 'tree', es: 'árbol' };
   }
+  // A record from before the admin page's per-slot switches was written when
+  // every unfilled slot was implicitly up for adoption — that is what the
+  // door screen did with it — so `offeredSlots = slots` records what was
+  // already true rather than closing a bed nobody closed.
+  bed.offeredSlots ??= bed.slots;
+  // Before the block admin, `guardInstalledAt` was a bare string: every bed
+  // that existed had its guard in. Nothing to fill for those; a bed written
+  // without the ordered date simply was never in the ordered state.
+  bed.guardOrderedAt ??= null;
+  bed.guardInstalledAt ??= null;
+  bed.blockId ??= null;
+  bed.blockPosition ??= null;
   bed.nycSyncedAt ??= null;
   bed.nycMissingSince ??= null;
+}
+
+function normalizeBlock(block: Block): void {
+  block.demo ??= false;
 }
 
 function normalizeUser(user: User): void {
@@ -100,6 +125,188 @@ function normalizeReport(report: Report): void {
   report.severity ??= null;
 }
 
+/** The captain's block: W 171st between Fort Washington and Haven. */
+export const W171_BLOCK_ID = 'w-171-fort-washington-haven';
+
+/** The pilot demo bed's own block, so it never sits inside a real street. */
+export const DEMO_BLOCK_ID = 'w-138-acp-demo';
+
+function checkedInBlocks(): Block[] {
+  return [
+    {
+      id: W171_BLOCK_ID,
+      // The captain's own words for the block; typed and editable in admin.
+      referenceAddress: '708 W 171st St',
+      demo: false,
+      createdAt: '2026-09-10T00:00:00.000Z',
+    },
+    {
+      id: DEMO_BLOCK_ID,
+      referenceAddress: '2300 Adam Clayton Powell Jr Blvd',
+      demo: true,
+      createdAt: '2026-09-10T00:00:00.000Z',
+    },
+  ];
+}
+
+/**
+ * The six real beds on the south side of W 171st between Fort Washington and
+ * Haven — five willow oaks and one white oak, exactly as the captain walked
+ * it.
+ *
+ * Every NYC identifier below is RESOLVED, not invented: each bed was matched
+ * to a record in NYC Parks' Forestry Planting Spaces open data (`82zj-84is`;
+ * `plantingSpaceId` is its `objectid`, `plantingSpaceGlobalId` its stable
+ * `globalid`) and its tree to Forestry Tree Points (`hn5i-inap`; `treeId` is
+ * the tree point's `objectid`), queried 2026-09-10. How: all planting spaces
+ * on the block were pulled by street/cross-street and by a geometry bounding
+ * box, split into the two curb lines by fitting the point geometry to each
+ * side, and joined to their tree points for species. The south (708) side
+ * carries exactly six Populated spaces whose living trees are five
+ * `Quercus phellos` (willow oak) and one `Quercus alba` (white oak) — the
+ * only combination on the block matching the captain's count, which is what
+ * makes the match confident. The north side is all willow oaks; the empty
+ * pits between beds 5 and 6 (retired trees) are NYC's, not ours, and are
+ * deliberately not seeded — no tree, no guard coming, nothing to steward.
+ *
+ * `blockPosition` is physical: 1 at the Haven end, 6 at the Fort Washington
+ * corner, ordered by the records' own point geometry along the street. The
+ * white oak therefore sits at position 5, not at the end the mockup guessed —
+ * the corner willow oak (a bed wrapped around 255 Fort Washington Ave, on the
+ * W 171st curb line) is past it.
+ *
+ * Five guards are ordered — one per willow oak — and none is installed; the
+ * white oak has no guard coming (`guardOrderedAt: null`). No tag is bound to
+ * any of these beds yet: tags go in with guards (tag-bindings.ts), so
+ * `tagUid` is empty and every bed starts unoffered (`offeredSlots: 0`) until
+ * the captain opens it on the admin page — which is the page's whole point.
+ */
+function w171Beds(): Bed[] {
+  const GUARDS_ORDERED_AT = '2026-09-09T00:00:00.000Z';
+  const LOOKED_UP_AT = '2026-09-10T00:00:00.000Z';
+  const bed = (args: {
+    plate: string;
+    position: number;
+    plantingSpaceId: string;
+    plantingSpaceGlobalId: string;
+    treeId: string;
+    whiteOak?: boolean;
+    address: string;
+  }): Bed => ({
+    plate: args.plate,
+    plantingSpaceId: args.plantingSpaceId,
+    plantingSpaceGlobalId: args.plantingSpaceGlobalId,
+    treeType: args.whiteOak
+      ? { en: 'White oak', es: 'Roble blanco' }
+      : { en: 'Willow oak', es: 'Roble sauce' },
+    treeId: args.treeId,
+    tagUid: '',
+    crossStreets: 'W 171 St × Fort Washington Ave & Haven Ave',
+    address: args.address,
+    slots: 1,
+    offeredSlots: 0,
+    guardOrderedAt: args.whiteOak ? null : GUARDS_ORDERED_AT,
+    guardInstalledAt: null,
+    blockId: W171_BLOCK_ID,
+    blockPosition: args.position,
+    nycSyncedAt: LOOKED_UP_AT,
+    nycMissingSince: null,
+  });
+  return [
+    // Haven end, walking toward Fort Washington. Willow oaks 1–4 front
+    // 718 and 708 W 171st.
+    bed({
+      plate: 'BED-WH-1711',
+      position: 1,
+      plantingSpaceId: '2332471',
+      plantingSpaceGlobalId: '4B3E910E-FE25-478F-8C31-8F651CAD934F',
+      treeId: '2135720',
+      address: '718 W 171st St, New York, NY 10032',
+    }),
+    bed({
+      plate: 'BED-WH-1712',
+      position: 2,
+      plantingSpaceId: '2332470',
+      plantingSpaceGlobalId: '7653DC67-36C3-4909-91A4-392CD6CE3371',
+      treeId: '2135719',
+      address: '718 W 171st St, New York, NY 10032',
+    }),
+    bed({
+      plate: 'BED-WH-1713',
+      position: 3,
+      plantingSpaceId: '2332469',
+      plantingSpaceGlobalId: '8CF6E9E0-C9CA-4025-AC77-2C3BFAD1AC41',
+      treeId: '2135718',
+      address: '708 W 171st St, New York, NY 10032',
+    }),
+    bed({
+      plate: 'BED-WH-1714',
+      position: 4,
+      plantingSpaceId: '2332468',
+      plantingSpaceGlobalId: 'D835F3F9-3AB0-48EE-ADDC-62617BB98CE6',
+      treeId: '2135717',
+      address: '708 W 171st St, New York, NY 10032',
+    }),
+    // The one white oak (Quercus alba, tree point 1019518, dbh 15) — fifth
+    // along, in front of 708. No guard is on order for it.
+    bed({
+      plate: 'BED-WH-1715',
+      position: 5,
+      plantingSpaceId: '1188102',
+      plantingSpaceGlobalId: '6E836E3B-A30B-4DE7-AC69-0A2D672656BB',
+      treeId: '1019518',
+      whiteOak: true,
+      address: '708 W 171st St, New York, NY 10032',
+    }),
+    // The corner willow oak: NYC files it under 255 Fort Washington Ave, but
+    // its point sits on the W 171st south curb line — it is this block's
+    // easternmost bed, past the empty pits.
+    bed({
+      plate: 'BED-WH-1716',
+      position: 6,
+      plantingSpaceId: '2332466',
+      plantingSpaceGlobalId: 'FD260C6C-3F93-4F4D-ACC8-33F4A783B2C8',
+      treeId: '2135715',
+      address: '255 Fort Washington Ave, New York, NY 10032',
+    }),
+  ];
+}
+
+/**
+ * Make sure the checked-in blocks and the six W 171st beds exist, on the way
+ * past every load.
+ *
+ * The pilot store is LIVE and was seeded before this block existed; seeding
+ * only ever runs on first contact and re-seeding over live data is refused by
+ * design (AGENTS.md). So the captain's block reaches an already-seeded store
+ * the same way a missing field does: additively, in the one place both
+ * backends share. The rules that keep this safe are the same ones
+ * `normalizeData` already lives by — a record is only ever INSERTED when its
+ * key is absent, never overwritten, so everything the captain later edits on
+ * the admin page (the reference address, a guard toggle, an opened slot)
+ * survives every later load. Idempotent by construction.
+ *
+ * The demo bed is deliberately NOT placed in the captain's block: it gets its
+ * own block, flagged `demo`, so the admin page can show it — it holds the
+ * pilot's live history and the only bound tag — without a fake bed ever
+ * reading as part of a real street.
+ */
+export function ensureCheckedInBlocks(data: Data): void {
+  for (const block of checkedInBlocks()) {
+    data.blocks[block.id] ??= block;
+  }
+  for (const bed of w171Beds()) {
+    data.beds[bed.plate] ??= bed;
+  }
+  const demo = data.beds['BED-HRL-0847'];
+  // `?? null`: this runs ahead of normalization, so a record written before
+  // `blockId` existed carries undefined rather than null.
+  if (demo && (demo.blockId ?? null) === null) {
+    demo.blockId = DEMO_BLOCK_ID;
+    demo.blockPosition = 1;
+  }
+}
+
 // The one hand-seeded bed for the Popl card field test, matching the
 // approved screens exactly. No provisioning flow exists yet by design.
 //
@@ -128,24 +335,35 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
     streakWeeks: 7,
     createdAt: '2026-05-02T14:00:00.000Z',
   };
-  return {
-    beds: {
-      'BED-HRL-0847': {
-        plate: 'BED-HRL-0847',
-        // The number the approved screens carry. Public identity is NYC's,
-        // ours is the join key underneath it.
-        plantingSpaceId: '15850293',
-        treeType: { en: 'Willow oak', es: 'Roble sauce' },
-        treeId: '08-4211',
-        tagUid: '04:A2:2F:9C',
-        crossStreets: 'W 138 St × Adam Clayton Powell Jr Blvd',
-        address: '2300 Adam Clayton Powell Jr Blvd, New York, NY 10030',
-        slots: 2,
-        guardInstalledAt: '2026-04-18T16:00:00.000Z',
-        nycSyncedAt: null,
-        nycMissingSince: null,
-      },
+  const beds: Record<string, Bed> = {
+    'BED-HRL-0847': {
+      plate: 'BED-HRL-0847',
+      // The number the approved screens carry — a DEMO value from the
+      // mockups, matching no real NYC record (checked against `82zj-84is`
+      // 2026-09-10: no such objectid). It stays because the live pilot
+      // engraves it; hence the null globalid, and the demo flag on the
+      // block this bed sits in.
+      plantingSpaceId: '15850293',
+      plantingSpaceGlobalId: null,
+      treeType: { en: 'Willow oak', es: 'Roble sauce' },
+      treeId: '08-4211',
+      tagUid: '04:A2:2F:9C',
+      crossStreets: 'W 138 St × Adam Clayton Powell Jr Blvd',
+      address: '2300 Adam Clayton Powell Jr Blvd, New York, NY 10030',
+      slots: 2,
+      offeredSlots: 2,
+      guardOrderedAt: null,
+      guardInstalledAt: '2026-04-18T16:00:00.000Z',
+      blockId: DEMO_BLOCK_ID,
+      blockPosition: 1,
+      nycSyncedAt: null,
+      nycMissingSince: null,
     },
+  };
+  for (const bed of w171Beds()) beds[bed.plate] = bed;
+  return {
+    beds,
+    blocks: Object.fromEntries(checkedInBlocks().map((block) => [block.id, block])),
     users: { [marisol.id]: marisol },
     adoptions: [
       {
@@ -176,6 +394,38 @@ export function detach<T>(value: T): T {
 export const ops = {
   getBed(data: Data, plate: string): Bed | null {
     return detach(data.beds[plate] ?? null);
+  },
+  createBed(data: Data, bed: Bed): void {
+    if (data.beds[bed.plate]) throw new Error(`Bed already exists: ${bed.plate}`);
+    data.beds[bed.plate] = detach(bed);
+  },
+  updateBed(data: Data, bed: Bed): void {
+    if (!data.beds[bed.plate]) throw new Error(`Bed not found: ${bed.plate}`);
+    data.beds[bed.plate] = detach(bed);
+  },
+  getBlock(data: Data, id: string): Block | null {
+    return detach(data.blocks[id] ?? null);
+  },
+  getBlocks(data: Data): Block[] {
+    // Real streets before demo ones, then by id for a stable order: the
+    // captain's own block is what /admin exists for, and letting the ids
+    // alphabetise would sit a DEMO-badged fake street above it.
+    return detach(
+      Object.values(data.blocks).sort(
+        (a, b) => Number(a.demo) - Number(b.demo) || a.id.localeCompare(b.id),
+      ),
+    );
+  },
+  updateBlock(data: Data, block: Block): void {
+    if (!data.blocks[block.id]) throw new Error(`Block not found: ${block.id}`);
+    data.blocks[block.id] = detach(block);
+  },
+  getBedsInBlock(data: Data, blockId: string): Bed[] {
+    return detach(
+      Object.values(data.beds)
+        .filter((bed) => bed.blockId === blockId)
+        .sort((a, b) => (a.blockPosition ?? 0) - (b.blockPosition ?? 0)),
+    );
   },
   getUser(data: Data, id: string): User | null {
     return detach(data.users[id] ?? null);
@@ -254,6 +504,30 @@ export class TransactionStore implements Store {
 
   async getBed(plate: string): Promise<Bed | null> {
     return ops.getBed(this.data, plate);
+  }
+
+  async createBed(bed: Bed): Promise<void> {
+    ops.createBed(this.data, bed);
+  }
+
+  async updateBed(bed: Bed): Promise<void> {
+    ops.updateBed(this.data, bed);
+  }
+
+  async getBlock(id: string): Promise<Block | null> {
+    return ops.getBlock(this.data, id);
+  }
+
+  async getBlocks(): Promise<Block[]> {
+    return ops.getBlocks(this.data);
+  }
+
+  async updateBlock(block: Block): Promise<void> {
+    ops.updateBlock(this.data, block);
+  }
+
+  async getBedsInBlock(blockId: string): Promise<Bed[]> {
+    return ops.getBedsInBlock(this.data, blockId);
   }
 
   async getUser(id: string): Promise<User | null> {

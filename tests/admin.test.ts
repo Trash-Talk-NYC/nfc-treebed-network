@@ -1,0 +1,429 @@
+// The block admin's rules and the W 171st block's data — the same seam the
+// visitor rules are tested through: a real LocalStore on a temp file, and the
+// service layer in front of it.
+
+import { describe, expect, it } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { LocalStore } from '../src/lib/store-local';
+import {
+  DEMO_BLOCK_ID,
+  W171_BLOCK_ID,
+  ensureCheckedInBlocks,
+  normalizeData,
+  seedData,
+  type Data,
+} from '../src/lib/store-dataset';
+import {
+  MAX_ADDRESS_CHARS,
+  MAX_BED_SLOTS,
+  MAX_NAME_CHARS,
+  addBedByAdmin,
+  addStewardByAdmin,
+  adoptBed,
+  getBedView,
+  getBlockView,
+  saveBlockSettings,
+  validateAdminStewardInput,
+} from '../src/lib/service';
+import { guardStatus } from '../src/lib/types';
+
+function freshStore(): LocalStore {
+  const dir = mkdtempSync(path.join(tmpdir(), 'treebed-admin-test-'));
+  return new LocalStore(path.join(dir, 'store.json'));
+}
+
+function stewardInput(overrides: Partial<Parameters<typeof validateAdminStewardInput>[0]> = {}) {
+  return {
+    firstName: 'Dani',
+    lastName: 'Torres',
+    username: '',
+    email: '',
+    phone: '',
+    ...overrides,
+  };
+}
+
+/** The first W 171st bed: seeded with one slot and nothing offered. */
+const W171_PLATE = 'BED-WH-1711';
+
+describe('the six real beds on W 171st', () => {
+  it('seeds the captain’s block: five willow oaks and one white oak, in order', async () => {
+    const view = await getBlockView(freshStore(), W171_BLOCK_ID);
+    expect(view).not.toBeNull();
+    expect(view!.block.referenceAddress).toBe('708 W 171st St');
+    expect(view!.block.demo).toBe(false);
+    expect(view!.beds.map((b) => b.bed.blockPosition)).toEqual([1, 2, 3, 4, 5, 6]);
+    const species = view!.beds.map((b) => b.bed.treeType.en);
+    expect(species.filter((s) => s === 'Willow oak')).toHaveLength(5);
+    expect(species.filter((s) => s === 'White oak')).toHaveLength(1);
+  });
+
+  it('carries a resolved NYC planting space on every bed, each a distinct record', async () => {
+    const view = await getBlockView(freshStore(), W171_BLOCK_ID);
+    const ids = view!.beds.map((b) => b.bed.plantingSpaceId);
+    const globals = view!.beds.map((b) => b.bed.plantingSpaceGlobalId);
+    // Resolved from NYC's Forestry Planting Spaces data, never invented — a
+    // null here would be the honest alternative, and a duplicate would mean
+    // two beds claimed one record.
+    expect(ids.every((id) => id !== null)).toBe(true);
+    expect(globals.every((id) => id !== null)).toBe(true);
+    expect(new Set(ids).size).toBe(6);
+    expect(new Set(globals).size).toBe(6);
+  });
+
+  it('orders five guards — none for the white oak — and installs none', async () => {
+    const view = await getBlockView(freshStore(), W171_BLOCK_ID);
+    for (const { bed } of view!.beds) {
+      expect(bed.guardInstalledAt).toBeNull();
+      expect(guardStatus(bed), bed.plate).toBe(bed.treeType.en === 'White oak' ? 'none' : 'ordered');
+    }
+  });
+
+  it('starts every bed unoffered: opening one is the captain’s act, on the admin page', async () => {
+    const view = await getBlockView(freshStore(), W171_BLOCK_ID);
+    for (const { bed } of view!.beds) {
+      expect(bed.offeredSlots, bed.plate).toBe(0);
+      expect(bed.slots, bed.plate).toBe(1);
+    }
+  });
+
+  it('keeps the demo bed OUT of the real block, in its own demo-flagged one', async () => {
+    const store = freshStore();
+    const w171 = await getBlockView(store, W171_BLOCK_ID);
+    expect(w171!.beds.map((b) => b.bed.plate)).not.toContain('BED-HRL-0847');
+    const demo = await getBlockView(store, DEMO_BLOCK_ID);
+    expect(demo!.block.demo).toBe(true);
+    expect(demo!.beds.map((b) => b.bed.plate)).toEqual(['BED-HRL-0847']);
+  });
+
+  it('lists the real block above the demo one, whatever the ids alphabetise to', async () => {
+    const blocks = await freshStore().getBlocks();
+    expect(blocks.map((b) => b.id)).toEqual([W171_BLOCK_ID, DEMO_BLOCK_ID]);
+  });
+});
+
+describe('the block reaches a store seeded before it existed', () => {
+  it('backfills the blocks and beds additively into an older dataset', async () => {
+    const data = await seedData();
+    // A dataset from before blocks existed: strip everything this build added.
+    delete (data as Partial<Data>).blocks;
+    for (const plate of Object.keys(data.beds)) {
+      if (plate !== 'BED-HRL-0847') delete data.beds[plate];
+    }
+    const demo = data.beds['BED-HRL-0847']! as unknown as Record<string, unknown>;
+    delete demo.blockId;
+    delete demo.blockPosition;
+    delete demo.offeredSlots;
+    delete demo.guardOrderedAt;
+    delete demo.plantingSpaceGlobalId;
+
+    const normalized = normalizeData(data);
+    expect(Object.keys(normalized.blocks)).toContain(W171_BLOCK_ID);
+    expect(
+      Object.values(normalized.beds).filter((b) => b.blockId === W171_BLOCK_ID),
+    ).toHaveLength(6);
+    // The pre-existing bed keeps its meaning: every unfilled slot was
+    // implicitly up for adoption before the switches existed.
+    expect(normalized.beds['BED-HRL-0847']!.offeredSlots).toBe(2);
+    expect(normalized.beds['BED-HRL-0847']!.blockId).toBe(DEMO_BLOCK_ID);
+  });
+
+  it('never overwrites what the captain has edited', async () => {
+    const data = await seedData();
+    data.blocks[W171_BLOCK_ID]!.referenceAddress = '710 W 171st St';
+    data.beds[W171_PLATE]!.offeredSlots = 1;
+    ensureCheckedInBlocks(data);
+    expect(data.blocks[W171_BLOCK_ID]!.referenceAddress).toBe('710 W 171st St');
+    expect(data.beds[W171_PLATE]!.offeredSlots).toBe(1);
+  });
+});
+
+describe('offered slots are a rule, not a display state', () => {
+  it('refuses adoption on a bed the captain has not offered', async () => {
+    const store = freshStore();
+    await expect(
+      adoptBed(store, {
+        plate: W171_PLATE,
+        input: { firstName: 'Rita', lastName: 'Okafor', email: 'r@example.com', phone: '' },
+      }),
+    ).rejects.toMatchObject({ code: 'slots-full' });
+  });
+
+  it('admits exactly the offered count once a slot is switched on', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
+    });
+    await adoptBed(store, {
+      plate: W171_PLATE,
+      input: { firstName: 'Rita', lastName: 'Okafor', email: 'r@example.com', phone: '' },
+    });
+    await expect(
+      adoptBed(store, {
+        plate: W171_PLATE,
+        input: { firstName: 'Luz', lastName: 'Vega', email: 'l@example.com', phone: '' },
+      }),
+    ).rejects.toMatchObject({ code: 'slots-full' });
+  });
+});
+
+describe('the visitor screens read the same bound the rules do', () => {
+  it('reports no open slot on a bed the captain has not offered', async () => {
+    const store = freshStore();
+    const view = await getBedView(store, W171_PLATE);
+    expect(view!.bed.slots).toBeGreaterThan(0);
+    // The door screen and adopt.astro gate the invitation on this number, so
+    // an unoffered bed must never show a form the rules would then refuse.
+    expect(view!.openSlots).toBe(0);
+
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
+    });
+    expect((await getBedView(store, W171_PLATE))!.openSlots).toBe(1);
+  });
+});
+
+describe('saving the block admin page', () => {
+  it('refuses a gapped slot selection rather than re-mapping it to a count', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlots: 1 },
+    });
+    await expect(
+      saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [2], addSlots: 0 },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid-input' });
+    // Nothing was written, address included.
+    expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(0);
+
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1, 2], addSlots: 0 },
+    });
+    expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(2);
+  });
+
+  it('refuses a slot number the page never rendered a switch for, and says which refusal it is', async () => {
+    const store = freshStore();
+    // Its own code, not the gap one: a stale tab is not switches out of order,
+    // and the panel prints a different sentence for each.
+    await expect(
+      saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [9], addSlots: 0 },
+      }),
+    ).rejects.toMatchObject({ code: 'slot-out-of-range' });
+  });
+
+  it('bounds the typed reference address rather than storing whatever was pasted', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: 'x'.repeat(MAX_ADDRESS_CHARS + 500),
+    });
+    expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toHaveLength(
+      MAX_ADDRESS_CHARS,
+    );
+  });
+
+  it('updates the typed reference address, and a blank one keeps what stands', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, { blockId: W171_BLOCK_ID, referenceAddress: '710 W 171st St' });
+    expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toBe('710 W 171st St');
+    await saveBlockSettings(store, { blockId: W171_BLOCK_ID, referenceAddress: '   ' });
+    expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toBe('710 W 171st St');
+  });
+
+  it('toggles the guard without losing the ordered date, and keeps the original install date', async () => {
+    const store = freshStore();
+    const save = (guardInstalled: boolean) =>
+      saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: { plate: W171_PLATE, guardInstalled, offeredSlotNumbers: [], addSlots: 0 },
+      });
+    await save(true);
+    const installed = (await store.getBed(W171_PLATE))!.guardInstalledAt;
+    expect(installed).not.toBeNull();
+    // Saving again does not move the date; toggling off keeps "ordered".
+    await save(true);
+    expect((await store.getBed(W171_PLATE))!.guardInstalledAt).toBe(installed);
+    await save(false);
+    const off = (await store.getBed(W171_PLATE))!;
+    expect(off.guardInstalledAt).toBeNull();
+    expect(guardStatus(off)).toBe('ordered');
+  });
+
+  it('adds a slot up to the bound, and clamps what is offered to what exists', async () => {
+    const store = freshStore();
+    for (let i = 0; i < MAX_BED_SLOTS + 2; i++) {
+      // Every switch the page would render for this bed, switched on.
+      const { slots } = (await store.getBed(W171_PLATE))!;
+      await saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: {
+          plate: W171_PLATE,
+          guardInstalled: false,
+          offeredSlotNumbers: Array.from({ length: slots }, (_, n) => n + 1),
+          addSlots: 1,
+        },
+      });
+    }
+    const bed = (await store.getBed(W171_PLATE))!;
+    expect(bed.slots).toBe(MAX_BED_SLOTS);
+    expect(bed.offeredSlots).toBe(MAX_BED_SLOTS);
+  });
+
+  it('absorbs a slot adopted between the render and the save rather than refusing the press', async () => {
+    // The page drew both switches on an empty bed and the captain flipped
+    // both. A neighbour adopted slot 1 in between, so the save arrives naming
+    // a slot that is now filled — which must not cost the captain the whole
+    // press, guard toggle and address included.
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 1 },
+    });
+    await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '712 W 171st St',
+      bed: { plate: W171_PLATE, guardInstalled: true, offeredSlotNumbers: [1, 2], addSlots: 0 },
+    });
+    const bed = (await store.getBed(W171_PLATE))!;
+    expect(bed.offeredSlots).toBe(2);
+    expect(bed.guardInstalledAt).not.toBeNull();
+    expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toBe('712 W 171st St');
+  });
+
+  it('never switches away a filled slot: the offered count always covers the stewards', async () => {
+    const store = freshStore();
+    await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlots: 0 },
+    });
+    expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(1);
+  });
+});
+
+describe('writing a steward in, pen and paper', () => {
+  it('records the sidewalk case explicitly: no email, no sign-in route, record held on their behalf', async () => {
+    const store = freshStore();
+    const user = await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
+    expect(user.email).toBe('');
+    expect(user.pinHash).toBeNull();
+    expect(user.hasSignInRoute).toBe(false);
+    expect(user.recordHeldOnBehalf).toBe(true);
+    expect(user.username).toBe('dani_t');
+    const view = await getBlockView(store, W171_BLOCK_ID);
+    const bed = view!.beds.find((b) => b.bed.plate === W171_PLATE)!;
+    expect(bed.stewards).toHaveLength(1);
+    expect(bed.stewards[0]!.adoption.stewardKind).toBe('pen-and-paper');
+  });
+
+  it('fills a slot the public switches never offered — writing in is the captain’s act', async () => {
+    const store = freshStore();
+    expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(0);
+    await expect(
+      addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() }),
+    ).resolves.toBeTruthy();
+  });
+
+  it('refuses past the bed’s physical slots', async () => {
+    const store = freshStore();
+    await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
+    await expect(
+      addStewardByAdmin(store, {
+        plate: W171_PLATE,
+        input: stewardInput({ firstName: 'Luz', lastName: 'Vega' }),
+      }),
+    ).rejects.toMatchObject({ code: 'slots-full' });
+  });
+
+  it('takes a typed username but refuses a collision rather than mutating it', async () => {
+    const store = freshStore();
+    const typed = await addStewardByAdmin(store, {
+      plate: W171_PLATE,
+      input: stewardInput({ username: '@dtorres' }),
+    });
+    expect(typed.username).toBe('dtorres');
+    await expect(
+      addStewardByAdmin(store, {
+        plate: 'BED-WH-1712',
+        input: stewardInput({ firstName: 'Delia', username: 'dtorres' }),
+      }),
+    ).rejects.toMatchObject({ code: 'invalid-input' });
+  });
+
+  it('validates what is present and requires only the name', () => {
+    expect(validateAdminStewardInput(stewardInput()).errors).toEqual({});
+    expect(validateAdminStewardInput(stewardInput({ firstName: ' ' })).errors).toMatchObject({
+      firstName: 'firstName',
+    });
+    expect(validateAdminStewardInput(stewardInput({ email: 'not-an-email' })).errors).toMatchObject({
+      email: 'email',
+    });
+    expect(validateAdminStewardInput(stewardInput({ username: 'Bad Handle!' })).errors).toMatchObject({
+      username: 'username',
+    });
+  });
+
+  it('bounds a pasted name rather than storing whatever arrived', async () => {
+    const { values } = validateAdminStewardInput(
+      stewardInput({ firstName: 'a'.repeat(MAX_NAME_CHARS + 500) }),
+    );
+    expect(values.firstName).toHaveLength(MAX_NAME_CHARS);
+  });
+});
+
+describe('adding a bed', () => {
+  it('continues the block’s own plate sequence and starts closed, with no NYC identifiers', async () => {
+    const store = freshStore();
+    const bed = await addBedByAdmin(store, {
+      blockId: W171_BLOCK_ID,
+      treeType: { en: 'Pin oak', es: '' },
+    });
+    expect(bed.plate).toBe('BED-WH-1717');
+    expect(bed.blockPosition).toBe(7);
+    expect(bed.slots).toBe(1);
+    expect(bed.offeredSlots).toBe(0);
+    // Never invented: unresolved is null, and the admin panel says so.
+    expect(bed.plantingSpaceId).toBeNull();
+    expect(bed.plantingSpaceGlobalId).toBeNull();
+    // Spanish falls back to the English name rather than to no name.
+    expect(bed.treeType.es).toBe('Pin oak');
+  });
+
+  it('keeps the siblings’ zero padding, so a block’s plates stay one series', async () => {
+    const store = freshStore();
+    // The demo block's one bed is BED-HRL-0847 — four padded digits.
+    const bed = await addBedByAdmin(store, {
+      blockId: 'w-138-acp-demo',
+      treeType: { en: 'Pin oak', es: 'Roble palustre' },
+    });
+    expect(bed.plate).toBe('BED-HRL-0848');
+  });
+
+  it('refuses a nameless tree', async () => {
+    await expect(
+      addBedByAdmin(freshStore(), { blockId: W171_BLOCK_ID, treeType: { en: '  ', es: '' } }),
+    ).rejects.toMatchObject({ code: 'invalid-input' });
+  });
+});

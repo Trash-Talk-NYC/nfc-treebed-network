@@ -8,13 +8,18 @@ import type { Bed } from '../src/lib/types';
 const BED: Bed = {
   plate: 'BED-HRL-0847',
   plantingSpaceId: '15850293',
+  plantingSpaceGlobalId: null,
   treeType: { en: 'Willow oak', es: 'Roble sauce' },
   treeId: '08-4211',
   tagUid: '04:A2:2F:9C',
   crossStreets: 'W 138 St × Adam Clayton Powell Jr Blvd',
   address: '2300 Adam Clayton Powell Jr Blvd, New York, NY 10030',
   slots: 2,
+  offeredSlots: 2,
+  guardOrderedAt: null,
   guardInstalledAt: '2026-04-18T16:00:00.000Z',
+  blockId: null,
+  blockPosition: null,
   nycSyncedAt: null,
   nycMissingSince: null,
 };

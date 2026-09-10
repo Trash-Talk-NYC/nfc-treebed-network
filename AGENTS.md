@@ -11,6 +11,7 @@ Source-of-truth documents live in the firstmate repo:
 - `data/tap-flow-decision/approved-screens.html` — the approved screens, iterated on directly by the captain across roughly forty rounds. Authoritative for visuals, copy and flow. **Open it in a browser before changing a screen.**
 - `data/tap-flow-decision/design-record.md` — the numbered constraints the captain agreed, with the reasoning, plus the three open questions he answered "undecided, knowingly so" and the safe default each one obliges.
 - `data/plaque-mvp-n4/spec.md` — product intent and the server-side rules, still current below the screens.
+- `data/block-admin-w171/approved-screens.html` — the approved BLOCK ADMIN screens (section 1: desktop, plus the phone flow further down) and `data/block-admin-w171/design-record.md`, the constraint record that governs them.
 The prototype in `data/plaque-mvp-n4/prototype/` is the SCRAPPED Option A plaque and is no longer authoritative for anything.
 
 ## The two doors (read before touching a screen)
@@ -19,6 +20,9 @@ The tap resolves to a bed server-side and the bed's state picks one of two scree
 
 - **no steward yet** → "This <tree>'s bed is looking for a steward." → `ADOPT THIS BED` / `THIS BED NEEDS CARE`
 - **already stewarded** → "This <tree> bed has been adopted!" with the stewards shown → `SEND APPLAUSE` / `THIS BED NEEDS CARE`
+
+Both doors withhold the adoption invitation on a bed with no offered slot open (`BedView.openSlots`, from `min(slots, offeredSlots)` — see "The block admin" below): door 1 says "isn't open for adoption yet" (`DOOR_NOT_OFFERED`) and offers care alone, and door 2 drops "join them".
+An unoffered bed is a normal state — the six W 171st beds seed that way — not a bed to be "fixed" by restoring the button the rules would then refuse.
 
 **The two doors stand on different grounds, deliberately.**
 Door 1 is Poster Beige — the page ground — with no highlight on the tree type, so its headline reads as one plain sentence; its buttons are the page ground's pair, Deep Purple for adopt and a Roadtop Black outline for care.
@@ -143,7 +147,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   `netlify blobs:get treebed rev/<n> | jq` covers the readability.
   Growth is still linear in lifetime taps — `events` is append-only with nothing pruning it — which is fine at pilot scale and is the thing to revisit (a separate append-only key, or sampling) before traffic accumulates.
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
-  Two-slot cap, one-report-per-person-per-bed-per-NY-day, single open report per bed, one applause per person per bed per NY day, escalate-to-dumping-once, one photo per NY week, the note cap, PIN hashing.
+  The per-bed slot cap (`min(slots, offeredSlots)`, and `slots` itself bounded by `MAX_BED_SLOTS`), one-report-per-person-per-bed-per-NY-day, single open report per bed, one applause per person per bed per NY day, escalate-to-dumping-once, one photo per NY week, the note cap, the typed-field caps (`MAX_NAME_CHARS` / `MAX_EMAIL_CHARS` / `MAX_ADDRESS_CHARS` / `MAX_TREE_TYPE_CHARS`, trimmed rather than refused), PIN hashing.
   Anything in the browser is editable in devtools (spec §7).
 - **A rule that checks state before writing it runs inside `store.transaction()`, and reads and writes through the `tx` the callback is handed — never through the store it came from.**
   A bare sequence of store calls interleaves with concurrent requests, and two reports open on one bed is unrecoverable through the UI — `closeReport` only ever finds the first.
@@ -184,7 +188,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - Where a PIN still exists (the pre-existing `/auth` screens and the seeded steward), it is bcrypt-hashed (`hashPin`/`verifyPin` in service.ts). Never store, log, or echo a plaintext PIN.
   The adopt form has no field to re-fill: it collects no secret, so everything the visitor typed comes back on a validation error.
 - **`MAX_INFLIGHT_PIN_HASHES` (service.ts, 4) bounds the backlog a PIN hash can build, not how many PINs may be tried and not the CPU itself.**
-  It covers `/auth` only. `/adopt` used to hash too; passwordless removed that, so the only work a flood can buy there is two slots' worth of reads.
+  It covers `/auth` only. `/adopt` used to hash too; passwordless removed that, so the only work a flood can buy there is the bed's offered slots, at a few reads each.
   `request-body.ts` bounds bytes, time and concurrency for every public POST, but it releases a read's share of `MAX_INFLIGHT_BODY_BYTES` before any rule runs, and a bcrypt is ~150–300ms of the one thread that also serves every tap.
   So `/auth` is the one place an anonymous caller can still queue unbounded work: a few dozen POSTs a second saturate the loop and every tap, report and applause stalls behind however many hashes the flood managed to start.
   Past the bound the request is shed rather than queued — waiting in line for a saturated CPU is the stall, not the cure — and `signIn` takes its slot *before* the username lookup, so being shed can't reveal what the constant-time compare below is there to hide.
@@ -312,18 +316,36 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 
 - Supabase/Postgres/PostGIS, R2, any hosted service — the store swap is designed for this.
 - Photo storage (the care sheet's attach affordance records only `photoAttached`), points/streak earning rules, the 1-day grace period, 311 handoff, NFC tag cryptographic verification, provisioning flow.
-- **The block admin page.** It is drawn in the approved screens and is a separate, later task — per-slot switches, add-slot, the typed reference address, the NFC-vs-pen-and-paper distinction, and stewards you click through for contact details.
-  Do not let it leak into visitor-flow work.
-  The model already carries what it will need (`Adoption.stewardKind`, `User.hasSignInRoute`, `User.recordHeldOnBehalf`), and it must be bilingual like everything else.
-- **Group theming.** `presentation.ts` is shaped for it and must not grow it.
+- **Group theming.** `presentation.ts` is shaped for it and must not grow it — `Block` (types.ts) is an admin grouping, deliberately NOT the theming seam.
+- **Pen-and-paper steward outreach.** `User.recordHeldOnBehalf` marks who to reach when a contact route exists; nothing contacts anyone, and a missing email is never consent to be contacted.
 - The block-over-time view, deliberately pulled from the visitor flow and kept admin-only.
 - The NYC Open Data sync itself.
   `Bed.nycSyncedAt` / `nycMissingSince` are the fields it will write.
 - Streak/points on the steward's own view render stored values only; nothing increments them yet.
 
+## The block admin (/admin)
+
+The captain's own surface — the one place full names, emails and phones render — built to `data/block-admin-w171/approved-screens.html` (desktop two-pane and the phone flow are ONE route, `src/pages/admin/blocks/[block]/index.astro`, switched by `?bed=`/`?steward=` params and a media query, so every state is a link and it all works with no script).
+`/admin` itself is the key screen and, behind the session, the block list — real blocks before `demo` ones.
+`add-steward.astro` and `add-bed.astro` sit beside the block page as the two forms that need a page of their own.
+
+- **Gate: `TREEBED_ADMIN_KEY`** (session.ts). Unset in production, every /admin route answers 404 — a deploy that never configured a key has no admin. Dev generates one into `.data/admin-key`. The signed `tg_admin` cookie lasts 30 days. This is deliberately NOT a username+PIN: the /auth screens are the dead end nothing builds on, and a long random key costs no bcrypt and offers no enumeration. Per-IP throttling is still the platform-tier debt recorded in request-body.ts.
+- **`Bed.offeredSlots` is a rule, not a display state**: `adoptBed` refuses past `min(slots, offeredSlots)`, and `BedView.openSlots` is derived from that same bound — the door screen and `adopt.astro` gate the invitation on it, so an unoffered bed shows no adopt button and no form the rules would then have to refuse. The six W 171st beds seed with `offeredSlots: 0` — opening one is the captain's act, on this page.
+  The switches submit slot NUMBERS, not a count: `offeredSlots` covers slots 1..n, so a gapped selection is refused (bilingual, 422, switches re-rendered as submitted) rather than saved as its size, which would flip a switch nobody touched.
+- **`POST /admin/sign-out` closes the session**, and the control sits in the admin bar on every admin screen (`AdminScreen.astro`) — the 30-day `tg_admin` cookie opens PII on a phone that gets handed around, and the alternatives were clearing site data or rotating the key for everyone.
+- The guard is two nullable dates (`guardOrderedAt`/`guardInstalledAt`, derived `guardStatus`), so the admin toggle can flip installs without ever losing "ordered".
+- `addStewardByAdmin` is the sidewalk case: email optional, `hasSignInRoute: false`, `recordHeldOnBehalf: true`, adoption `stewardKind: 'pen-and-paper'`. It may fill an unoffered slot (writing a neighbour in is the point) but never past `slots`. A typed username that collides is refused, not mutated.
+- **NYC identifiers are resolved or null, never invented.** The six beds' `plantingSpaceId`/`plantingSpaceGlobalId`/`treeId` were resolved against NYC's Forestry Planting Spaces (`82zj-84is`) and Tree Points (`hn5i-inap`) — method and citations sit on `w171Beds()` in store-dataset.ts. `addBedByAdmin` creates beds with null NYC fields and the panel prints the unresolved marker; keep it that way.
+- Admin styles are `src/styles/admin.css` — same law as global.css: no hex anywhere, tints via `color-mix` on the `--theme-*` roles, so the presentation tests still hold the whole surface.
+- The admin is bilingual like everything else (`ADMIN` in copy.ts); tests/i18n.test.ts names the only three identical-in-both entries (ADMIN, NFC, DEMO) and fails any new one.
+
 ## Seed data
 
-One hand-seeded bed `BED-HRL-0847` — NYC planting space `#15850293`, a willow oak — with seeded steward `marisol_r` (Marisol Rivera, shown publicly as `@marisol_r` / `M. R.`).
+**The captain's real block seeds and BACKFILLS: `w-171-fort-washington-haven`, reference address 708 W 171st — six real beds `BED-WH-1711`…`1716` (five willow oaks, guards ordered; one white oak at position 5, no guard coming), each bound to its real NYC planting space.**
+`ensureCheckedInBlocks` (store-dataset.ts) runs inside `normalizeData`, so an already-seeded store — the LIVE pilot store included — gains the blocks and beds on its next load, insert-only by key: nothing the captain edits on the admin page is ever overwritten by a later load. That is how new checked-in records reach live data without a migration step; follow the same shape for the next block.
+
+One hand-seeded DEMO bed `BED-HRL-0847` — planting space `#15850293`, which is a mockup number matching NO real NYC record (checked 2026-09-10), a willow oak — with seeded steward `marisol_r` (Marisol Rivera, shown publicly as `@marisol_r` / `M. R.`).
+It deliberately lives in its own `demo`-flagged block (`w-138-acp-demo`), never in the captain's, so the admin can reach its live pilot history without a fake bed reading as part of a real street.
 On the local store it is created on first boot with PIN `1234` — demo credentials for driving the sign-in flow locally.
 The checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed, so `/t/2mq2amhv` renders on first run; the e2e suite and the site-root redirect both key off that binding.
 
@@ -349,6 +371,7 @@ A surviving `head` is the store's own proof that it has been written to, and `Bl
 - **The environment is split by when it is read, and each key lives in exactly one place.**
   `netlify.toml`'s `[build.environment]` is the sole source for the build-time keys — `TREEBED_ADAPTER=netlify`, `NODE_VERSION=22`, and `AWS_LAMBDA_JS_RUNTIME=nodejs22.x` (functions default to an older Node than `engines` demands, and that failure shows up at request time rather than at build time) — so a recreated or duplicated site builds and runs correctly without anyone remembering an `env:set`.
   Site-level environment carries only the runtime keys: `TREEBED_SESSION_SECRET` (secret, generated — never in the repo) and `TREEBED_STORE=blobs`.
+  `TREEBED_ADMIN_KEY` is the third runtime key and belongs there too if the pilot is ever to have an admin — never in `netlify.toml`, which is checked in, so a key there would be a published one; while it is unset every `/admin` route on the deployed site answers 404.
   **None of the three build-time keys is to be set with `netlify env:set`**: a site-level variable silently overrides `[build.environment]`, so a duplicate would leave this file documented as the source of truth while the site quietly won, and an edit here would have no effect on the deploy.
   The earlier site-level copies of all three have been unset accordingly.
   Checking that is itself a trap: `netlify env:list` run *inside the repo* merges `[build.environment]` into its output, so the build-time keys appear whether or not the site holds them — site-only state has to be checked from outside a checkout.

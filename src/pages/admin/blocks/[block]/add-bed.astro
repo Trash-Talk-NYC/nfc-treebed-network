@@ -1,0 +1,99 @@
+---
+// "+ ADD A BED" — a new bed on the block, from the sidewalk.
+//
+// The new record starts closed with one slot and NO NYC identifiers: a
+// planting space number is matched against NYC's own data or stays null with
+// the admin panel saying so — it is never typed free-hand and never invented,
+// because a fabricated identifier is indistinguishable from a real one
+// (service.ts, `addBedByAdmin`).
+import AdminScreen from '../../../../layouts/AdminScreen.astro';
+import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
+import { bi } from '../../../../lib/bilingual';
+import { ADMIN, COMMON } from '../../../../lib/copy';
+import { langLink, resolveLang, type Lang } from '../../../../lib/i18n';
+import { defaultPresentation } from '../../../../lib/presentation';
+import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
+import { MAX_TREE_TYPE_CHARS, RuleError, addBedByAdmin } from '../../../../lib/service';
+import { getStore } from '../../../../lib/store';
+
+const lang: Lang = resolveLang(Astro.url, Astro.cookies);
+const gate = await requireAdmin(Astro.request, Astro.cookies, langLink('/admin', lang));
+if (gate.refused) return gate.refused;
+
+const store = getStore();
+const blockId = Astro.params.block ?? '';
+const block = await store.getBlock(blockId);
+if (!block) {
+  return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
+}
+
+const base = `/admin/blocks/${blockId}`;
+let treeEn = '';
+let treeEs = '';
+let missing = false;
+
+if (Astro.request.method === 'POST') {
+  const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'bed form');
+  if (refused) return refused;
+  treeEn = String(form.get('treeTypeEn') ?? '').trim();
+  treeEs = String(form.get('treeTypeEs') ?? '').trim();
+  try {
+    const bed = await addBedByAdmin(store, { blockId, treeType: { en: treeEn, es: treeEs } });
+    return Astro.redirect(langLink(`${base}?bed=${bed.plate}`, lang), 303);
+  } catch (err) {
+    if (err instanceof RuleError && err.code === 'invalid-input') {
+      missing = true;
+    } else {
+      throw err;
+    }
+  }
+}
+
+const presentation = defaultPresentation();
+---
+
+<AdminScreen
+  title={`${ADMIN.addBedTitle[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <form method="POST" action={langLink(`${base}/add-bed`, lang)} class="admin-narrow bed-form">
+    <a class="admin-backlink admin-backlink--always" href={langLink(base, lang)}>
+      ← {block.referenceAddress}
+    </a>
+    <h1 class="admin-title" {...bi(ADMIN.addBedTitle, lang)}>{ADMIN.addBedTitle[lang]}</h1>
+    <p class="body-copy" {...bi(ADMIN.addBedBody, lang)}>{ADMIN.addBedBody[lang]}</p>
+
+    <div>
+      <label class="field-label" for="treeTypeEn" {...bi(ADMIN.treeTypeEn, lang)}
+        >{ADMIN.treeTypeEn[lang]}</label
+      >
+      <input class="field-input" id="treeTypeEn" name="treeTypeEn" type="text" maxlength={MAX_TREE_TYPE_CHARS} value={treeEn} />
+      {
+        missing && (
+          <div class="field-error" {...bi(ADMIN.treeTypeMissing, lang)}>
+            {ADMIN.treeTypeMissing[lang]}
+          </div>
+        )
+      }
+    </div>
+    <div>
+      <label class="field-label" for="treeTypeEs">
+        <span {...bi(ADMIN.treeTypeEs, lang)}>{ADMIN.treeTypeEs[lang]}</span>{' '}
+        <span class="field-note">· <span {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span></span>
+      </label>
+      <input class="field-input" id="treeTypeEs" name="treeTypeEs" type="text" maxlength={MAX_TREE_TYPE_CHARS} value={treeEs} />
+    </div>
+
+    <button class="btn btn-tall btn-action" type="submit" {...bi(ADMIN.addBedSubmit, lang)}>
+      {ADMIN.addBedSubmit[lang]}
+    </button>
+  </form>
+</AdminScreen>
+
+<style>
+  .bed-form {
+    margin: 0 auto;
+  }
+</style>

@@ -1,0 +1,132 @@
+---
+// The shell every block-admin screen renders inside.
+//
+// The same three decisions Screen.astro holds for the tap flow are held here
+// for the admin, plus one of its own:
+//
+//  1. SAFE AREAS. `viewport-fit=cover` arms env(safe-area-inset-*); the
+//     paddings in admin.css ADD the insets to the design's own spacing. The
+//     captain runs this page standing on the sidewalk, so the phone layout is
+//     first-class, not a squeezed desktop.
+//  2. THE THEME. Custom properties from presentation.ts on the root element;
+//     nothing downstream names a colour (admin.css mixes its tints from the
+//     roles).
+//  3. THE LANGUAGE. `<html lang>`, both languages in the document, and the
+//     toggle in the admin bar — the admin is held to constraint 11 like every
+//     visitor screen.
+//  4. THE FRAME IS WIDE. The tap flow is a 430px column; the admin is a desk
+//     page that collapses to one pane on a phone (admin.css). That is why
+//     this is a second layout rather than a prop on Screen.astro.
+import '../styles/global.css';
+import '../styles/admin.css';
+import { bi, biAttr } from '../lib/bilingual';
+import { ADMIN, LANG_COPY } from '../lib/copy';
+import { langLink, otherLang, withLang, type Lang } from '../lib/i18n';
+import { themeStyle, type Presentation } from '../lib/presentation';
+import { isAdminSession } from '../lib/session';
+
+interface Props {
+  title: string;
+  lang: Lang;
+  presentation: Presentation;
+  /** The URL the toggle rewrites — always the screen's own. */
+  url: URL;
+}
+
+const { title, lang, presentation, url } = Astro.props;
+
+// The way out of a 30-day PII session, on every screen that session opens.
+// A plain form, so it needs no script; the key screen has nothing to sign
+// out of.
+const signedIn = isAdminSession(Astro.cookies);
+---
+
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="utf-8" />
+    {/* viewport-fit=cover: without it env(safe-area-inset-*) is 0 everywhere. */}
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content={presentation.colors.ink} />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" href="data:," />
+    <title>{title}</title>
+  </head>
+  <body style={themeStyle(presentation.colors)}>
+    <div class="admin-frame">
+      <header class="admin-bar">
+        <span class="brand"
+          >{presentation.copy.wordmark} · <span {...bi(ADMIN.adminLabel, lang)}
+            >{ADMIN.adminLabel[lang]}</span
+          ></span
+        >
+        <span class="crumb">{url.pathname}</span>
+        <a
+          class="admin-lang"
+          data-lang-toggle
+          href={withLang(url, otherLang(lang))}
+          {...biAttr('aria-label', LANG_COPY.toggleLabel, lang)}
+          {...bi(LANG_COPY.toggleText, lang)}>{LANG_COPY.toggleText[lang]}</a
+        >
+        {
+          signedIn && (
+            <form method="POST" action={langLink('/admin/sign-out', lang)} class="admin-signout-form">
+              <button class="admin-signout" type="submit" {...bi(ADMIN.signOut, lang)}>
+                {ADMIN.signOut[lang]}
+              </button>
+            </form>
+          )
+        }
+      </header>
+      <slot />
+    </div>
+    <script is:inline>
+      // The language toggle's instant swap — the same enhancement, and the
+      // same standard, as the tap flow's (src/layouts/Screen.astro, where the
+      // mechanism is explained): the server render is already correct, and
+      // with no script the toggle is a plain link.
+      (function () {
+        var toggle = document.querySelector('[data-lang-toggle]');
+        if (!toggle) return;
+        var YEAR = 60 * 60 * 24 * 365;
+
+        function apply(lang) {
+          var other = lang === 'es' ? 'en' : 'es';
+          document.documentElement.lang = lang;
+          document.querySelectorAll('[data-bi]').forEach(function (el) {
+            var next = el.getAttribute('data-' + lang);
+            if (next !== null) el.textContent = next;
+            el.setAttribute('data-bi', lang);
+          });
+          ['placeholder', 'alt', 'aria-label', 'title'].forEach(function (name) {
+            document.querySelectorAll('[data-' + lang + '-' + name + ']').forEach(function (el) {
+              el.setAttribute(name, el.getAttribute('data-' + lang + '-' + name));
+            });
+          });
+          [
+            ['a[href]', 'href'],
+            ['form[action]', 'action'],
+          ].forEach(function (pair) {
+            document.querySelectorAll(pair[0]).forEach(function (el) {
+              var value = el.getAttribute(pair[1]);
+              if (!value || value.indexOf('/') !== 0) return;
+              var url = new URL(value, location.origin);
+              if (lang === 'en') url.searchParams.delete('lang');
+              else url.searchParams.set('lang', lang);
+              el.setAttribute(pair[1], url.pathname + url.search + url.hash);
+            });
+          });
+          var self = new URL(location.href);
+          self.searchParams.set('lang', other);
+          toggle.setAttribute('href', self.pathname + self.search);
+          document.cookie = 'tg_lang=' + lang + ';path=/;max-age=' + YEAR + ';samesite=lax';
+        }
+
+        toggle.addEventListener('click', function (event) {
+          event.preventDefault();
+          apply(document.documentElement.lang === 'es' ? 'en' : 'es');
+        });
+      })();
+    </script>
+  </body>
+</html>

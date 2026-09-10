@@ -12,7 +12,12 @@ import {
   withLang,
 } from '../src/lib/i18n';
 import * as COPY from '../src/lib/copy';
-import { relativeAge, sinceLabel } from '../src/lib/format';
+import {
+  relativeAge,
+  sinceLabel,
+  slotsAllTakenMessage,
+  slotsJustFilledMessage,
+} from '../src/lib/format';
 import { PROBLEMS } from '../src/lib/problem';
 
 /** Just enough of Astro's cookie API for the two calls i18n makes. */
@@ -114,11 +119,18 @@ describe('the dictionary', () => {
   });
 
   it('has actually been translated, not copied across', () => {
-    // "PIN" is the same word in both, and is the only entry that legitimately
-    // is. Everything else differing is what "translated" means, and this is
-    // what catches a screen added in English with the Spanish copied across.
+    // A named few are the same word in both languages and legitimately so:
+    // "PIN", "ADMIN", "DEMO" and "NFC" are what a Spanish speaker on this
+    // block says too. Everything else differing is what "translated" means,
+    // and this is what catches a screen added in English with the Spanish
+    // copied across.
     const identical = phrases.filter(([, p]) => p.en === p.es).map(([name]) => name);
-    expect(identical).toEqual(['AUTH.pin']);
+    expect(identical).toEqual([
+      'AUTH.pin',
+      'ADMIN.adminLabel',
+      'ADMIN.demoBadge',
+      'ADMIN.badgeNfcShort',
+    ]);
   });
 
   it('names all four problem categories in both languages', () => {
@@ -207,6 +219,7 @@ describe('the rendered surface', () => {
     // (AGENTS.md): nothing renders those to a person.
     ['request-body.ts', 'transport refusals, English-only by decision'],
     ['tag-route.ts', 'transport refusals, English-only by decision'],
+    ['admin-route.ts', 'transport refusals, English-only by decision'],
     ['service.ts', 'rule codes and error messages, never rendered'],
     ['store.ts', 'configuration errors, never rendered'],
     ['store-dataset.ts', 'seed data and configuration errors'],
@@ -274,6 +287,23 @@ describe('the strings that are formatted rather than looked up', () => {
     expect(relativeAge(at(3 * 24 * 60))).toEqual({ en: '3 DAYS AGO', es: 'HACE 3 DÍAS' });
     // A clock that has run backwards is "just now", not a negative age.
     expect(relativeAge(at(-5))).toEqual({ en: 'JUST NOW', es: 'AHORA MISMO' });
+  });
+
+  it('counts a bed’s slots rather than assuming two of them', () => {
+    // The six W 171st beds hold one slot, so "Both slots are taken" is false
+    // on the captain's own block — in both languages.
+    expect(slotsAllTakenMessage(1).en).toContain('The only slot is taken.');
+    expect(slotsAllTakenMessage(1).es).toContain('El único lugar está ocupado.');
+    expect(slotsAllTakenMessage(2).en).toContain('Both slots are taken.');
+    expect(slotsAllTakenMessage(3).es).toContain('Los 3 lugares están ocupados.');
+    expect(slotsJustFilledMessage(1).en).toContain('The only slot just filled up.');
+    expect(slotsJustFilledMessage(2).es).toContain('Los dos lugares se acaban de ocupar.');
+    expect(slotsJustFilledMessage(4).en).toContain('All 4 slots just filled up.');
+    for (const slots of [1, 2, 3]) {
+      for (const phrase of [slotsAllTakenMessage(slots), slotsJustFilledMessage(slots)]) {
+        expect(phrase.es).not.toBe(phrase.en);
+      }
+    }
   });
 
   it('names the month a steward started in, in their own language', () => {

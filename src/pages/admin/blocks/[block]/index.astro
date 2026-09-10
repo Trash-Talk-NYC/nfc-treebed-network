@@ -1,0 +1,624 @@
+---
+// The block admin page (design-record.md, constraint 10; approved-screens
+// section 1): the typed reference address, one row per bed down the street,
+// and the opened bed's controls — guard toggle, per-slot adoption switches,
+// add-slot, the steward click-through — behind one SAVE CHANGES.
+//
+// One markup serves both approved layouts. Above 860px it is the two-pane
+// desk page; below, it is the phone flow — the list, or the opened bed over
+// it — switched by the `mode-*` class from the URL's own `?bed=` / `?steward=`
+// params, so every state is a link and the whole page works with no script.
+// The one enhancement is the honest unsaved-changes line, which only ever
+// CLAIMS dirt when a script has watched it happen; without the script the
+// line states what the server last knew.
+import AdminScreen from '../../../../layouts/AdminScreen.astro';
+import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
+import { bi } from '../../../../lib/bilingual';
+import { ADMIN, ADOPT, AUTH, COMMON } from '../../../../lib/copy';
+import { sinceLabel, slotsFilledLabel } from '../../../../lib/format';
+import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
+import { defaultPresentation, presentationFor } from '../../../../lib/presentation';
+import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
+import {
+  MAX_ADDRESS_CHARS,
+  MAX_BED_SLOTS,
+  RuleError,
+  getBlockView,
+  saveBlockSettings,
+  type AdminBedView,
+} from '../../../../lib/service';
+import { getStore } from '../../../../lib/store';
+import { guardStatus, publicHandle, publicInitials } from '../../../../lib/types';
+
+const lang: Lang = resolveLang(Astro.url, Astro.cookies);
+const gate = await requireAdmin(Astro.request, Astro.cookies, langLink('/admin', lang));
+if (gate.refused) return gate.refused;
+
+const store = getStore();
+const blockId = Astro.params.block ?? '';
+
+// A refused save — and a "+ ADD SLOT" press, which writes nothing — re-render
+// this page rather than redirecting, so the switches come back exactly as they
+// were left: the point of refusing is that nothing silently becomes a
+// different selection, and the point of the press is that nothing is committed
+// until SAVE CHANGES.
+let slotError: Phrase | null = null;
+let submitted: { address: string; guard: boolean; slots: Set<number>; addSlots: number } | null =
+  null;
+
+if (Astro.request.method === 'POST') {
+  // Behind the session, but read under the same bounds as every public POST:
+  // a cookie is not a licence for an unbounded body (request-body.ts).
+  const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'admin save');
+  if (refused) return refused;
+  const plate = String(form.get('plate') ?? '');
+  const referenceAddress = String(form.get('referenceAddress') ?? '');
+  const guardInstalled = form.get('guard') !== null;
+  // The slot NUMBERS, not how many of them there are: `offeredSlots` is a
+  // count covering slots 1..n, so a gapped selection has no representation
+  // and saving its size would flip a different switch than the captain did.
+  const offeredSlotNumbers = form.getAll('slot-open').map((value) => Number(value));
+  // How many slots the page in front of the captain had drawn past the bed's
+  // stored count, carried in one hidden field so a press accumulates rather
+  // than replacing what an earlier one added.
+  const carriedSlots = form
+    .getAll('add-slot')
+    .reduce((total, value) => total + (Number.isFinite(Number(value)) ? Number(value) : 0), 0);
+  // "+ ADD SLOT" is page-local: it draws one more switch and writes NOTHING.
+  // SAVE CHANGES is the single commit point the panel already claims to have,
+  // so a mis-tap costs a re-render rather than growing the bed for good — a
+  // slot cannot be taken back once it is stored. No script is involved: the
+  // press is a plain submit and the answer is the panel, redrawn.
+  const addSlots = form.get('intent') === 'add-slot' ? carriedSlots + 1 : carriedSlots;
+  const asSubmitted = (): NonNullable<typeof submitted> => ({
+    address: referenceAddress,
+    guard: guardInstalled,
+    slots: new Set(offeredSlotNumbers.filter(Number.isFinite)),
+    addSlots,
+  });
+  if (form.get('intent') === 'add-slot') {
+    submitted = asSubmitted();
+  } else {
+    try {
+      await saveBlockSettings(store, {
+        blockId,
+        referenceAddress,
+        bed:
+          plate === ''
+            ? undefined
+            : {
+                plate,
+                guardInstalled,
+                offeredSlotNumbers,
+                addSlots,
+              },
+      });
+    } catch (err) {
+      if (err instanceof RuleError && err.code === 'bed-not-found') {
+        return new Response('Not found.', { status: 404 });
+      }
+      if (
+        err instanceof RuleError &&
+        (err.code === 'invalid-input' || err.code === 'slot-out-of-range')
+      ) {
+        // Two refusals, two explanations: a gap in the switches is something
+        // to reorder, a slot number this bed does not have is a page that has
+        // gone stale — telling the captain to reorder switches already in
+        // order explains nothing.
+        slotError =
+          err.code === 'slot-out-of-range' ? ADMIN.slotOutOfRange : ADMIN.slotsNotContiguous;
+        submitted = asSubmitted();
+        Astro.response.status = 422;
+      } else {
+        throw err;
+      }
+    }
+  }
+  if (submitted === null) {
+    const params = new URLSearchParams();
+    if (plate !== '') params.set('bed', plate);
+    params.set('saved', '1');
+    return Astro.redirect(langLink(`/admin/blocks/${blockId}?${params}`, lang), 303);
+  }
+}
+
+const view = await getBlockView(store, blockId);
+if (!view) {
+  return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
+}
+const { block, beds } = view;
+
+const selected = beds.find((b) => b.bed.plate === Astro.url.searchParams.get('bed')) ?? null;
+const steward =
+  selected?.stewards.find((s) => s.user.id === Astro.url.searchParams.get('steward')) ?? null;
+const savedFlash = Astro.url.searchParams.get('saved') === '1';
+const mode = selected ? 'panel' : 'list';
+// The slot count the panel draws. A "+ ADD SLOT" press — and a refused save
+// that had made one — comes back with that slot on the page, and a hidden
+// field carries it into the next submit, so nothing but SAVE CHANGES grows
+// the bed and the switch flipped on it still has somewhere to be.
+const panelSlots = selected
+  ? Math.min(MAX_BED_SLOTS, selected.bed.slots + (submitted?.addSlots ?? 0))
+  : 0;
+
+const presentation = selected
+  ? presentationFor(selected.bed)
+  : beds[0]
+    ? presentationFor(beds[0].bed)
+    : defaultPresentation();
+
+const base = `/admin/blocks/${blockId}`;
+const bedLink = (plate: string): string => langLink(`${base}?bed=${plate}`, lang);
+
+/** "Willow oak · #2" — the bed list row. */
+const bedName = (b: AdminBedView): Phrase => ({
+  en: `${b.bed.treeType.en} · #${b.bed.blockPosition ?? ''}`,
+  es: `${b.bed.treeType.es} · #${b.bed.blockPosition ?? ''}`,
+});
+
+/** "Willow oak · bed #2" — the opened panel's heading. */
+const bedHeading = (b: AdminBedView): Phrase => ({
+  en: `${b.bed.treeType.en} · bed #${b.bed.blockPosition ?? ''}`,
+  es: `${b.bed.treeType.es} · cantero #${b.bed.blockPosition ?? ''}`,
+});
+
+const GUARD_LABEL = {
+  installed: ADMIN.guardInstalled,
+  ordered: ADMIN.guardOrdered,
+  none: ADMIN.guardNone,
+} as const;
+
+/** At a glance (spec): adopted — and HOW — versus open versus not offered. */
+function bedState(b: AdminBedView): { dot: string; badge: Phrase; badgeClass: string } {
+  if (b.stewards.length > 0) {
+    const paper = b.stewards.some(({ adoption }) => adoption.stewardKind === 'pen-and-paper');
+    return {
+      dot: 'dot-adopted',
+      badge: paper ? ADMIN.badgePaper : ADMIN.badgeNfc,
+      badgeClass: paper ? 'badge-paper' : 'badge-nfc',
+    };
+  }
+  if (b.bed.offeredSlots > 0)
+    return { dot: 'dot-open', badge: ADMIN.badgeOpen, badgeClass: 'b-open' };
+  return { dot: 'dot-closed', badge: ADMIN.badgeClosed, badgeClass: 'b-closed' };
+}
+
+// `submitted` is set by a refused save and by an add-slot press alike, and
+// both leave something on the page the store does not have yet.
+const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.noUnsaved;
+---
+
+<AdminScreen
+  title={`${block.referenceAddress} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <form
+    method="POST"
+    action={langLink(Astro.url.search === '' ? base : `${base}${Astro.url.search}`, lang)}
+    data-admin-form
+    class="admin-card"
+  >
+    {/* The form's DEFAULT button, deliberately first and carrying nothing:
+        pressing Enter in the address field submits a plain save. Without it
+        the first submit in tree order is "+ ADD SLOT", and Enter would redraw
+        the panel with a slot nobody asked for instead of saving. */}
+    <button type="submit" hidden aria-hidden="true" tabindex="-1"></button>
+    <div class={`admin-body mode-${mode}`}>
+      <div class="admin-left">
+        {/* The steward view has no save button, so it gets no editable
+            address either: an Enter in the field there would submit through
+            the hidden default button, save the block with no `plate`, and
+            drop both the open bed and the steward being read. A view with
+            nothing to submit cannot submit the wrong thing. */}
+        <label class="addrbar">
+          <span class="addr-label" {...bi(ADMIN.refAddress, lang)}>{ADMIN.refAddress[lang]}</span>
+          {steward ? (
+            <span class="addr-static">{block.referenceAddress}</span>
+          ) : (
+            <input
+              name="referenceAddress"
+              maxlength={MAX_ADDRESS_CHARS}
+              value={submitted ? submitted.address : block.referenceAddress}
+              autocomplete="off"
+            />
+          )}
+          {/* SAVE CHANGES stands beside the address only once a bed is open.
+              Without one the field's only commit path is Enter, which nothing
+              on screen offers — least of all a phone keyboard's Go key. */}
+          {!steward && !selected && (
+            <button class="addr-save" type="submit" {...bi(ADMIN.saveAddress, lang)}>
+              {ADMIN.saveAddress[lang]}
+            </button>
+          )}
+        </label>
+        <div class="blockmeta">
+          {
+            block.demo && (
+              <span class="badge b-demo" {...bi(ADMIN.demoBadge, lang)}>
+                {ADMIN.demoBadge[lang]}
+              </span>
+            )
+          }
+        </div>
+
+        <div class="street">
+          {
+            beds.map((b) => {
+              const state = bedState(b);
+              const name = bedName(b);
+              const guard = GUARD_LABEL[guardStatus(b.bed)];
+              return (
+                <a class:list={['tree', { sel: b.bed.plate === selected?.bed.plate }]} href={bedLink(b.bed.plate)}>
+                  <span class={`dot ${state.dot}`} />
+                  <span class="nm">
+                    <span {...bi(name, lang)}>{name[lang]}</span>
+                    <small>
+                      {b.bed.plate} · <span {...bi(guard, lang)}>{guard[lang]}</span>
+                    </small>
+                  </span>
+                  <span class:list={['badge', state.badgeClass]} {...bi(state.badge, lang)}>
+                    {state.badge[lang]}
+                  </span>
+                </a>
+              );
+            })
+          }
+        </div>
+
+        <div class="legend">
+          <span
+            ><i class="dot-adopted"></i><span {...bi(ADMIN.legendAdopted, lang)}
+              >{ADMIN.legendAdopted[lang]}</span
+            ></span
+          >
+          <span
+            ><i class="dot-open"></i><span {...bi(ADMIN.legendOpen, lang)}
+              >{ADMIN.legendOpen[lang]}</span
+            ></span
+          >
+          <span
+            ><i class="dot-closed"></i><span {...bi(ADMIN.legendClosed, lang)}
+              >{ADMIN.legendClosed[lang]}</span
+            ></span
+          >
+        </div>
+
+        <a class="add-bed" href={langLink(`${base}/add-bed`, lang)} {...bi(ADMIN.addBed, lang)}
+          >{ADMIN.addBed[lang]}</a
+        >
+      </div>
+
+      <div class="admin-right">
+        {
+          selected && steward ? (
+            <>
+              <a class="admin-backlink admin-backlink--always" href={bedLink(selected.bed.plate)}>
+                ← <span {...bi(bedHeading(selected), lang)}>{bedHeading(selected)[lang]}</span>
+              </a>
+              <div class="who">
+                {publicHandle(steward.user)}
+                <small>
+                  {publicInitials(steward.user)} ·{' '}
+                  <span {...bi(sinceLabel(new Date(steward.adoption.adoptedAt)), lang)}>
+                    {sinceLabel(new Date(steward.adoption.adoptedAt))[lang]}
+                  </span>
+                </small>
+              </div>
+              <dl class="kv">
+                <div>
+                  <dt {...bi(ADOPT.firstName, lang)}>{ADOPT.firstName[lang]}</dt>
+                  <dd>{steward.user.firstName}</dd>
+                </div>
+                <div>
+                  <dt {...bi(ADOPT.lastName, lang)}>{ADOPT.lastName[lang]}</dt>
+                  <dd>{steward.user.lastName}</dd>
+                </div>
+                <div>
+                  <dt {...bi(AUTH.username, lang)}>{AUTH.username[lang]}</dt>
+                  <dd>{publicHandle(steward.user)}</dd>
+                </div>
+                <div>
+                  <dt {...bi(ADOPT.email, lang)}>{ADOPT.email[lang]}</dt>
+                  {steward.user.email === '' ? (
+                    <dd class="none" {...bi(ADMIN.noContactValue, lang)}>
+                      {ADMIN.noContactValue[lang]}
+                    </dd>
+                  ) : (
+                    <dd>{steward.user.email}</dd>
+                  )}
+                </div>
+                <div>
+                  <dt {...bi(ADOPT.phone, lang)}>{ADOPT.phone[lang]}</dt>
+                  {steward.user.phone === '' ? (
+                    <dd class="none" {...bi(ADMIN.noContactValue, lang)}>
+                      {ADMIN.noContactValue[lang]}
+                    </dd>
+                  ) : (
+                    <dd>{steward.user.phone}</dd>
+                  )}
+                </div>
+                <div>
+                  <dt {...bi(ADMIN.kvKind, lang)}>{ADMIN.kvKind[lang]}</dt>
+                  <dd
+                    {...bi(
+                      steward.adoption.stewardKind === 'pen-and-paper' ? ADMIN.kindPaper : ADMIN.kindNfc,
+                      lang,
+                    )}
+                  >
+                    {(steward.adoption.stewardKind === 'pen-and-paper' ? ADMIN.kindPaper : ADMIN.kindNfc)[lang]}
+                  </dd>
+                </div>
+              </dl>
+              {steward.user.email === '' && (
+                <p class="pii" {...bi(ADMIN.noEmailNote, lang)}>
+                  {ADMIN.noEmailNote[lang]}
+                </p>
+              )}
+            </>
+          ) : selected ? (
+            <>
+              <a class="admin-backlink" href={langLink(base, lang)}>
+                ← {block.referenceAddress}
+              </a>
+              <div class="panel-title" {...bi(bedHeading(selected), lang)}>
+                {bedHeading(selected)[lang]}
+              </div>
+              <div class="idline">
+                {selected.bed.plantingSpaceId === null ? (
+                  <span {...bi(ADMIN.nycUnresolved, lang)}>{ADMIN.nycUnresolved[lang]}</span>
+                ) : (
+                  <>#{selected.bed.plantingSpaceId}</>
+                )}{' '}
+                · <span {...bi(ADMIN.oursLabel, lang)}>{ADMIN.oursLabel[lang]}</span>{' '}
+                {selected.bed.plate}
+              </div>
+              <input type="hidden" name="plate" value={selected.bed.plate} />
+
+              <label class="toggle-row guard-row">
+                <span>
+                  <span class="t-lbl">
+                    <span {...bi(ADMIN.guardToggle, lang)}>{ADMIN.guardToggle[lang]}</span>
+                  </span>
+                  <span class="t-sub">
+                    <span {...bi(ADMIN.guardToggleSub, lang)}>{ADMIN.guardToggleSub[lang]}</span>
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  class="sw"
+                  name="guard"
+                  value="1"
+                  checked={submitted ? submitted.guard : selected.bed.guardInstalledAt !== null}
+                />
+              </label>
+
+              <div class="panel-title slots-head" {...bi(slotsFilledLabel(selected.stewards.length, panelSlots), lang)}>
+                {slotsFilledLabel(selected.stewards.length, panelSlots)[lang]}
+              </div>
+              {slotError && (
+                <div class="field-error" {...bi(slotError, lang)}>
+                  {slotError[lang]}
+                </div>
+              )}
+              {Array.from({ length: panelSlots }, (_, i) => i + 1).map((i) => {
+                const filled = selected.stewards[i - 1];
+                if (filled) {
+                  const short =
+                    filled.adoption.stewardKind === 'pen-and-paper'
+                      ? ADMIN.badgePaperShort
+                      : ADMIN.badgeNfcShort;
+                  return (
+                    <div class="slotline">
+                      <span>
+                        <span {...bi(ADMIN.slotWord, lang)}>{ADMIN.slotWord[lang]}</span> {i} ·{' '}
+                        {publicHandle(filled.user)}
+                      </span>
+                      <span
+                        class:list={[
+                          'badge',
+                          filled.adoption.stewardKind === 'pen-and-paper' ? 'badge-paper' : 'badge-nfc',
+                        ]}
+                        {...bi(short, lang)}
+                      >
+                        {short[lang]}
+                      </span>
+                    </div>
+                  );
+                }
+                const offered = submitted ? submitted.slots.has(i) : i <= selected.bed.offeredSlots;
+                const word = offered ? ADMIN.slotOpen : ADMIN.slotNotOffered;
+                return (
+                  <label class="slotline">
+                    <span>
+                      <span {...bi(ADMIN.slotWord, lang)}>{ADMIN.slotWord[lang]}</span> {i} ·{' '}
+                      <span {...bi(word, lang)}>{word[lang]}</span>
+                    </span>
+                    <input type="checkbox" class="sw" name="slot-open" value={i} checked={offered} />
+                  </label>
+                );
+              })}
+              {submitted && submitted.addSlots > 0 && (
+                <input type="hidden" name="add-slot" value={panelSlots - selected.bed.slots} />
+              )}
+              {panelSlots < MAX_BED_SLOTS && (
+                <button class="slotline-act" type="submit" name="intent" value="add-slot" {...bi(ADMIN.addSlot, lang)}>
+                  {ADMIN.addSlot[lang]}
+                </button>
+              )}
+
+              <div class="panel-title stewards-head" {...bi(COMMON.stewards, lang)}>
+                {COMMON.stewards[lang]}
+              </div>
+              {selected.stewards.map(({ adoption, user }) => {
+                const since = sinceLabel(new Date(adoption.adoptedAt));
+                return (
+                  <a
+                    class="stewrow"
+                    href={langLink(`${base}?bed=${selected.bed.plate}&steward=${user.id}`, lang)}
+                  >
+                    <span class="av">{publicInitials(user).replace(/[.\s]/g, '')}</span>
+                    <span class="av-lbl">
+                      {publicHandle(user)}
+                      <small>
+                        {publicInitials(user)} · <span {...bi(since, lang)}>{since[lang]}</span>
+                      </small>
+                    </span>
+                    <span class="go">›</span>
+                  </a>
+                );
+              })}
+              {selected.stewards.length < selected.bed.slots && (
+                <a
+                  class="slotline-act add-steward"
+                  href={langLink(`${base}/add-steward?bed=${selected.bed.plate}`, lang)}
+                  {...bi(ADMIN.addStewardLink, lang)}
+                >
+                  {ADMIN.addStewardLink[lang]}
+                </a>
+              )}
+              <div class="blockmeta" {...bi(ADMIN.stewardHint, lang)}>
+                {ADMIN.stewardHint[lang]}
+              </div>
+
+              <div class="panel-spacer" />
+              <button class="btn btn-action save-btn" type="submit" {...bi(ADMIN.save, lang)}>
+                {ADMIN.save[lang]}
+              </button>
+              <div
+                class="save-state"
+                data-save-state
+                data-dirty={submitted ? 'true' : undefined}
+                data-unsaved-en={ADMIN.unsaved.en}
+                data-unsaved-es={ADMIN.unsaved.es}
+                {...bi(saveState, lang)}
+              >
+                {saveState[lang]}
+              </div>
+              <p class="pii" {...bi(ADMIN.piiNote, lang)}>
+                {ADMIN.piiNote[lang]}
+              </p>
+            </>
+          ) : (
+            <div class="blockmeta select-hint" {...bi(ADMIN.selectBed, lang)}>
+              {ADMIN.selectBed[lang]}
+            </div>
+          )
+        }
+      </div>
+    </div>
+  </form>
+</AdminScreen>
+
+<style>
+  /* The approved screens draw add-affordances as a dashed box with the
+     action ink, not as a street button — this page is chrome, not a plaque. */
+  .add-bed {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 52px;
+    border: 2px dashed var(--theme-border);
+    border-radius: 9px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    color: var(--theme-action);
+    background: transparent;
+    text-decoration: none;
+  }
+  .guard-row {
+    margin-top: 16px;
+    cursor: pointer;
+  }
+  .slots-head {
+    margin-top: 22px;
+  }
+  .stewards-head {
+    margin-top: 24px;
+  }
+  .panel-spacer {
+    flex: 1;
+    min-height: 16px;
+  }
+  .save-btn {
+    margin-top: 12px;
+  }
+  .select-hint {
+    margin: auto;
+    text-align: center;
+  }
+  .add-steward {
+    text-decoration: none;
+    display: block;
+  }
+  .addr-save {
+    flex: none;
+    border: none;
+    background: transparent;
+    padding: 8px 0;
+    font-family: 'Barlow', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--theme-action);
+    cursor: pointer;
+  }
+  /* Reads exactly as the field it stands in for, minus the caret. */
+  .addr-static {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--theme-ink);
+  }
+</style>
+
+<script is:inline>
+  // The honest half of "unsaved changes": the line only ever says dirty once
+  // a change has actually been watched. With no script it states what the
+  // server last knew — saved, or nothing pending — and the save button is a
+  // plain submit either way.
+  (function () {
+    var form = document.querySelector('[data-admin-form]');
+    if (!form) return;
+    // The line itself only renders with a bed open, but the address field is
+    // on every view — so the guard is installed from the form alone and the
+    // line is what is optional, not the protection.
+    var state = document.querySelector('[data-save-state]');
+    function dirty() {
+      if (!state) return;
+      state.setAttribute('data-en', state.getAttribute('data-unsaved-en'));
+      state.setAttribute('data-es', state.getAttribute('data-unsaved-es'));
+      state.textContent = state.getAttribute('data-' + document.documentElement.lang);
+    }
+    // The other half of the same honesty: the bed rows are links inside this
+    // same form, so navigating away drops whatever is in the panel. The
+    // browser asks first rather than the page saving on its own — committing
+    // changes somebody was still deciding about is the worse of the two.
+    // Disarmed by the form's own submit, so saving never prompts.
+    // An add-slot press and a refused save both come back dirty from the
+    // server with no client event to observe, so the flag starts from what
+    // the rendered line already says.
+    var changed = !!state && state.getAttribute('data-dirty') === 'true';
+    function touched() {
+      changed = true;
+      dirty();
+    }
+    form.addEventListener('input', touched);
+    form.addEventListener('change', touched);
+    form.addEventListener('submit', function () {
+      changed = false;
+    });
+    window.addEventListener('beforeunload', function (e) {
+      if (!changed) return;
+      e.preventDefault();
+      // Older browsers need the assignment; the text itself is never shown.
+      e.returnValue = '';
+    });
+  })();
+</script>
