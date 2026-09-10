@@ -4,6 +4,9 @@ The post-tap experience for Trash Talk NYC's NFC tree bed network.
 A pedestrian taps a tag on a tree guard and lands on `/t/<tag>` — an opaque 8-character tag ID, e.g. `/t/2mq2amhv` (production host `https://trashtalknyc.org/t/<id>`; the custom domain is separate work).
 The bed's plate (`BED-HRL-0847`) is an INTERNAL join key and is never rendered — see "The tag URL" and "The two doors" below.
 
+**Every feature-work pull request is opened against `dev`, never against `main`** — `dev` is the default branch and `main` mirrors `prod`.
+This is repeated here, at the top, because automation that picks a base by the conventional name `main` fails the promotion-chain check, and by then the base is already wrong; see "Branching model" below for the whole chain and for the retarget that clears it.
+
 Source-of-truth documents live in the firstmate repo:
 - `data/tap-flow-decision/approved-screens.html` — the approved screens, iterated on directly by the captain across roughly forty rounds. Authoritative for visuals, copy and flow. **Open it in a browser before changing a screen.**
 - `data/tap-flow-decision/design-record.md` — the numbered constraints the captain agreed, with the reasoning, plus the three open questions he answered "undecided, knowingly so" and the safe default each one obliges.
