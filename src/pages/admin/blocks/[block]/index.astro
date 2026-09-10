@@ -472,6 +472,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               <div
                 class="save-state"
                 data-save-state
+                data-dirty={submitted ? 'true' : undefined}
                 data-unsaved-en={ADMIN.unsaved.en}
                 data-unsaved-es={ADMIN.unsaved.es}
                 {...bi(saveState, lang)}
@@ -558,7 +559,10 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     // browser asks first rather than the page saving on its own — committing
     // changes somebody was still deciding about is the worse of the two.
     // Disarmed by the form's own submit, so saving never prompts.
-    var changed = false;
+    // An add-slot press and a refused save both come back dirty from the
+    // server with no client event to observe, so the flag starts from what
+    // the rendered line already says.
+    var changed = state.getAttribute('data-dirty') === 'true';
     function touched() {
       changed = true;
       dirty();
