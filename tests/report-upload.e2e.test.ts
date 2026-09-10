@@ -646,7 +646,7 @@ describe('oversized report uploads, end to end', () => {
     // The report the care case filed is still open, and /clear is what lets
     // the next one be filed: report → clear → report is a loop, and every lap
     // used to append a report and two events to a history nothing prunes. One
-    // GET buys the visitor cookie, so only the adopter gate ends it.
+    // GET buys the visitor cookie, so only the steward gate ends it.
     const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
       reports: Array<{ id: string; closedAt: string | null }>;
       events: Array<{ eventType: string }>;

@@ -102,10 +102,10 @@ describe('seeding', () => {
     expect(marisol?.lastName).toBe('Rivera');
   });
 
-  it('seeds the demo adopter with no PIN anybody knows', async () => {
+  it('seeds the demo steward with no PIN anybody knows', async () => {
     const store = instance();
     // This backend is the publicly tappable one and the plaque engraves the
-    // adopter's handle, so the local demo PIN must not open the account here.
+    // steward's handle, so the local demo PIN must not open the account here.
     await expect(signIn(store, { username: 'marisol_r', pin: '1234' })).rejects.toMatchObject({
       code: 'invalid-credentials',
     });

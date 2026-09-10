@@ -19,7 +19,7 @@ export interface Data {
 }
 
 /** The demo PIN the seeded steward gets where sign-in is not publicly reachable. */
-export const DEMO_ADOPTER_PIN = '1234';
+export const DEMO_STEWARD_PIN = '1234';
 
 /**
  * Fill in fields a record predates.
@@ -111,7 +111,7 @@ function normalizeReport(report: Report): void {
 // Passing `null` seeds the steward with a hash of a random secret nobody
 // holds: the adoption still renders exactly as approved, and no PIN opens it
 // until a real one is issued.
-export async function seedData(demoPin: string | null = DEMO_ADOPTER_PIN): Promise<Data> {
+export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promise<Data> {
   const marisol: User = {
     id: 'user-marisol',
     firstName: 'Marisol',
