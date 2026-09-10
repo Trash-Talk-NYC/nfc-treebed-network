@@ -15,6 +15,8 @@ import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i
 import { presentationFor } from '../../../../lib/presentation';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
 import {
+  MAX_EMAIL_CHARS,
+  MAX_NAME_CHARS,
   RuleError,
   addStewardByAdmin,
   validateAdminStewardInput,
@@ -104,6 +106,7 @@ const heading: Phrase = {
           id="firstName"
           name="firstName"
           type="text"
+          maxlength={MAX_NAME_CHARS}
           value={values.firstName}
           autocomplete="off"
         />
@@ -124,6 +127,7 @@ const heading: Phrase = {
           id="lastName"
           name="lastName"
           type="text"
+          maxlength={MAX_NAME_CHARS}
           value={values.lastName}
           autocomplete="off"
         />
@@ -171,6 +175,7 @@ const heading: Phrase = {
         id="email"
         name="email"
         type="email"
+        maxlength={MAX_EMAIL_CHARS}
         value={values.email}
         autocomplete="off"
       />

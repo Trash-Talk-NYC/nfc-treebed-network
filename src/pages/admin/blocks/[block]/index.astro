@@ -20,6 +20,7 @@ import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i
 import { defaultPresentation, presentationFor } from '../../../../lib/presentation';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
 import {
+  MAX_ADDRESS_CHARS,
   MAX_BED_SLOTS,
   RuleError,
   getBlockView,
@@ -36,9 +37,11 @@ if (gate.refused) return gate.refused;
 const store = getStore();
 const blockId = Astro.params.block ?? '';
 
-// A refused save re-renders this page rather than redirecting, so the
-// switches come back exactly as they were left — the point of refusing is
-// that nothing silently becomes a different selection.
+// A refused save — and a "+ ADD SLOT" press, which writes nothing — re-render
+// this page rather than redirecting, so the switches come back exactly as they
+// were left: the point of refusing is that nothing silently becomes a
+// different selection, and the point of the press is that nothing is committed
+// until SAVE CHANGES.
 let slotError: Phrase | null = null;
 let submitted: { address: string; guard: boolean; slots: Set<number>; addSlots: number } | null =
   null;
@@ -55,43 +58,63 @@ if (Astro.request.method === 'POST') {
   // count covering slots 1..n, so a gapped selection has no representation
   // and saving its size would flip a different switch than the captain did.
   const offeredSlotNumbers = form.getAll('slot-open').map((value) => Number(value));
-  // Summed rather than counted: a refused save carries the slots it already
-  // added back in one hidden field, and the button adds one more on top.
-  const addSlots = form
+  // How many slots the page in front of the captain had drawn past the bed's
+  // stored count, carried in one hidden field so a press accumulates rather
+  // than replacing what an earlier one added.
+  const carriedSlots = form
     .getAll('add-slot')
     .reduce((total, value) => total + (Number.isFinite(Number(value)) ? Number(value) : 0), 0);
-  try {
-    await saveBlockSettings(store, {
-      blockId,
-      referenceAddress,
-      bed:
-        plate === ''
-          ? undefined
-          : {
-              plate,
-              guardInstalled,
-              offeredSlotNumbers,
-              addSlots,
-            },
-    });
-  } catch (err) {
-    if (err instanceof RuleError && err.code === 'bed-not-found') {
-      return new Response('Not found.', { status: 404 });
-    }
-    if (err instanceof RuleError && err.code === 'invalid-input') {
-      slotError = ADMIN.slotsNotContiguous;
-      submitted = {
-        address: referenceAddress,
-        guard: guardInstalled,
-        slots: new Set(offeredSlotNumbers.filter(Number.isFinite)),
-        addSlots,
-      };
-      Astro.response.status = 422;
-    } else {
-      throw err;
+  // "+ ADD SLOT" is page-local: it draws one more switch and writes NOTHING.
+  // SAVE CHANGES is the single commit point the panel already claims to have,
+  // so a mis-tap costs a re-render rather than growing the bed for good — a
+  // slot cannot be taken back once it is stored. No script is involved: the
+  // press is a plain submit and the answer is the panel, redrawn.
+  const addSlots = form.get('intent') === 'add-slot' ? carriedSlots + 1 : carriedSlots;
+  const asSubmitted = (): NonNullable<typeof submitted> => ({
+    address: referenceAddress,
+    guard: guardInstalled,
+    slots: new Set(offeredSlotNumbers.filter(Number.isFinite)),
+    addSlots,
+  });
+  if (form.get('intent') === 'add-slot') {
+    submitted = asSubmitted();
+  } else {
+    try {
+      await saveBlockSettings(store, {
+        blockId,
+        referenceAddress,
+        bed:
+          plate === ''
+            ? undefined
+            : {
+                plate,
+                guardInstalled,
+                offeredSlotNumbers,
+                addSlots,
+              },
+      });
+    } catch (err) {
+      if (err instanceof RuleError && err.code === 'bed-not-found') {
+        return new Response('Not found.', { status: 404 });
+      }
+      if (
+        err instanceof RuleError &&
+        (err.code === 'invalid-input' || err.code === 'slot-out-of-range')
+      ) {
+        // Two refusals, two explanations: a gap in the switches is something
+        // to reorder, a slot number this bed does not have is a page that has
+        // gone stale — telling the captain to reorder switches already in
+        // order explains nothing.
+        slotError =
+          err.code === 'slot-out-of-range' ? ADMIN.slotOutOfRange : ADMIN.slotsNotContiguous;
+        submitted = asSubmitted();
+        Astro.response.status = 422;
+      } else {
+        throw err;
+      }
     }
   }
-  if (slotError === null) {
+  if (submitted === null) {
     const params = new URLSearchParams();
     if (plate !== '') params.set('bed', plate);
     params.set('saved', '1');
@@ -110,10 +133,10 @@ const steward =
   selected?.stewards.find((s) => s.user.id === Astro.url.searchParams.get('steward')) ?? null;
 const savedFlash = Astro.url.searchParams.get('saved') === '1';
 const mode = selected ? 'panel' : 'list';
-// The slot count the panel draws. A refused save that had pressed "+ ADD
-// SLOT" comes back with that slot still on the page, and a hidden field
-// carries the press into the next save — otherwise the switch the captain
-// flipped on it would have nowhere to be.
+// The slot count the panel draws. A "+ ADD SLOT" press — and a refused save
+// that had made one — comes back with that slot on the page, and a hidden
+// field carries it into the next submit, so nothing but SAVE CHANGES grows
+// the bed and the switch flipped on it still has somewhere to be.
 const panelSlots = selected
   ? Math.min(MAX_BED_SLOTS, selected.bed.slots + (submitted?.addSlots ?? 0))
   : 0;
@@ -146,16 +169,23 @@ const GUARD_LABEL = {
 } as const;
 
 /** At a glance (spec): adopted — and HOW — versus open versus not offered. */
-function bedState(b: AdminBedView): { dot: string; badge: Phrase } {
+function bedState(b: AdminBedView): { dot: string; badge: Phrase; badgeClass: string } {
   if (b.stewards.length > 0) {
     const paper = b.stewards.some(({ adoption }) => adoption.stewardKind === 'pen-and-paper');
-    return { dot: 'dot-adopted', badge: paper ? ADMIN.badgePaper : ADMIN.badgeNfc };
+    return {
+      dot: 'dot-adopted',
+      badge: paper ? ADMIN.badgePaper : ADMIN.badgeNfc,
+      badgeClass: paper ? 'badge-paper' : 'badge-nfc',
+    };
   }
-  if (b.bed.offeredSlots > 0) return { dot: 'dot-open', badge: ADMIN.badgeOpen };
-  return { dot: 'dot-closed', badge: ADMIN.badgeClosed };
+  if (b.bed.offeredSlots > 0)
+    return { dot: 'dot-open', badge: ADMIN.badgeOpen, badgeClass: 'b-open' };
+  return { dot: 'dot-closed', badge: ADMIN.badgeClosed, badgeClass: 'b-closed' };
 }
 
-const saveState = slotError ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.noUnsaved;
+// `submitted` is set by a refused save and by an add-slot press alike, and
+// both leave something on the page the store does not have yet.
+const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.noUnsaved;
 ---
 
 <AdminScreen
@@ -172,8 +202,8 @@ const saveState = slotError ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   >
     {/* The form's DEFAULT button, deliberately first and carrying nothing:
         pressing Enter in the address field submits a plain save. Without it
-        the first submit in tree order is "+ ADD SLOT", and Enter would grow
-        the opened bed by a slot nobody asked for. */}
+        the first submit in tree order is "+ ADD SLOT", and Enter would redraw
+        the panel with a slot nobody asked for instead of saving. */}
     <button type="submit" hidden aria-hidden="true" tabindex="-1"></button>
     <div class={`admin-body mode-${mode}`}>
       <div class="admin-left">
@@ -181,6 +211,7 @@ const saveState = slotError ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
           <span class="addr-label" {...bi(ADMIN.refAddress, lang)}>{ADMIN.refAddress[lang]}</span>
           <input
             name="referenceAddress"
+            maxlength={MAX_ADDRESS_CHARS}
             value={submitted ? submitted.address : block.referenceAddress}
             autocomplete="off"
           />
@@ -210,19 +241,7 @@ const saveState = slotError ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                       {b.bed.plate} · <span {...bi(guard, lang)}>{guard[lang]}</span>
                     </small>
                   </span>
-                  <span
-                    class:list={[
-                      'badge',
-                      state.dot === 'dot-adopted'
-                        ? state.badge === ADMIN.badgePaper
-                          ? 'badge-paper'
-                          : 'badge-nfc'
-                        : state.dot === 'dot-open'
-                          ? 'b-open'
-                          : 'b-closed',
-                    ]}
-                    {...bi(state.badge, lang)}
-                  >
+                  <span class:list={['badge', state.badgeClass]} {...bi(state.badge, lang)}>
                     {state.badge[lang]}
                   </span>
                 </a>
@@ -407,7 +426,7 @@ const saveState = slotError ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                 <input type="hidden" name="add-slot" value={panelSlots - selected.bed.slots} />
               )}
               {panelSlots < MAX_BED_SLOTS && (
-                <button class="slotline-act" type="submit" name="add-slot" value="1" {...bi(ADMIN.addSlot, lang)}>
+                <button class="slotline-act" type="submit" name="intent" value="add-slot" {...bi(ADMIN.addSlot, lang)}>
                   {ADMIN.addSlot[lang]}
                 </button>
               )}
@@ -534,7 +553,26 @@ const saveState = slotError ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
       state.setAttribute('data-es', state.getAttribute('data-unsaved-es'));
       state.textContent = state.getAttribute('data-' + document.documentElement.lang);
     }
-    form.addEventListener('input', dirty);
-    form.addEventListener('change', dirty);
+    // The other half of the same honesty: the bed rows are links inside this
+    // same form, so navigating away drops whatever is in the panel. The
+    // browser asks first rather than the page saving on its own — committing
+    // changes somebody was still deciding about is the worse of the two.
+    // Disarmed by the form's own submit, so saving never prompts.
+    var changed = false;
+    function touched() {
+      changed = true;
+      dirty();
+    }
+    form.addEventListener('input', touched);
+    form.addEventListener('change', touched);
+    form.addEventListener('submit', function () {
+      changed = false;
+    });
+    window.addEventListener('beforeunload', function (e) {
+      if (!changed) return;
+      e.preventDefault();
+      // Older browsers need the assignment; the text itself is never shown.
+      e.returnValue = '';
+    });
   })();
 </script>

@@ -16,7 +16,9 @@ import {
   type Data,
 } from '../src/lib/store-dataset';
 import {
+  MAX_ADDRESS_CHARS,
   MAX_BED_SLOTS,
+  MAX_NAME_CHARS,
   RuleError,
   addBedByAdmin,
   addStewardByAdmin,
@@ -95,6 +97,11 @@ describe('the six real beds on W 171st', () => {
     const demo = await getBlockView(store, DEMO_BLOCK_ID);
     expect(demo!.block.demo).toBe(true);
     expect(demo!.beds.map((b) => b.bed.plate)).toEqual(['BED-HRL-0847']);
+  });
+
+  it('lists the real block above the demo one, whatever the ids alphabetise to', async () => {
+    const blocks = await freshStore().getBlocks();
+    expect(blocks.map((b) => b.id)).toEqual([W171_BLOCK_ID, DEMO_BLOCK_ID]);
   });
 });
 
@@ -209,15 +216,28 @@ describe('saving the block admin page', () => {
     expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(2);
   });
 
-  it('refuses a slot number the page never rendered a switch for', async () => {
+  it('refuses a slot number the page never rendered a switch for, and says which refusal it is', async () => {
     const store = freshStore();
+    // Its own code, not the gap one: a stale tab is not switches out of order,
+    // and the panel prints a different sentence for each.
     await expect(
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
         bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [9], addSlots: 0 },
       }),
-    ).rejects.toMatchObject({ code: 'invalid-input' });
+    ).rejects.toMatchObject({ code: 'slot-out-of-range' });
+  });
+
+  it('bounds the typed reference address rather than storing whatever was pasted', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: 'x'.repeat(MAX_ADDRESS_CHARS + 500),
+    });
+    expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toHaveLength(
+      MAX_ADDRESS_CHARS,
+    );
   });
 
   it('updates the typed reference address, and a blank one keeps what stands', async () => {
@@ -364,6 +384,13 @@ describe('writing a steward in, pen and paper', () => {
     expect(validateAdminStewardInput(stewardInput({ username: 'Bad Handle!' })).errors).toMatchObject({
       username: 'username',
     });
+  });
+
+  it('bounds a pasted name rather than storing whatever arrived', async () => {
+    const { values } = validateAdminStewardInput(
+      stewardInput({ firstName: 'a'.repeat(MAX_NAME_CHARS + 500) }),
+    );
+    expect(values.firstName).toHaveLength(MAX_NAME_CHARS);
   });
 });
 

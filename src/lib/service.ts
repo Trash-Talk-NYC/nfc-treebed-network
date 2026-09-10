@@ -25,6 +25,7 @@ export class RuleError extends Error {
       | 'slots-full'
       | 'invalid-credentials'
       | 'invalid-input'
+      | 'slot-out-of-range'
       | 'busy',
     message: string,
   ) {
@@ -434,6 +435,27 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+\d][\d\s().-]{6,19}$/;
 
 /**
+ * What a typed field may put into a record the store then carries forever.
+ *
+ * `MAX_FORM_BYTES` bounds the request, not the field, so without these one
+ * paste can leave ~64KB inside a name, an address or a tree type — re-uploaded
+ * whole on every commit (`BlobsStore` writes the entire dataset per tap) and
+ * rendered into every page that prints it. Trimmed to the bound rather than
+ * refused, the same way a care note is (`MAX_NOTE_CHARS`): the screens carry
+ * the matching `maxlength`, so a person typing never reaches this at all.
+ */
+export const MAX_NAME_CHARS = 60;
+/** RFC 5321's own ceiling on an address. */
+export const MAX_EMAIL_CHARS = 254;
+export const MAX_ADDRESS_CHARS = 120;
+export const MAX_TREE_TYPE_CHARS = 60;
+
+/** Trim, then bound: what every typed field goes through before it is stored. */
+function capped(raw: string, max: number): string {
+  return raw.trim().slice(0, max);
+}
+
+/**
  * What the approved adopt form collects, and nothing more.
  *
  * **No secret.** The captain chose passwordless and ordered the PIN/password
@@ -483,9 +505,9 @@ export type AdoptErrors = Partial<Record<AdoptField, AdoptErrorCode>>;
 /** Field-level validation; returns normalized values and error codes. */
 export function validateAdoptInput(raw: AdoptInput): { values: AdoptInput; errors: AdoptErrors } {
   const values: AdoptInput = {
-    firstName: raw.firstName.trim(),
-    lastName: raw.lastName.trim(),
-    email: raw.email.trim(),
+    firstName: capped(raw.firstName, MAX_NAME_CHARS),
+    lastName: capped(raw.lastName, MAX_NAME_CHARS),
+    email: capped(raw.email, MAX_EMAIL_CHARS),
     phone: raw.phone.trim(),
   };
   const errors: AdoptErrors = {};
@@ -789,11 +811,13 @@ export interface BlockSaveInput {
      */
     offeredSlotNumbers: number[];
     /**
-     * "+ ADD SLOT" — how many slots the press adds, up to MAX_BED_SLOTS.
+     * How many slots past the bed's stored count the page in front of the
+     * captain was drawing, up to MAX_BED_SLOTS.
      *
-     * A count rather than a flag because a refused save re-renders the slot
-     * the press added, so the next press has to add to it rather than
-     * replace it. Clamped, so a hand-built number buys nothing.
+     * A count rather than a flag because "+ ADD SLOT" is page-local: the
+     * press only redraws the panel, and each press adds to what the last one
+     * drew rather than replacing it. This save is where those slots are
+     * finally written. Clamped, so a hand-built number buys nothing.
      */
     addSlots: number;
   };
@@ -817,6 +841,10 @@ export interface BlockSaveInput {
  * selection is refused as `invalid-input` — the alternative is saving its
  * size, which re-renders switches the captain never touched.
  *
+ * A number no switch on this bed carries is a different refusal
+ * (`slot-out-of-range`) rather than the same one: telling somebody to put
+ * their switches back in order when they already are explains nothing.
+ *
  * Filled slots are always offered, whatever arrived: a steward adopting
  * between the render and the save can never be switched away.
  */
@@ -827,7 +855,7 @@ function offeredSlotCount(numbers: number[], filled: number, slots: number): num
     // Out of range: the render puts no switch there at all, so this is not a
     // state the page can produce.
     if (!Number.isFinite(n) || n < 1 || n > slots) {
-      throw new RuleError('invalid-input', `slot ${raw} is not switchable on this bed`);
+      throw new RuleError('slot-out-of-range', `slot ${raw} is not switchable on this bed`);
     }
     // A slot filled between the render and this save arrives switched on,
     // because it was switchable when the page was drawn. It is offered by
@@ -848,7 +876,7 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
   await store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
     if (!block) throw new RuleError('bed-not-found', `No block ${args.blockId}`);
-    const referenceAddress = args.referenceAddress.trim();
+    const referenceAddress = capped(args.referenceAddress, MAX_ADDRESS_CHARS);
     if (referenceAddress !== '' && referenceAddress !== block.referenceAddress) {
       await tx.updateBlock({ ...block, referenceAddress });
     }
@@ -901,10 +929,12 @@ export function validateAdminStewardInput(raw: AdminStewardInput): {
   errors: AdminStewardErrors;
 } {
   const values: AdminStewardInput = {
-    firstName: raw.firstName.trim(),
-    lastName: raw.lastName.trim(),
+    firstName: capped(raw.firstName, MAX_NAME_CHARS),
+    lastName: capped(raw.lastName, MAX_NAME_CHARS),
+    // The handle's own bound is USERNAME_RE's 2–30, which refuses rather than
+    // trims — a handle is engraved, so a silently shortened one is wrong.
     username: raw.username.trim().replace(/^@/, '').toLowerCase(),
-    email: raw.email.trim(),
+    email: capped(raw.email, MAX_EMAIL_CHARS),
     phone: raw.phone.trim(),
   };
   const errors: AdminStewardErrors = {};
@@ -1007,11 +1037,11 @@ export async function addBedByAdmin(
   store: Store,
   args: { blockId: string; treeType: { en: string; es: string }; now?: Date },
 ): Promise<Bed> {
-  const en = args.treeType.en.trim();
+  const en = capped(args.treeType.en, MAX_TREE_TYPE_CHARS);
   // A tree named in English inside a Spanish sentence is worse than ideal and
   // far better than an English sentence (types.ts) — the field is optional on
   // the form, not in the record.
-  const es = args.treeType.es.trim() || en;
+  const es = capped(args.treeType.es, MAX_TREE_TYPE_CHARS) || en;
   if (en === '') throw new RuleError('invalid-input', 'treeType');
   return store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);

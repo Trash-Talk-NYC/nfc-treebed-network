@@ -407,7 +407,14 @@ export const ops = {
     return detach(data.blocks[id] ?? null);
   },
   getBlocks(data: Data): Block[] {
-    return detach(Object.values(data.blocks).sort((a, b) => a.id.localeCompare(b.id)));
+    // Real streets before demo ones, then by id for a stable order: the
+    // captain's own block is what /admin exists for, and letting the ids
+    // alphabetise would sit a DEMO-badged fake street above it.
+    return detach(
+      Object.values(data.blocks).sort(
+        (a, b) => Number(a.demo) - Number(b.demo) || a.id.localeCompare(b.id),
+      ),
+    );
   },
   updateBlock(data: Data, block: Block): void {
     if (!data.blocks[block.id]) throw new Error(`Block not found: ${block.id}`);

@@ -194,6 +194,59 @@ describe('the admin door', () => {
     ).text();
     expect(bed).not.toMatch(/name="slot-open"[^>]*checked/);
   });
+
+  it('draws the slot "+ ADD SLOT" adds without writing one, and saves it only on SAVE CHANGES', async () => {
+    const cookie = await adminCookie();
+    const headers = { 'content-type': 'application/x-www-form-urlencoded', origin, cookie };
+    // The press is page-local: a bed cannot give a slot back, so a mis-tap
+    // must cost a re-render rather than growing the record for good.
+    const pressed = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1715`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({ plate: 'BED-WH-1715', intent: 'add-slot' }),
+      redirect: 'manual',
+    });
+    expect(pressed.status).toBe(200);
+    const drawn = await pressed.text();
+    expect(drawn).toMatch(/name="slot-open" value="2"/);
+    // And the page says so, in both languages.
+    expect(drawn).toContain('Unsaved changes');
+    expect(drawn).toContain('Hay cambios sin guardar');
+
+    const reloaded = await (
+      await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1715`, { headers: { cookie } })
+    ).text();
+    expect(reloaded).not.toMatch(/name="slot-open" value="2"/);
+
+    // The hidden carrier the press leaves behind is what a real SAVE CHANGES
+    // submits, and that is the one thing that grows the bed.
+    const saved = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1715`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({ plate: 'BED-WH-1715', 'add-slot': '1' }),
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(303);
+    const after = await (
+      await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1715`, { headers: { cookie } })
+    ).text();
+    expect(after).toMatch(/name="slot-open" value="2"/);
+  });
+
+  it('tells a stale tab its slot is gone rather than telling it to reorder switches', async () => {
+    const cookie = await adminCookie();
+    const refused = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1716`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ plate: 'BED-WH-1716', 'slot-open': '9' }),
+      redirect: 'manual',
+    });
+    expect(refused.status).toBe(422);
+    const html = await refused.text();
+    expect(html).toContain('That slot isn');
+    expect(html).toContain('Ese lugar ya no existe');
+    expect(html).not.toContain('Open slots run in order');
+  });
 });
 
 describe('the way out of the admin', () => {

@@ -13,7 +13,7 @@ import { ADMIN, COMMON } from '../../../../lib/copy';
 import { langLink, resolveLang, type Lang } from '../../../../lib/i18n';
 import { defaultPresentation } from '../../../../lib/presentation';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
-import { RuleError, addBedByAdmin } from '../../../../lib/service';
+import { MAX_TREE_TYPE_CHARS, RuleError, addBedByAdmin } from '../../../../lib/service';
 import { getStore } from '../../../../lib/store';
 
 const lang: Lang = resolveLang(Astro.url, Astro.cookies);
@@ -69,7 +69,7 @@ const presentation = defaultPresentation();
       <label class="field-label" for="treeTypeEn" {...bi(ADMIN.treeTypeEn, lang)}
         >{ADMIN.treeTypeEn[lang]}</label
       >
-      <input class="field-input" id="treeTypeEn" name="treeTypeEn" type="text" value={treeEn} />
+      <input class="field-input" id="treeTypeEn" name="treeTypeEn" type="text" maxlength={MAX_TREE_TYPE_CHARS} value={treeEn} />
       {
         missing && (
           <div class="field-error" {...bi(ADMIN.treeTypeMissing, lang)}>
@@ -83,7 +83,7 @@ const presentation = defaultPresentation();
         <span {...bi(ADMIN.treeTypeEs, lang)}>{ADMIN.treeTypeEs[lang]}</span>{' '}
         <span class="field-note">· <span {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span></span>
       </label>
-      <input class="field-input" id="treeTypeEs" name="treeTypeEs" type="text" value={treeEs} />
+      <input class="field-input" id="treeTypeEs" name="treeTypeEs" type="text" maxlength={MAX_TREE_TYPE_CHARS} value={treeEs} />
     </div>
 
     <button class="btn btn-tall btn-action" type="submit" {...bi(ADMIN.addBedSubmit, lang)}>

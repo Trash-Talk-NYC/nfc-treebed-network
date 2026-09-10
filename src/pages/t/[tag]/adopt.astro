@@ -31,6 +31,8 @@
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import {
+  MAX_EMAIL_CHARS,
+  MAX_NAME_CHARS,
   RuleError,
   adoptBed,
   getBedView,
@@ -158,6 +160,7 @@ if (Astro.request.method === 'POST') {
                 id="firstName"
                 name="firstName"
                 type="text"
+                maxlength={MAX_NAME_CHARS}
                 value={values.firstName}
                 autocomplete="given-name"
                 required
@@ -172,6 +175,7 @@ if (Astro.request.method === 'POST') {
                 id="lastName"
                 name="lastName"
                 type="text"
+                maxlength={MAX_NAME_CHARS}
                 value={values.lastName}
                 autocomplete="family-name"
                 required
@@ -198,6 +202,7 @@ if (Astro.request.method === 'POST') {
               id="email"
               name="email"
               type="email"
+              maxlength={MAX_EMAIL_CHARS}
               value={values.email}
               autocomplete="email"
               required

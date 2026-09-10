@@ -355,6 +355,15 @@ export const ADMIN = {
     en: 'Open slots run in order. Switch on the first free slot before the one after it.',
     es: 'Los lugares se abren en orden. Enciende el primer lugar libre antes del siguiente.',
   },
+  /**
+   * A slot number this bed does not have — a tab left open while the bed
+   * changed, or a hand-built request. Nothing was saved, and reordering the
+   * switches is not what would fix it.
+   */
+  slotOutOfRange: {
+    en: 'That slot isn’t on this bed any more. Nothing was saved — reload the page and try again.',
+    es: 'Ese lugar ya no existe en este cantero. No se guardó nada: recarga la página e inténtalo de nuevo.',
+  },
 } satisfies Record<string, Phrase>;
 
 /** The steward's own view of their bed. */
