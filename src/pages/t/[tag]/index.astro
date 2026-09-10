@@ -18,6 +18,12 @@
 //   door 2       already stewarded → "This <tree> bed has been adopted!", the
 //                stewards shown → SEND APPLAUSE / THIS BED NEEDS CARE
 //
+// Either door withholds the adoption invitation while the bed has no offered
+// slot (`openSlots`, which the admin page opens): door 1 says "isn't open for
+// adoption yet" (DOOR_NOT_OFFERED) and offers care alone, door 2 drops "join
+// them". That is a normal state, not a screen to fix — the six W 171st beds
+// seed unoffered, so the tags on them open the not-yet-open door today.
+//
 // One clear question per screen. There is deliberately no third state for "a
 // report is already open": a neighbour who taps a bed somebody else has just
 // reported still gets door 2 and still presses THIS BED NEEDS CARE, and the
