@@ -13,6 +13,7 @@ Which bed the tag speaks for is a server-side fact (`src/lib/tag-bindings.ts`); 
 
 Behind a key at `/admin` is the block admin: the one surface where full names, emails and phone numbers render.
 It is where a block's beds are opened for adoption one slot at a time (`Bed.offeredSlots` is a rule the adopt flow enforces, not a display state), where the guard's ordered/installed dates are flipped, and where a steward signed up on the sidewalk is written in by hand.
+Adding a bed there asks only for the English species name: the Spanish one defaults from a checked-in table (`src/lib/tree-species.ts`), a typed Spanish name wins over it, and a species the table doesn't know falls back to the generic "árbol" rather than a guess — nobody has to go and look a translation up.
 
 ## Run it
 
@@ -72,6 +73,15 @@ Don't set the build-time three with `netlify env:set` — a site-level variable 
 Like the session secret it belongs in the site's own environment, never in `netlify.toml` — a key checked into the repo is a published one.
 The Blobs store seeds `marisol_r` with a PIN nobody knows, so the `1234` above is a local convenience and never a way in to the deployed site.
 `TREEBED_SEED_PIN` is the development-only seam for driving sign-in against a local `blobs` store; a netlify build ignores it however it is set, so it can never open the deployed one.
+
+A field a live store was written with before a rule existed is corrected by appending a forward revision, never by wiping and re-seeding.
+`scripts/rewrite-species-casing.mjs` is that shape written down — it lowercases the Spanish species names the pilot store was seeded with, and only where the stored value is the checked-in table's own modulo casing, so a name a human typed is left alone.
+It is a deliberate act a human runs on Node >= 22.18, dry by default:
+
+```sh
+NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/rewrite-species-casing.mjs            # prints what would change
+NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/rewrite-species-casing.mjs --commit   # writes the revision
+```
 
 ## Contributing
 
