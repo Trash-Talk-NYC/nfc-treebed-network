@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 import type { Store } from './store';
 import type { ProblemCategory } from './problem';
 import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
+import { GENERIC_TREE } from './tree-species';
 
 export interface Data {
   beds: Record<string, Bed>;
@@ -62,7 +63,7 @@ function normalizeBed(bed: Bed): void {
   bed.plantingSpaceId ??= null;
   bed.plantingSpaceGlobalId ??= null;
   if (typeof legacy.treeType !== 'object' || legacy.treeType === null) {
-    bed.treeType = { en: 'tree', es: 'árbol' };
+    bed.treeType = { ...GENERIC_TREE };
   }
   // A record from before the admin page's per-slot switches was written when
   // every unfilled slot was implicitly up for adoption — that is what the

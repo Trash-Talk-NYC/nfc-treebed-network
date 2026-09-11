@@ -249,6 +249,50 @@ describe('the admin door', () => {
   });
 });
 
+describe('adding a bed through the real form', () => {
+  it('says on the form that a known species needs no Spanish name', async () => {
+    const cookie = await adminCookie();
+    const html = await (
+      await fetch(`${origin}${BLOCK_PATH}/add-bed`, { headers: { cookie } })
+    ).text();
+    expect(html).toContain('known species fill it in on their own');
+    expect(html).toContain('las especies conocidas se completan solas');
+  });
+
+  it('fills the Spanish species from the table when the field is left blank', async () => {
+    const cookie = await adminCookie();
+    const saved = await fetch(`${origin}${BLOCK_PATH}/add-bed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ treeTypeEn: 'Pin oak', treeTypeEs: '' }),
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(303);
+    const location = saved.headers.get('location')!;
+    expect(location).toContain('bed=BED-WH-1717');
+    const html = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    // The bilingual label carries the table's Spanish; the English half is
+    // exactly what the admin typed.
+    expect(html).toContain('data-es="Roble palustre');
+    expect(html).toContain('data-en="Pin oak');
+  });
+
+  it('degrades an unknown species to the generic wording, never a guess', async () => {
+    const cookie = await adminCookie();
+    const saved = await fetch(`${origin}${BLOCK_PATH}/add-bed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ treeTypeEn: 'Quixote tree', treeTypeEs: '' }),
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(303);
+    const location = saved.headers.get('location')!;
+    const html = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    expect(html).toContain('data-en="Quixote tree');
+    expect(html).toContain('data-es="árbol');
+  });
+});
+
 describe('the way out of the admin', () => {
   it('offers sign-out on the admin page and clears the session cookie', async () => {
     const cookie = await adminCookie();

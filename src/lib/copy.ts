@@ -343,6 +343,15 @@ export const ADMIN = {
   },
   treeTypeEn: { en: 'Tree type (English)', es: 'Tipo de árbol (inglés)' },
   treeTypeEs: { en: 'Tree type (Spanish)', es: 'Tipo de árbol (español)' },
+  /**
+   * The species table (tree-species.ts) is why the Spanish field is one
+   * nobody has to research: known species fill in from the English name, and
+   * this note is what tells the admin they can stop looking names up.
+   */
+  treeTypeEsAuto: {
+    en: 'optional — known species fill it in on their own',
+    es: 'opcional: las especies conocidas se completan solas',
+  },
   addBedSubmit: { en: 'ADD THE BED', es: 'AÑADIR EL CANTERO' },
   treeTypeMissing: { en: 'Name the tree.', es: 'Dinos el árbol.' },
   /**

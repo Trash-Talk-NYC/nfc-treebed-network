@@ -74,9 +74,12 @@ export interface Bed {
    * is looking for a steward."
    *
    * Bilingual because the headline is. NYC's data supplies the English name;
-   * until somebody supplies the Spanish, `es` may simply repeat `en` — a tree
-   * named in English inside a Spanish sentence is worse than ideal and far
-   * better than an English sentence.
+   * the Spanish defaults from the checked-in species table (tree-species.ts)
+   * when a bed is added, with an explicitly supplied name winning over it and
+   * an unknown species degrading to the generic "árbol". A stored record from
+   * before the table may still repeat `en` in `es`; that stands rather than
+   * being backfilled, because an identical pair is also what an admin who
+   * typed both deliberately looks like.
    */
   treeType: Phrase;
   /** City forestry tree id. Internal; the tree churns, the bed does not. */

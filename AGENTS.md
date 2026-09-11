@@ -67,6 +67,8 @@ Washington Heights is heavily Spanish-speaking.
   **A bilingual element must be a LEAF node** — the swap sets `textContent` — which is why a sentence wrapping the tree type is split into leaves either side of it.
 - Every link and redirect of ours carries the language through `langLink` / `withLang`, which preserve whatever else the URL held — including `tg_action`, without which a language switch would log a second tap (`plaque-url.ts`).
 - Plain-text refusals for machine callers (405, "Not a tag on this network.") are deliberately English-only: nothing renders those to a person.
+- A bed's Spanish species name defaults from the checked-in table in `src/lib/tree-species.ts` when a bed is added: an explicitly typed Spanish name wins, and an unknown species degrades to the generic "árbol" — never a guess, a transliteration, or a runtime translation.
+  The table holds only names that sit after the door copy's fixed masculine "El cantero de este …", so species whose accepted Spanish names are all feminine (honeylocust, black locust, mulberry, catalpa, zelkova…) are deliberately absent; adding one means first teaching the copy gender agreement, not bending the name.
 
 ## Presentation is data-driven, not hardcoded
 

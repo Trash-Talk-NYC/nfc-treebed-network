@@ -12,6 +12,7 @@ import type { Adoption, Bed, BedEvent, Block, Report, Severity, User } from './t
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
+import { GENERIC_TREE, spanishSpeciesFor } from './tree-species';
 
 export class RuleError extends Error {
   constructor(
@@ -1047,10 +1048,15 @@ export async function addBedByAdmin(
   args: { blockId: string; treeType: { en: string; es: string }; now?: Date },
 ): Promise<Bed> {
   const en = capped(args.treeType.en, MAX_TREE_TYPE_CHARS);
-  // A tree named in English inside a Spanish sentence is worse than ideal and
-  // far better than an English sentence (types.ts) — the field is optional on
-  // the form, not in the record.
-  const es = capped(args.treeType.es, MAX_TREE_TYPE_CHARS) || en;
+  // The Spanish name resolves in this order: what the admin typed (the table
+  // is a default, never a lock), then the checked-in species table, then the
+  // generic "árbol" — the same wording `normalizeData` gives a bed with no
+  // tree type at all. Never the English name and never a guess: the word
+  // renders inside a Spanish sentence on the neighbour's own street, where a
+  // wrong or English species name is worse than a generic one
+  // (tree-species.ts).
+  const es =
+    capped(args.treeType.es, MAX_TREE_TYPE_CHARS) || spanishSpeciesFor(en) || GENERIC_TREE.es;
   if (en === '') throw new RuleError('invalid-input', 'treeType');
   return store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
