@@ -20,6 +20,7 @@ export class RuleError extends Error {
     /** Stable machine-readable code the routes branch on. */
     public readonly code:
       | 'bed-not-found'
+      | 'block-not-found'
       | 'open-report-exists'
       | 'already-reported-today'
       | 'no-open-report'
@@ -1039,7 +1040,11 @@ function keptNote(submitted: string | undefined, stored: string): string {
 export async function saveBlockSettings(store: Store, args: BlockSaveInput): Promise<void> {
   await store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
-    if (!block) throw new RuleError('bed-not-found', `No block ${args.blockId}`);
+    // Distinct from the bed's refusal below: a block that does not exist is a
+    // URL nobody should be at, while a bed that has gone is a stale tab the
+    // captain is standing in front of. Two codes, so the route can answer the
+    // second one with a screen instead of a line of unstyled English.
+    if (!block) throw new RuleError('block-not-found', `No block ${args.blockId}`);
     const referenceAddress = capped(args.referenceAddress, MAX_ADDRESS_CHARS);
     if (referenceAddress !== '' && referenceAddress !== block.referenceAddress) {
       await tx.updateBlock({ ...block, referenceAddress });
@@ -1226,7 +1231,7 @@ export async function addBedByAdmin(
   if (en === '') throw new RuleError('invalid-input', 'treeType');
   return store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
-    if (!block) throw new RuleError('bed-not-found', `No block ${args.blockId}`);
+    if (!block) throw new RuleError('block-not-found', `No block ${args.blockId}`);
     // Retired siblings deliberately count: the plate series and the positions
     // continue past a deleted bed rather than reusing what it held.
     const siblings = await tx.getBedsInBlock(args.blockId);

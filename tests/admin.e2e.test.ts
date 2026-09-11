@@ -622,6 +622,34 @@ describe('deleting a bed', () => {
     expect(again.status).toBe(303);
     expect(again.headers.get('location')).toContain('deleted=1');
   });
+
+  it('answers SAVE CHANGES on a bed deleted from another tab with the block page, not a bare 404', async () => {
+    // The stale tab: the panel was open when the bed went, and the press has
+    // to land somewhere with a way back — mid-walk, one-handed.
+    const cookie = await adminCookie();
+    const saved = await fetch(`${origin}${BLOCK_PATH}?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ plate: PLATE, referenceAddress: '', guard: 'on' }),
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(303);
+    const location = saved.headers.get('location')!;
+    expect(location).toContain('deleted=1');
+    const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    expect(after).toContain('Bed deleted');
+  });
+
+  it('keeps the plain 404 for a block that does not exist — only the bed gets the screen', async () => {
+    const cookie = await adminCookie();
+    const missing = await fetch(`${origin}/admin/blocks/no-such-block`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ referenceAddress: '710 W 171st St' }),
+      redirect: 'manual',
+    });
+    expect(missing.status).toBe(404);
+  });
 });
 
 describe('restoring a deleted bed', () => {
@@ -679,6 +707,13 @@ describe('restoring a deleted bed', () => {
     expect(restored.status).toBe(303);
     const location = restored.headers.get('location')!;
     expect(location).toContain('restored=1');
+    // The LIST, not the bed's panel: `?bed=` puts the page in panel mode, and
+    // the phone breakpoint hides the column the flash renders in (admin.css),
+    // so a restore on the surface the captain actually uses would confirm
+    // nothing. `mode-list` is what proves the flash is on screen there.
+    expect(location).not.toContain('bed=');
+    const landing = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    expect(landing).toContain('mode-list');
     const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
     expect(after).toContain(PLATE);
     expect(after).toContain('Bed restored');

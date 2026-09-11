@@ -38,7 +38,7 @@ if (!bed || bed.blockId !== blockId) {
 // is the block page the bed is on again, not a 404 for a bed that is fine.
 if (bed.retiredAt === null) {
   await abandonBody(Astro.request);
-  const params = new URLSearchParams({ bed: plate, restored: '1' });
+  const params = new URLSearchParams({ restored: '1' });
   return Astro.redirect(
     langLink(`${base}?${params}`, lang),
     Astro.request.method === 'GET' || Astro.request.method === 'HEAD' ? 302 : 303,
@@ -57,7 +57,11 @@ if (Astro.request.method === 'POST') {
     }
     throw err;
   }
-  const params = new URLSearchParams({ bed: plate, restored: '1' });
+  // Back to the LIST, not to the bed's panel: the confirmation renders in the
+  // list column, which the phone breakpoint hides whenever `?bed=` opens the
+  // panel — and what a restore has to show is the bed back among the others.
+  // Same landing as a delete, which is the same fact in the other direction.
+  const params = new URLSearchParams({ restored: '1' });
   return Astro.redirect(langLink(`${base}?${params}`, lang), 303);
 }
 

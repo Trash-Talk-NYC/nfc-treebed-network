@@ -158,8 +158,16 @@ if (Astro.request.method === 'POST') {
               },
       });
     } catch (err) {
-      if (err instanceof RuleError && err.code === 'bed-not-found') {
+      if (err instanceof RuleError && err.code === 'block-not-found') {
         return new Response('Not found.', { status: 404 });
+      }
+      if (err instanceof RuleError && err.code === 'bed-not-found') {
+        // The open bed was deleted between this page rendering and the press —
+        // another tab, or the phone in the captain's other hand. The block is
+        // fine, so the answer is the block page the bed has gone from, the
+        // same one `add-steward.astro` and `delete-bed.astro` give. A real
+        // missing block keeps its plain 404 above.
+        return Astro.redirect(langLink(`/admin/blocks/${blockId}?deleted=1`, lang), 303);
       }
       if (
         err instanceof RuleError &&
@@ -1222,8 +1230,18 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     flex-direction: column;
     gap: 9px;
   }
+  /* Quieter than the street, without an opacity over the whole row: compositing
+     the text at 0.72 drops the plate line and the RESTORE link below the AA
+     floor this palette is held to, and no test can see it happen. The row reads
+     back by ground and by ink instead — both pairs still full-strength. */
   .retired-row {
-    opacity: 0.72;
+    background: color-mix(in srgb, var(--theme-muted) 5%, var(--theme-surface));
+  }
+  .retired-row .dot {
+    opacity: 0.55;
+  }
+  .retired-row .nm {
+    color: var(--theme-muted);
   }
   .restore-act {
     flex: none;
