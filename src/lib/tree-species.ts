@@ -256,6 +256,27 @@ export function spanishSpeciesFor(englishCommonName: string): string | null {
   return SPANISH_BY_COMMON_NAME[normalizeCommonName(englishCommonName)] ?? null;
 }
 
+/**
+ * The table's own spelling of a Spanish name a human supplied, when the two
+ * differ only in casing — otherwise null, meaning "that is their name, not
+ * ours, leave it alone".
+ *
+ * One predicate for both write paths that can meet a human-typed `es`: the
+ * admin add-bed form (service.ts) and the remediation script that corrects a
+ * store seeded before the casing rule (scripts/species-casing-rewrite.mjs).
+ * A typed "Roble Sauce" is the table's value shouted, so it becomes "roble
+ * sauce" and reads grammatically mid-sentence; a typed "Mi roble favorito"
+ * is a name and is stored byte-for-byte.
+ */
+export function tableSpeciesCasingFor(
+  englishCommonName: string,
+  spanishName: string,
+): string | null {
+  const expected = spanishSpeciesFor(englishCommonName);
+  if (expected === null) return null;
+  return spanishName.toLowerCase() === expected.toLowerCase() ? expected : null;
+}
+
 /** For the tests that hold every entry to the table's own rules. */
 export function speciesTableEntries(): ReadonlyArray<[string, string]> {
   return Object.entries(SPANISH_BY_COMMON_NAME);

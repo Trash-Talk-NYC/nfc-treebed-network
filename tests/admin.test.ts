@@ -493,6 +493,23 @@ describe('adding a bed', () => {
     expect(bed.treeType.es).toBe('Roble de los pantanos');
   });
 
+  it('normalizes a typed name that is the table’s own shouted, so the door sentence reads', async () => {
+    const bed = await addBedByAdmin(freshStore(), {
+      blockId: W171_BLOCK_ID,
+      treeType: { en: 'Willow oak', es: 'Roble Sauce' },
+    });
+    // "El cantero de este roble sauce…" — mid-sentence, so lowercase.
+    expect(bed.treeType.es).toBe('roble sauce');
+  });
+
+  it('stores a genuinely different typed name byte-for-byte, casing included', async () => {
+    const bed = await addBedByAdmin(freshStore(), {
+      blockId: W171_BLOCK_ID,
+      treeType: { en: 'Willow oak', es: 'Mi roble favorito' },
+    });
+    expect(bed.treeType.es).toBe('Mi roble favorito');
+  });
+
   it('keeps the siblings’ zero padding, so a block’s plates stay one series', async () => {
     const store = freshStore();
     // The demo block's one bed is BED-HRL-0847 — four padded digits.

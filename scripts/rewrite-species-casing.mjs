@@ -41,12 +41,21 @@
 // static one is hoisted above every statement here.
 const MIN_NODE_VERSION = [22, 18];
 
+/**
+ * A refusal this script made on purpose — a Node too old, a credential
+ * missing. Its message is the whole story, so it prints as a sentence;
+ * anything else (a Blobs 401, a socket that died) prints whole, because the
+ * stack and the cause are what a human needs when this is pointed at the
+ * captain's live store.
+ */
+class Refusal extends Error {}
+
 /** Refuses, with a sentence, on a Node too old to load the `.ts` imports. */
 function requireSupportedNode() {
   const [major, minor] = process.versions.node.split('.').map(Number);
   const [minMajor, minMinor] = MIN_NODE_VERSION;
   if (major > minMajor || (major === minMajor && minor >= minMinor)) return;
-  throw new Error(
+  throw new Refusal(
     `Node ${process.versions.node} is too old: this script imports TypeScript ` +
       `modules directly, which needs unflagged type stripping (Node >= ` +
       `${minMajor}.${minMinor}).`,
@@ -61,7 +70,7 @@ function requireCredentials(storeName) {
   const missing = [siteID ? null : 'NETLIFY_SITE_ID', token ? null : 'NETLIFY_AUTH_TOKEN'].filter(
     Boolean,
   );
-  throw new Error(
+  throw new Refusal(
     `Missing ${missing.join(' and ')}. This script was about to read the ` +
       `"${storeName}" Blobs store and append a revision correcting Spanish ` +
       `species-name casing; both NETLIFY_SITE_ID and NETLIFY_AUTH_TOKEN are ` +
@@ -85,6 +94,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
+  console.error(err instanceof Refusal ? err.message : err);
   process.exit(1);
 });

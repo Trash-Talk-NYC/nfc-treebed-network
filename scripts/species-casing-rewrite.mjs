@@ -4,24 +4,23 @@
 // ERR_UNKNOWN_FILE_EXTENSION rather than a sentence. Read that script first:
 // it carries the whole rationale for this remediation.
 
-import { spanishSpeciesFor } from '../src/lib/tree-species.ts';
+import { tableSpeciesCasingFor } from '../src/lib/tree-species.ts';
 import { HEAD_KEY, REVISION_PREFIX } from '../src/lib/store-keys.ts';
 
 const MAX_COMMIT_ATTEMPTS = 5;
 
 /**
  * The corrected Spanish species name for a bed, or null when there is
- * nothing safe to correct.
+ * nothing safe to correct. The safety rule is `tableSpeciesCasingFor`, the
+ * same predicate the admin add-bed write path applies to a typed name.
  *
  * @param {{ en: string, es: string } | undefined} treeType
  * @returns {string | null}
  */
 export function correctedSpeciesCasing(treeType) {
-  const expected = spanishSpeciesFor(treeType?.en ?? '');
-  if (expected === null) return null;
   const stored = treeType?.es ?? '';
-  if (stored === expected) return null;
-  return stored.toLowerCase() === expected.toLowerCase() ? expected : null;
+  const expected = tableSpeciesCasingFor(treeType?.en ?? '', stored);
+  return expected === null || expected === stored ? null : expected;
 }
 
 /**

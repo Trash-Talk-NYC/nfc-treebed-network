@@ -12,7 +12,7 @@ import type { Adoption, Bed, BedEvent, Block, Report, Severity, User } from './t
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
-import { GENERIC_TREE, spanishSpeciesFor } from './tree-species';
+import { GENERIC_TREE, spanishSpeciesFor, tableSpeciesCasingFor } from './tree-species';
 
 export class RuleError extends Error {
   constructor(
@@ -1055,8 +1055,13 @@ export async function addBedByAdmin(
   // renders inside a Spanish sentence on the neighbour's own street, where a
   // wrong or English species name is worse than a generic one
   // (tree-species.ts).
-  const es =
-    capped(args.treeType.es, MAX_TREE_TYPE_CHARS) || spanishSpeciesFor(en) || GENERIC_TREE.es;
+  const typedEs = capped(args.treeType.es, MAX_TREE_TYPE_CHARS);
+  // A typed name that is the table's own modulo casing is the table's, so it
+  // is stored the way the door frame needs it; anything else is a name and
+  // keeps every character the admin typed.
+  const es = typedEs
+    ? (tableSpeciesCasingFor(en, typedEs) ?? typedEs)
+    : (spanishSpeciesFor(en) ?? GENERIC_TREE.es);
   if (en === '') throw new RuleError('invalid-input', 'treeType');
   return store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);

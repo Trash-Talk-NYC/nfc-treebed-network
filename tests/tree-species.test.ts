@@ -10,6 +10,7 @@ import {
   normalizeCommonName,
   spanishSpeciesFor,
   speciesTableEntries,
+  tableSpeciesCasingFor,
 } from '../src/lib/tree-species';
 import { MAX_TREE_TYPE_CHARS } from '../src/lib/service';
 
@@ -38,6 +39,17 @@ describe('the species table', () => {
     // door frame is "El cantero de este …" — see the table's own comment.
     expect(spanishSpeciesFor('honeylocust')).toBeNull();
     expect(spanishSpeciesFor('')).toBeNull();
+  });
+
+  it('recognizes the table’s own value shouted, and nothing else', () => {
+    // The one predicate both human-facing write paths share: the admin
+    // add-bed form and the store remediation script.
+    expect(tableSpeciesCasingFor('Willow oak', 'Roble Sauce')).toBe('roble sauce');
+    expect(tableSpeciesCasingFor('Willow oak', 'roble sauce')).toBe('roble sauce');
+    // A name of their own, including one the table cannot judge.
+    expect(tableSpeciesCasingFor('Pin oak', 'Roble de los pantanos')).toBeNull();
+    expect(tableSpeciesCasingFor('Willow oak', 'Mi roble favorito')).toBeNull();
+    expect(tableSpeciesCasingFor('Dragon tree', 'Drago')).toBeNull();
   });
 
   it('holds every entry to the table’s own rules', () => {
