@@ -1,4 +1,5 @@
-// The remediation script's rewrite rule (scripts/rewrite-species-casing.mjs).
+// The remediation script's rewrite rule (scripts/species-casing-rewrite.mjs,
+// run by scripts/rewrite-species-casing.mjs).
 //
 // The pilot store was seeded with capitalized Spanish species names before
 // the door frame's casing rule existed, and nothing on the read path will
@@ -8,7 +9,7 @@
 // record type, and to values the checked-in table itself recognizes.
 
 import { describe, expect, it } from 'vitest';
-import { rewriteSpeciesCasing } from '../scripts/rewrite-species-casing.mjs';
+import { rewriteSpeciesCasing } from '../scripts/species-casing-rewrite.mjs';
 import { seedData } from '../src/lib/store-dataset';
 
 /** The store as it was seeded before the casing rule — "Roble sauce". */

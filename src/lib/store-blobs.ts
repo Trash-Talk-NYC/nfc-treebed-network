@@ -58,14 +58,9 @@ import { BUILD_TARGET } from './build-target';
 import { getRequestContext } from './request-context';
 import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
 import { type Data, TransactionStore, detach, normalizeData, ops, seedData } from './store-dataset';
+import { HEAD_KEY, REVISION_PREFIX, STORE_NAME } from './store-keys';
 
-const STORE_NAME = 'treebed';
-const REVISION_PREFIX = 'rev/';
-
-// Points at a recently committed revision. A hint, not a source of truth:
-// two instances committing at once can land their pointer writes in either
-// order, so it is only ever a place to start walking forward from.
-const HEAD_KEY = 'head';
+export { HEAD_KEY, REVISION_PREFIX, STORE_NAME };
 
 // Optimistic commits only ever lose to real concurrent writers, and at pilot
 // scale (one seeded bed) more than a couple of collisions in a row means

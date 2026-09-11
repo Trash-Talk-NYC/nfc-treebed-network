@@ -19,7 +19,7 @@ import path from 'node:path';
 import { getStore as getBlobClientStore, type Store as BlobsClientStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
 import { BlobsStore } from '../src/lib/store-blobs';
-import { rewriteStoredSpeciesCasing } from '../scripts/rewrite-species-casing.mjs';
+import { rewriteStoredSpeciesCasing } from '../scripts/species-casing-rewrite.mjs';
 import { runInRequestContext } from '../src/lib/request-context';
 import { reportProblem, signIn } from '../src/lib/service';
 import type { BedEvent } from '../src/lib/types';

@@ -367,6 +367,9 @@ Signing in with `1234` on the live site now fails, and the pilot's data (report,
 Rotating a hash forward is the procedure to repeat if it is ever needed again — do not wipe the store to re-seed it.
 `scripts/rewrite-species-casing.mjs` is that same forward-revision shape, written down: it lowercases a `treeType.es` a store was seeded with before the door frame's casing rule, and only where the stored value is the checked-in table's own value modulo casing, so a human's Spanish name is never rewritten.
 It is a deliberate act a human runs (dry run by default, `--commit` to write) and never `normalizeData` behaviour — that stays additive-only, so nothing on the read path ever corrects a field a stored record already has.
+It needs `NETLIFY_SITE_ID` and `NETLIFY_AUTH_TOKEN` — `@netlify/blobs` reads neither on its own — and refuses up front without them, and it needs Node >= 22.18 because it imports `.ts` modules directly.
+That last one is why it is two files: the entry checks the Node version and the credentials before anything imports a `.ts` module, and the rewrite rule itself lives in `scripts/species-casing-rewrite.mjs` where the tests reach it.
+The store's name and key layout come from `src/lib/store-keys.ts` (re-exported by `store-blobs.ts`), so a remediation script can never drift onto the wrong keys.
 Follow its shape for the next field a live store has to be corrected on.
 
 If a store genuinely has to be re-seeded, **delete the `head` key alongside the `rev/*` keys.**

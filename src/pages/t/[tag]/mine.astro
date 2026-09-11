@@ -90,7 +90,7 @@ const visibleStewards = stewards.filter(
 ---
 
 <Screen
-  title={`${MINE.yourBed[lang]} · ${bed.treeType[lang]}`}
+  title={`${MINE.yourBed[lang]} · ${capitalizeFirst(bed.treeType[lang])}`}
   lang={lang}
   presentation={presentation}
   url={Astro.url}

@@ -22,128 +22,69 @@
 // byte-for-byte — including a species the table does not know. That also
 // makes a second run a no-op, so re-running it is free.
 //
+// Requires Node >= 22.18: this is a plain `.mjs` that imports `.ts` modules
+// directly, which only resolves where type stripping is on without a flag.
+// The repo's `engines` floor is 22, so the check below says that in a
+// sentence rather than letting it surface as ERR_UNKNOWN_FILE_EXTENSION.
+//
 // Usage (dry run prints what would change and writes nothing):
 //   NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/rewrite-species-casing.mjs
 //   NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/rewrite-species-casing.mjs --commit
+//
+// Both variables are required: `@netlify/blobs` reads credentials from
+// `NETLIFY_BLOBS_CONTEXT` or from an explicit siteID+token, never from the
+// environment names above, so they are passed through by hand below. A
+// missing one exits non-zero rather than letting the run look like a no-op.
 
-import { pathToFileURL } from 'node:url';
-import { spanishSpeciesFor } from '../src/lib/tree-species.ts';
+// This file imports no `.ts` module statically, and must not start: the
+// version check below has to run before such an import is attempted, and a
+// static one is hoisted above every statement here.
+const MIN_NODE_VERSION = [22, 18];
 
-const STORE_NAME = 'treebed';
-const REVISION_PREFIX = 'rev/';
-const HEAD_KEY = 'head';
-const MAX_COMMIT_ATTEMPTS = 5;
-
-/**
- * The corrected Spanish species name for a bed, or null when there is
- * nothing safe to correct.
- *
- * @param {{ en: string, es: string } | undefined} treeType
- * @returns {string | null}
- */
-export function correctedSpeciesCasing(treeType) {
-  const expected = spanishSpeciesFor(treeType?.en ?? '');
-  if (expected === null) return null;
-  const stored = treeType?.es ?? '';
-  if (stored === expected) return null;
-  return stored.toLowerCase() === expected.toLowerCase() ? expected : null;
+/** Refuses, with a sentence, on a Node too old to load the `.ts` imports. */
+function requireSupportedNode() {
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  const [minMajor, minMinor] = MIN_NODE_VERSION;
+  if (major > minMajor || (major === minMajor && minor >= minMinor)) return;
+  throw new Error(
+    `Node ${process.versions.node} is too old: this script imports TypeScript ` +
+      `modules directly, which needs unflagged type stripping (Node >= ` +
+      `${minMajor}.${minMinor}).`,
+  );
 }
 
-/**
- * A copy of the dataset with the fixable `treeType.es` values corrected, and
- * the list of what changed. The input is never mutated.
- *
- * @template {import('../src/lib/store-dataset.ts').Data} T
- * @param {T} data
- * @returns {{ data: T, changes: Array<{ plate: string, from: string, to: string }> }}
- */
-export function rewriteSpeciesCasing(data) {
-  const next = structuredClone(data);
-  const changes = [];
-  for (const [plate, bed] of Object.entries(next.beds ?? {})) {
-    const corrected = correctedSpeciesCasing(bed.treeType);
-    if (corrected === null) continue;
-    changes.push({ plate, from: bed.treeType.es, to: corrected });
-    bed.treeType = { ...bed.treeType, es: corrected };
-  }
-  return { data: next, changes };
-}
-
-const revisionKey = (revision) => `${REVISION_PREFIX}${revision}`;
-
-/** The newest revision in the chain, and the raw dataset it holds. */
-async function readNewest(blobs) {
-  const raw = await blobs.get(HEAD_KEY, { type: 'text' });
-  const head = Number(raw);
-  let revision = Number.isInteger(head) && head > 0 ? head : await newestListed(blobs);
-  let data = await blobs.get(revisionKey(revision), { type: 'json' });
-  if (data === null) throw new Error(`No dataset at ${revisionKey(revision)} — nothing to rewrite.`);
-  // The pointer is a lower bound; forward gets are what say where the chain ends.
-  for (;;) {
-    const next = await blobs.get(revisionKey(revision + 1), { type: 'json' });
-    if (next === null) return { data, revision };
-    revision += 1;
-    data = next;
-  }
-}
-
-async function newestListed(blobs) {
-  const { blobs: keys } = await blobs.list({ prefix: REVISION_PREFIX });
-  let newest = 0;
-  for (const { key } of keys) {
-    const revision = Number(key.slice(REVISION_PREFIX.length));
-    if (Number.isInteger(revision) && revision > newest) newest = revision;
-  }
-  if (newest === 0) throw new Error('No revisions in the store — nothing to rewrite.');
-  return newest;
-}
-
-/**
- * Read the newest revision, rewrite what is safe to rewrite, and (with
- * `commit`) append the result as the next revision. Returns what changed.
- *
- * @param {import('@netlify/blobs').Store} blobs
- * @param {{ commit?: boolean, log?: (line: string) => void }} [options]
- */
-export async function rewriteStoredSpeciesCasing(blobs, options = {}) {
-  const { commit = false, log = () => {} } = options;
-  for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
-    const { data, revision } = await readNewest(blobs);
-    const { data: rewritten, changes } = rewriteSpeciesCasing(data);
-    if (changes.length === 0) {
-      log(`rev/${revision}: every Spanish species name is already correct — nothing to do.`);
-      return { changes, revision, committed: null };
-    }
-    for (const { plate, from, to } of changes) log(`${plate}: "${from}" → "${to}"`);
-    if (!commit) {
-      log(`\nDry run. Re-run with --commit to append rev/${revision + 1}.`);
-      return { changes, revision, committed: null };
-    }
-    const write = await blobs.set(revisionKey(revision + 1), JSON.stringify(rewritten), {
-      onlyIfNew: true,
-    });
-    if (write.modified) {
-      await blobs.set(HEAD_KEY, String(revision + 1));
-      log(`\nCommitted rev/${revision + 1} (${changes.length} bed(s) rewritten).`);
-      return { changes, revision, committed: revision + 1 };
-    }
-    log(`rev/${revision + 1} was taken by a concurrent commit — re-reading.`);
-  }
-  throw new Error(`Lost ${MAX_COMMIT_ATTEMPTS} commits in a row — nothing was written.`);
+/** The Blobs credentials, or a refusal naming both variables. */
+function requireCredentials(storeName) {
+  const siteID = process.env.NETLIFY_SITE_ID;
+  const token = process.env.NETLIFY_AUTH_TOKEN;
+  if (siteID && token) return { siteID, token };
+  const missing = [siteID ? null : 'NETLIFY_SITE_ID', token ? null : 'NETLIFY_AUTH_TOKEN'].filter(
+    Boolean,
+  );
+  throw new Error(
+    `Missing ${missing.join(' and ')}. This script was about to read the ` +
+      `"${storeName}" Blobs store and append a revision correcting Spanish ` +
+      `species-name casing; both NETLIFY_SITE_ID and NETLIFY_AUTH_TOKEN are ` +
+      `required to reach it.`,
+  );
 }
 
 async function main() {
-  const { getStore } = await import('@netlify/blobs');
-  const blobs = getStore({ name: STORE_NAME, consistency: 'strong' });
+  requireSupportedNode();
+  const [{ getStore }, { STORE_NAME }, { rewriteStoredSpeciesCasing }] = await Promise.all([
+    import('@netlify/blobs'),
+    import('../src/lib/store-keys.ts'),
+    import('./species-casing-rewrite.mjs'),
+  ]);
+  const { siteID, token } = requireCredentials(STORE_NAME);
+  const blobs = getStore({ name: STORE_NAME, consistency: 'strong', siteID, token });
   await rewriteStoredSpeciesCasing(blobs, {
     commit: process.argv.includes('--commit'),
     log: (line) => console.log(line),
   });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+});

@@ -42,7 +42,7 @@ import {
 import { setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
-import { slotsAllTakenMessage, slotsJustFilledMessage } from '../../../lib/format';
+import { capitalizeFirst, slotsAllTakenMessage, slotsJustFilledMessage } from '../../../lib/format';
 import { ADOPT, ADOPT_ERRORS, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
@@ -113,10 +113,15 @@ if (Astro.request.method === 'POST') {
     }
   }
 }
+
+const treeTypeLabel = {
+  en: capitalizeFirst(bed.treeType.en),
+  es: capitalizeFirst(bed.treeType.es),
+};
 ---
 
 <Screen
-  title={`${ADOPT.title[lang]} · ${bed.treeType[lang]}`}
+  title={`${ADOPT.title[lang]} · ${capitalizeFirst(bed.treeType[lang])}`}
   lang={lang}
   presentation={presentation}
   url={Astro.url}
@@ -128,7 +133,7 @@ if (Astro.request.method === 'POST') {
       >
       <div class="ident">
         {bed.plantingSpaceId && <>#{bed.plantingSpaceId} · </>}
-        <span {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+        <span {...bi(treeTypeLabel, lang)}>{treeTypeLabel[lang]}</span>
       </div>
     </div>
     <h1 class="title" {...bi(ADOPT.title, lang)}>{ADOPT.title[lang]}</h1>

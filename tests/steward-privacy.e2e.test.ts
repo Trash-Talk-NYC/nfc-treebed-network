@@ -341,6 +341,21 @@ describe('a steward who asked not to be named', () => {
     expect(html).toContain('data-en="Willow oak"');
     const door = await (await fetch(`${origin}/t/${TAG}?lang=es`)).text();
     expect(door.replace(/<[^>]+>/g, '')).toContain('este roble sauce');
+
+    // A document title is a standalone label wherever the species sits in it,
+    // so every screen's Spanish title capitalizes what the sentence does not.
+    const titleOf = (page: string) => /<title>([^<]*)<\/title>/.exec(page)?.[1];
+    expect(titleOf(html)).toBe('YOUR BED · Willow oak');
+    expect(titleOf(door)).toBe('Roble sauce · TRASH TALK NYC');
+    const mineEs = await fetch(`${origin}/t/${TAG}/mine?lang=es`, { headers: { cookie: cookie! } });
+    expect(titleOf(await mineEs.text())).toBe('TU CANTERO · Roble sauce');
+    for (const [path, expected] of [
+      ['care', '¿Qué pasa? · Roble sauce'],
+      ['adopt', 'Pon tu nombre · Roble sauce'],
+    ] as const) {
+      const page = await (await fetch(`${origin}/t/${TAG}/${path}?lang=es`)).text();
+      expect(titleOf(page), path).toBe(expected);
+    }
   });
 
   it("reads what a second neighbour said about the open report", async () => {
