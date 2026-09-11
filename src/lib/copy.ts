@@ -569,7 +569,15 @@ export const ADMIN = {
     en: 'Still in the record. Restoring one brings its bed and its tag back exactly as they were.',
     es: 'Siguen en el registro. Al restaurar uno, su cantero y su etiqueta vuelven tal como estaban.',
   },
+  /** The retired row's way into the restore confirmation — never the restore itself. */
   restoreBed: { en: 'RESTORE', es: 'RESTAURAR' },
+  restoreBedTitle: { en: 'Restore this bed', es: 'Restaurar este cantero' },
+  restoreBedBody: {
+    en: 'The bed goes back on this block exactly as it was — its guard, its slots, its stewards and its whole record — and its tag opens it again on the next tap.',
+    es: 'El cantero vuelve a esta cuadra tal como estaba — su protector, sus lugares, sus cuidadores y todo su registro — y su etiqueta lo abre de nuevo al siguiente toque.',
+  },
+  restoreBedSubmit: { en: 'RESTORE THIS BED', es: 'RESTAURAR ESTE CANTERO' },
+  restoreBedCancel: { en: 'LEAVE IT DELETED', es: 'DEJARLO ELIMINADO' },
   /** The block page's flash after a restore. */
   bedRestored: { en: 'Bed restored.', es: 'Cantero restaurado.' },
   addBedTitle: { en: 'Add a bed', es: 'Añadir un cantero' },

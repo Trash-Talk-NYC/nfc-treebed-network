@@ -122,6 +122,10 @@ if (Astro.request.method === 'POST') {
         formError =
           bed.offeredSlots >= bed.slots ? slotsJustFilledMessage(bed.slots) : ADOPT.noOpenSlot;
         openSlots = 0;
+      } else if (err instanceof RuleError && err.code === 'bed-not-found') {
+        // Retired between the read above and this transaction: the same calm
+        // screen the read itself would have sent them to.
+        return await refuseMissingBedScreen(Astro.request, base);
       } else {
         throw err;
       }

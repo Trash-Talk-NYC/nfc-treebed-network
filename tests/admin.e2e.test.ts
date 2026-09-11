@@ -561,7 +561,7 @@ describe('deleting a bed', () => {
     const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
     // Off the street — no row that opens the panel — and held below it under
     // "Deleted beds", which is what a mis-tap is restored from.
-    expect(after).not.toContain(`?bed=${PLATE}"`);
+    expect(after).not.toContain(`href="${BLOCK_PATH}?bed=${PLATE}"`);
     expect(after).toContain('Deleted beds');
     expect(after).toContain(PLATE);
     expect(after).toContain('Bed deleted');
@@ -627,9 +627,21 @@ describe('deleting a bed', () => {
 describe('restoring a deleted bed', () => {
   // The same bed the delete tests retired, and the same tag: the registry is
   // checked in and cannot be rewritten at runtime, so the way back from a
-  // mis-tap has to be a store write the admin itself can make.
+  // mis-tap has to be a store write the admin itself can make. Retired here
+  // too, so this suite proves restore on its own rather than on whatever the
+  // suite above happened to leave behind.
   const PLATE = 'BED-WH-1712';
   const TAG = '1hc0t9cj';
+
+  beforeAll(async () => {
+    const cookie = await adminCookie();
+    await fetch(`${origin}${BLOCK_PATH}/delete-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+  });
 
   it('lists the deleted bed apart from the street, with RESTORE as its only affordance', async () => {
     const cookie = await adminCookie();
@@ -637,17 +649,31 @@ describe('restoring a deleted bed', () => {
     expect(list).toContain('Deleted beds');
     expect(list).toContain('data-es="Canteros eliminados"');
     expect(list).toContain('data-es="RESTAURAR"');
-    expect(list).toContain(`value="${PLATE}"`);
-    // A deleted row is not a way into the panel.
-    expect(list).not.toContain(`?bed=${PLATE}"`);
+    // RESTORE is a LINK out of the page, not a submit inside the block form:
+    // a submit fires the form's own submit handler, which disarms the
+    // unsaved-changes guard and would drop whatever the panel still held.
+    // The structure is what makes the browser prompt fire, so it is what is
+    // pinned here — a fetch-based suite has no browser to observe it in.
+    expect(list).toContain(`href="${BLOCK_PATH}/restore-bed?bed=${PLATE}"`);
+    expect(list).not.toContain(`name="restore"`);
+    // A deleted row is not a way into the panel either.
+    expect(list).not.toContain(`href="${BLOCK_PATH}?bed=${PLATE}"`);
   });
 
-  it('puts the bed and its tag back on the press, with nothing else changed', async () => {
+  it('puts the bed and its tag back on the confirmation’s own POST, with nothing else changed', async () => {
     const cookie = await adminCookie();
-    const restored = await fetch(`${origin}${BLOCK_PATH}`, {
+    const confirm = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
+      headers: { cookie },
+    });
+    expect(confirm.status).toBe(200);
+    const confirmHtml = await confirm.text();
+    expect(confirmHtml).toContain('Restore this bed');
+    expect(confirmHtml).toContain('data-es="RESTAURAR ESTE CANTERO"');
+
+    const restored = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
-      body: new URLSearchParams({ restore: PLATE }),
+      body: new URLSearchParams({}),
       redirect: 'manual',
     });
     expect(restored.status).toBe(303);
@@ -664,11 +690,23 @@ describe('restoring a deleted bed', () => {
     expect(await tap.text()).not.toContain('assigned to a bed yet');
   });
 
+  it('answers a resubmitted confirmation with the block page, not an error', async () => {
+    const cookie = await adminCookie();
+    const again = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    expect(again.status).toBe(303);
+    expect(again.headers.get('location')).toContain('restored=1');
+  });
+
   it('takes no restore from a caller with no session', async () => {
-    const refused = await fetch(`${origin}${BLOCK_PATH}`, {
+    const refused = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=BED-WH-1713`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
-      body: new URLSearchParams({ restore: 'BED-WH-1713' }),
+      body: new URLSearchParams({}),
       redirect: 'manual',
     });
     expect(refused.status).toBe(303);

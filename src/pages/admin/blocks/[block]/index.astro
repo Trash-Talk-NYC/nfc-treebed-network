@@ -30,7 +30,6 @@ import {
   MAX_BED_SLOTS,
   RuleError,
   getBlockView,
-  restoreBedByAdmin,
   saveBlockSettings,
   type AdminBedView,
 } from '../../../../lib/service';
@@ -79,23 +78,6 @@ if (Astro.request.method === 'POST') {
   // a cookie is not a licence for an unbounded body (request-body.ts).
   const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'admin save');
   if (refused) return refused;
-  // RESTORE carries its plate in the pressed button's own value, so only the
-  // row that was pressed is submitted and nothing else on the page has to hold
-  // a field per deleted bed. It is its own act: the panel's edits are not
-  // committed by it, the same way the delete link navigates away from them.
-  const restorePlate = form.get('restore');
-  if (typeof restorePlate === 'string' && restorePlate !== '') {
-    try {
-      await restoreBedByAdmin(store, { blockId, plate: restorePlate });
-    } catch (err) {
-      if (err instanceof RuleError && err.code === 'bed-not-found') {
-        return new Response('Not found.', { status: 404 });
-      }
-      throw err;
-    }
-    const params = new URLSearchParams({ bed: restorePlate, restored: '1' });
-    return Astro.redirect(langLink(`/admin/blocks/${blockId}?${params}`, lang), 303);
-  }
   const plate = String(form.get('plate') ?? '');
   const referenceAddress = String(form.get('referenceAddress') ?? '');
   // A radio always submits, because the panel draws NOT RECORDED as a fourth
@@ -469,27 +451,27 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               <p class="retired-note" {...bi(ADMIN.retiredNote, lang)}>
                 {ADMIN.retiredNote[lang]}
               </p>
-              {retired.map((b) => {
-                const name = retiredName(b);
-                return (
-                  <div class="tree retired-row">
-                    <span class="dot dot-closed" />
-                    <span class="nm">
-                      <span {...bi(name, lang)}>{name[lang]}</span>
-                      <small>{b.plate}</small>
-                    </span>
-                    <button
-                      class="restore-act"
-                      type="submit"
-                      name="restore"
-                      value={b.plate}
-                      {...bi(ADMIN.restoreBed, lang)}
-                    >
-                      {ADMIN.restoreBed[lang]}
-                    </button>
-                  </div>
-                );
-              })}
+              <div class="retired-list">
+                {retired.map((b) => {
+                  const name = retiredName(b);
+                  return (
+                    <div class="tree retired-row">
+                      <span class="dot dot-closed" />
+                      <span class="nm">
+                        <span {...bi(name, lang)}>{name[lang]}</span>
+                        <small>{b.plate}</small>
+                      </span>
+                      <a
+                        class="restore-act"
+                        href={langLink(`${base}/restore-bed?bed=${b.plate}`, lang)}
+                        {...bi(ADMIN.restoreBed, lang)}
+                      >
+                        {ADMIN.restoreBed[lang]}
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )
         }
@@ -1233,20 +1215,25 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     font-size: 12px;
     color: var(--theme-muted);
   }
+  /* Same list component as the street above it, so two deleted rows do not
+     butt their borders together. */
+  .retired-list {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
   .retired-row {
     opacity: 0.72;
   }
   .restore-act {
     flex: none;
-    border: none;
-    background: transparent;
     padding: 8px 0;
     font-family: 'Barlow', sans-serif;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.05em;
     color: var(--theme-action);
-    cursor: pointer;
+    text-decoration: none;
   }
   .deleted-flash {
     margin-top: 10px;
