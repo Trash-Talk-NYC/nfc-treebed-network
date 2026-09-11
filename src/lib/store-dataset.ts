@@ -65,6 +65,8 @@ function normalizeBed(bed: Bed): void {
   if (typeof legacy.treeType !== 'object' || legacy.treeType === null) {
     bed.treeType = { ...GENERIC_TREE };
   }
+  // A bed written before naming existed is simply a bed nobody has named.
+  bed.bedName ??= null;
   // A record from before the admin page's per-slot switches was written when
   // every unfilled slot was implicitly up for adoption — that is what the
   // door screen did with it — so `offeredSlots = slots` records what was
@@ -210,6 +212,7 @@ function w171Beds(): Bed[] {
       ? { en: 'White oak', es: 'roble blanco' }
       : { en: 'Willow oak', es: 'roble sauce' },
     treeId: args.treeId,
+    bedName: null,
     tagUid: '',
     crossStreets: 'W 171 St × Fort Washington Ave & Haven Ave',
     address: args.address,
@@ -357,6 +360,7 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
       plantingSpaceGlobalId: null,
       treeType: { en: 'Willow oak', es: 'roble sauce' },
       treeId: '08-4211',
+      bedName: null,
       tagUid: '04:A2:2F:9C',
       crossStreets: 'W 138 St × Adam Clayton Powell Jr Blvd',
       address: '2300 Adam Clayton Powell Jr Blvd, New York, NY 10030',

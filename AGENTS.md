@@ -6,6 +6,7 @@ The bed's plate (`BED-HRL-0847`) is an INTERNAL join key and is never rendered �
 
 **Every feature-work pull request is opened against `dev`, never against `main`** — `dev` is the default branch and `main` mirrors `prod`.
 This is repeated here, at the top, because automation that picks a base by the conventional name `main` fails the promotion-chain check, and by then the base is already wrong; see "Branching model" below for the whole chain and for the retarget that clears it.
+A checkout made before `dev` became the default still caches `main` in `remote.origin.HEAD`, which is what base-picking tooling reads, so run `git remote set-head origin -a` in any clone that offers `main` — `git ls-remote --symref origin HEAD` is the read-only check.
 
 Source-of-truth documents live in the firstmate repo:
 - `data/tap-flow-decision/approved-screens.html` — the approved screens, iterated on directly by the captain across roughly forty rounds. Authoritative for visuals, copy and flow. **Open it in a browser before changing a screen.**
@@ -65,6 +66,7 @@ Washington Heights is heavily Spanish-speaking.
 - Screens render the active language AND carry both in `data-en` / `data-es` attributes (`src/lib/bilingual.ts`), the same pattern the sister property `trashtalknyc-website` uses.
   The server render is what makes it correct with no script; the one inline script in `Screen.astro` upgrades the toggle to an instant, no-reload swap.
   **A bilingual element must be a LEAF node** — the swap sets `textContent` — which is why a sentence wrapping the tree type is split into leaves either side of it.
+  Visitor-supplied text is the one thing that carries no `data-en`/`data-es` pair: a bed's given name (`Bed.bedName`) renders as typed in both languages, on its own leaf, never inside one of our sentences.
 - Every link and redirect of ours carries the language through `langLink` / `withLang`, which preserve whatever else the URL held — including `tg_action`, without which a language switch would log a second tap (`plaque-url.ts`).
 - Plain-text refusals for machine callers (405, "Not a tag on this network.") are deliberately English-only: nothing renders those to a person.
 - A bed's Spanish species name defaults from the checked-in table in `src/lib/tree-species.ts` when a bed is added: an explicitly typed Spanish name wins, and an unknown species degrades to the generic "árbol" — never a guess, a transliteration, or a runtime translation.
@@ -152,7 +154,8 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   `netlify blobs:get treebed rev/<n> | jq` covers the readability.
   Growth is still linear in lifetime taps — `events` is append-only with nothing pruning it — which is fine at pilot scale and is the thing to revisit (a separate append-only key, or sampling) before traffic accumulates.
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
-  The per-bed slot cap (`min(slots, offeredSlots)`, and `slots` itself bounded by `MAX_BED_SLOTS`), one-report-per-person-per-bed-per-NY-day, single open report per bed, one applause per person per bed per NY day, escalate-to-dumping-once, one photo per NY week, the note cap, the typed-field caps (`MAX_NAME_CHARS` / `MAX_EMAIL_CHARS` / `MAX_ADDRESS_CHARS` / `MAX_TREE_TYPE_CHARS`, trimmed rather than refused), PIN hashing.
+  The per-bed slot cap (`min(slots, offeredSlots)`, and `slots` itself bounded by `MAX_BED_SLOTS`), one-report-per-person-per-bed-per-NY-day, single open report per bed, one applause per person per bed per NY day, escalate-to-dumping-once, one photo per NY week, the note cap, the typed-field caps (`MAX_NAME_CHARS` / `MAX_EMAIL_CHARS` / `MAX_ADDRESS_CHARS` / `MAX_TREE_TYPE_CHARS` / `MAX_BED_NAME_CHARS`, trimmed rather than refused), first-steward bed naming, PIN hashing.
+  Every typed field goes through `capped`, which STRIPS control characters and the bidirectional-format overrides before it trims and cuts — a hand-built POST is the only thing that can carry a U+202E into a field that renders as a leaf beside copy of ours.
   Anything in the browser is editable in devtools (spec §7).
 - **A rule that checks state before writing it runs inside `store.transaction()`, and reads and writes through the `tx` the callback is handed — never through the store it came from.**
   A bare sequence of store calls interleaves with concurrent requests, and two reports open on one bed is unrecoverable through the UI — `closeReport` only ever finds the first.
@@ -269,6 +272,13 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Our own plate encodes site type and neighbourhood and is **never rendered** — it survives as the join key every report, adoption and event hangs on.
   The opaque tag ID stays the URL and an internal key, and is displayed on exactly one screen: the calm "not assigned to a bed yet" one, where it is the only thing there is to say.
   A bed NYC has no number for prints no number at all rather than falling back to the plate.
+- **The FIRST steward names the bed, and the name is the BED's, not theirs** (`Bed.bedName`, nullable).
+  The captain's own words: "the first adopter names the bed".
+  `adopt.astro` offers the optional field only while the bed has no steward and no name, and `adoptBed` re-decides that inside its transaction against the adoptions it is committing against — anyone else's `bedName` is silently DROPPED and their adoption still goes through, because nobody standing at a tree is shown a rule.
+  Releasing or removing the steward who chose it changes nothing; only the block admin can take a name back to null, and a bed returned to unnamed may be named again by a later first steward.
+  There is no rename path and the admin never types one.
+  The name is **visitor free text rendered as typed in BOTH languages** — a name is not translated — so it is always its own leaf beside the bed's identity (both doors, plus `mine.astro`), never spliced into a bilingual sentence, and it is set in Londrina Solid because this is a plaque, not a form field.
+  An unnamed bed renders no element at all.
 - **A steward is shown as username first, then initials — `@marisol_r`, `M. R.`** (`publicHandle` / `publicInitials` in `types.ts`).
   The handle is DERIVED from the name, not typed: the approved form has no username field, and `deriveUsername` gives the first name plus the last initial — exactly as much as the initials printed under it already give away.
   Full name, email and phone are admin-only and must never reach a public screen or payload.
@@ -334,9 +344,10 @@ The captain's own surface — the one place full names, emails and phones render
 `/admin` itself is the key screen and, behind the session, the block list — real blocks before `demo` ones.
 `add-steward.astro` and `add-bed.astro` sit beside the block page as the two forms that need a page of their own.
 
-- **Gate: `TREEBED_ADMIN_KEY`** (session.ts). Unset in production, every /admin route answers 404 — a deploy that never configured a key has no admin. Dev generates one into `.data/admin-key`. The signed `tg_admin` cookie lasts 30 days. This is deliberately NOT a username+PIN: the /auth screens are the dead end nothing builds on, and a long random key costs no bcrypt and offers no enumeration. Per-IP throttling is still the platform-tier debt recorded in request-body.ts.
+- **Gate: `TREEBED_ADMIN_KEY`** (session.ts). Where no key is configured, every /admin route answers 404 — a deploy that never configured one has no admin, deliberately; the pilot site has held a key site-level since 2026-09-10, so its /admin is live. Dev generates one into `.data/admin-key`. The signed `tg_admin` cookie lasts 30 days. This is deliberately NOT a username+PIN: the /auth screens are the dead end nothing builds on, and a long random key costs no bcrypt and offers no enumeration. Per-IP throttling is still the platform-tier debt recorded in request-body.ts.
 - **`Bed.offeredSlots` is a rule, not a display state**: `adoptBed` refuses past `min(slots, offeredSlots)`, and `BedView.openSlots` is derived from that same bound — the door screen and `adopt.astro` gate the invitation on it, so an unoffered bed shows no adopt button and no form the rules would then have to refuse. The six W 171st beds seed with `offeredSlots: 0` — opening one is the captain's act, on this page.
   The switches submit slot NUMBERS, not a count: `offeredSlots` covers slots 1..n, so a gapped selection is refused (bilingual, 422, switches re-rendered as submitted) rather than saved as its size, which would flip a switch nobody touched.
+- **The bed-name row is a takedown, not an edit.** It renders in the opened bed's panel only when the bed HAS a name, and the switch removes it on SAVE CHANGES (`BlockSaveInput.bed.clearBedName` → `bedName: null`), touching neither the bed nor its adoption. Visitor free text on a screen bolted to a street needs a way down; the admin never authors a name, and the only way one comes back is a later first steward naming the bed again.
 - **`POST /admin/sign-out` closes the session**, and the control sits in the admin bar on every admin screen (`AdminScreen.astro`) — the 30-day `tg_admin` cookie opens PII on a phone that gets handed around, and the alternatives were clearing site data or rotating the key for everyone.
 - The guard is two nullable dates (`guardOrderedAt`/`guardInstalledAt`, derived `guardStatus`), so the admin toggle can flip installs without ever losing "ordered".
 - `addStewardByAdmin` is the sidewalk case: email optional, `hasSignInRoute: false`, `recordHeldOnBehalf: true`, adoption `stewardKind: 'pen-and-paper'`. It may fill an unoffered slot (writing a neighbour in is the point) but never past `slots`. A typed username that collides is refused, not mutated.
@@ -384,7 +395,7 @@ A surviving `head` is the store's own proof that it has been written to, and `Bl
 - **The environment is split by when it is read, and each key lives in exactly one place.**
   `netlify.toml`'s `[build.environment]` is the sole source for the build-time keys — `TREEBED_ADAPTER=netlify`, `NODE_VERSION=22`, and `AWS_LAMBDA_JS_RUNTIME=nodejs22.x` (functions default to an older Node than `engines` demands, and that failure shows up at request time rather than at build time) — so a recreated or duplicated site builds and runs correctly without anyone remembering an `env:set`.
   Site-level environment carries only the runtime keys: `TREEBED_SESSION_SECRET` (secret, generated — never in the repo) and `TREEBED_STORE=blobs`.
-  `TREEBED_ADMIN_KEY` is the third runtime key and belongs there too if the pilot is ever to have an admin — never in `netlify.toml`, which is checked in, so a key there would be a published one; while it is unset every `/admin` route on the deployed site answers 404.
+  `TREEBED_ADMIN_KEY` is the third runtime key and is set there on the pilot as of 2026-09-10 — never in `netlify.toml`, which is checked in, so a key there would be a published one; where no key is set every `/admin` route on a deployed site answers 404.
   **None of the three build-time keys is to be set with `netlify env:set`**: a site-level variable silently overrides `[build.environment]`, so a duplicate would leave this file documented as the source of truth while the site quietly won, and an edit here would have no effect on the deploy.
   The earlier site-level copies of all three have been unset accordingly.
   Checking that is itself a trap: `netlify env:list` run *inside the repo* merges `[build.environment]` into its output, so the build-time keys appear whether or not the site holds them — site-only state has to be checked from outside a checkout.

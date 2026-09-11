@@ -85,6 +85,18 @@ export interface Bed {
   /** City forestry tree id. Internal; the tree churns, the bed does not. */
   treeId: string;
   /**
+   * The name the bed's FIRST steward gave it, or null for a bed nobody has
+   * named. It is the bed's name, not the steward's profile: releasing or
+   * removing the steward who chose it changes nothing here, and only the
+   * block admin can take it back to null (`saveBlockSettings`).
+   *
+   * Visitor-supplied free text, rendered as typed in BOTH languages — a name
+   * is not translated — and always as its own leaf beside the bed's identity,
+   * never spliced into a bilingual sentence. Bounded by `MAX_BED_NAME_CHARS`
+   * (service.ts) like every other typed field.
+   */
+  bedName: string | null;
+  /**
    * NFC chip serial of the tag installed with the guard, e.g. 04:A2:2F:9C.
    * Provenance only, and not the site's tag identity: which tag speaks for a
    * site is the binding's to answer (tag-bindings.ts), so a stolen tag retired

@@ -104,6 +104,9 @@ const visibleStewards = stewards.filter(
     </div>
     <div class="card">
       <h1 class="title" {...bi(treeTypeHeading, lang)}>{treeTypeHeading[lang]}</h1>
+      {/* The bed's given name, as typed, in both languages — the same leaf
+          the door screens carry. Nothing renders on an unnamed bed. */}
+      {bed.bedName !== null && <div class="bed-name">“{bed.bedName}”</div>}
       <div class="ident bed-ident">
         {bed.plantingSpaceId && <>#{bed.plantingSpaceId} · </>}
         {bed.crossStreets}
@@ -222,6 +225,13 @@ const visibleStewards = stewards.filter(
 <style>
   .top-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .bed-ident { margin-top: 6px; }
+  .bed-name {
+    font-family: 'Londrina Solid', cursive;
+    font-weight: 400;
+    font-size: 19px;
+    overflow-wrap: anywhere;
+    margin-top: 4px;
+  }
   .stewards-gap { margin-top: 14px; }
   .note-echo { font-style: italic; }
   .also-block { display: flex; flex-direction: column; gap: 6px; }

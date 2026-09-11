@@ -11,6 +11,7 @@ const BED: Bed = {
   plantingSpaceGlobalId: null,
   treeType: { en: 'Willow oak', es: 'roble sauce' },
   treeId: '08-4211',
+  bedName: null,
   tagUid: '04:A2:2F:9C',
   crossStreets: 'W 138 St × Adam Clayton Powell Jr Blvd',
   address: '2300 Adam Clayton Powell Jr Blvd, New York, NY 10030',

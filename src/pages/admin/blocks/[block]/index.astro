@@ -43,8 +43,13 @@ const blockId = Astro.params.block ?? '';
 // different selection, and the point of the press is that nothing is committed
 // until SAVE CHANGES.
 let slotError: Phrase | null = null;
-let submitted: { address: string; guard: boolean; slots: Set<number>; addSlots: number } | null =
-  null;
+let submitted: {
+  address: string;
+  guard: boolean;
+  slots: Set<number>;
+  addSlots: number;
+  clearName: boolean;
+} | null = null;
 
 if (Astro.request.method === 'POST') {
   // Behind the session, but read under the same bounds as every public POST:
@@ -54,6 +59,9 @@ if (Astro.request.method === 'POST') {
   const plate = String(form.get('plate') ?? '');
   const referenceAddress = String(form.get('referenceAddress') ?? '');
   const guardInstalled = form.get('guard') !== null;
+  // The bed-name removal switch (service.ts, `BlockSaveInput`): committed by
+  // SAVE CHANGES like every other panel control, never on its own press.
+  const clearBedName = form.get('clear-bed-name') !== null;
   // The slot NUMBERS, not how many of them there are: `offeredSlots` is a
   // count covering slots 1..n, so a gapped selection has no representation
   // and saving its size would flip a different switch than the captain did.
@@ -75,6 +83,7 @@ if (Astro.request.method === 'POST') {
     guard: guardInstalled,
     slots: new Set(offeredSlotNumbers.filter(Number.isFinite)),
     addSlots,
+    clearName: clearBedName,
   });
   if (form.get('intent') === 'add-slot') {
     submitted = asSubmitted();
@@ -91,6 +100,7 @@ if (Astro.request.method === 'POST') {
                 guardInstalled,
                 offeredSlotNumbers,
                 addSlots,
+                clearBedName,
               },
       });
     } catch (err) {
@@ -375,6 +385,32 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                 {selected.bed.plate}
               </div>
               <input type="hidden" name="plate" value={selected.bed.plate} />
+
+              {/* Only a NAMED bed gets this row: the switch removes the
+                  first steward's name from the public screens (visitor free
+                  text on a street is an abuse surface, and taking one down
+                  must not touch the bed or the adoption). Committed by SAVE
+                  CHANGES; an unnamed bed renders exactly as before. */}
+              {selected.bed.bedName !== null && (
+                <label class="toggle-row guard-row">
+                  <span>
+                    <span class="t-lbl">
+                      <span {...bi(ADMIN.bedNameLabel, lang)}>{ADMIN.bedNameLabel[lang]}</span>
+                      {` · “${selected.bed.bedName}”`}
+                    </span>
+                    <span class="t-sub">
+                      <span {...bi(ADMIN.clearBedNameSub, lang)}>{ADMIN.clearBedNameSub[lang]}</span>
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    class="sw"
+                    name="clear-bed-name"
+                    value="1"
+                    checked={submitted ? submitted.clearName : false}
+                  />
+                </label>
+              )}
 
               <label class="toggle-row guard-row">
                 <span>

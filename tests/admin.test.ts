@@ -375,6 +375,61 @@ describe('saving the block admin page', () => {
   });
 });
 
+describe('the admin takes a bed’s name down', () => {
+  /** Offer the bed's one slot, adopt it first, and name it on the way in. */
+  async function namedBed(store: LocalStore): Promise<void> {
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
+    });
+    await adoptBed(store, {
+      plate: W171_PLATE,
+      input: {
+        firstName: 'Rita',
+        lastName: 'Okafor',
+        email: 'r.okafor@example.com',
+        phone: '',
+        bedName: 'La Madrina',
+      },
+    });
+  }
+
+  it('leaves the name alone on an ordinary save', async () => {
+    const store = freshStore();
+    await namedBed(store);
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: { plate: W171_PLATE, guardInstalled: true, offeredSlotNumbers: [1], addSlots: 0 },
+    });
+    expect((await store.getBed(W171_PLATE))!.bedName).toBe('La Madrina');
+  });
+
+  it('clears the name back to unnamed without touching the bed or its adoption', async () => {
+    const store = freshStore();
+    await namedBed(store);
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: {
+        plate: W171_PLATE,
+        guardInstalled: false,
+        offeredSlotNumbers: [1],
+        addSlots: 0,
+        clearBedName: true,
+      },
+    });
+    const view = (await getBedView(store, W171_PLATE))!;
+    // Unnamed again — and the steward, the slot and the bed are untouched:
+    // the whole point of the control is taking down free text without
+    // deleting anything a neighbour signed up for.
+    expect(view.bed.bedName).toBeNull();
+    expect(view.stewards).toHaveLength(1);
+    expect(view.bed.slots).toBe(1);
+  });
+});
+
 describe('writing a steward in, pen and paper', () => {
   it('records the sidewalk case explicitly: no email, no sign-in route, record held on their behalf', async () => {
     const store = freshStore();

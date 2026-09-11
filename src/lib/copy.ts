@@ -97,6 +97,15 @@ export const ADOPT = {
   lastName: { en: 'Last name', es: 'Apellido' },
   email: { en: 'Email', es: 'Correo electrónico' },
   phone: { en: 'Phone', es: 'Teléfono' },
+  // The naming moment, offered to the FIRST steward only. The name itself is
+  // the visitor's own text and is never translated — these are the words
+  // around it. Kept to one label, one sentence and one input so the field
+  // reads as putting a name on something, not as more form.
+  nameBed: { en: 'Name this bed', es: 'Ponle nombre a este cantero' },
+  nameBedHelp: {
+    en: 'You’d be its first steward, so you get to name it. The name goes on this bed’s screen for the whole block.',
+    es: 'Serías su primera persona cuidadora, así que tú le pones el nombre. El nombre aparecerá en la pantalla de este cantero para toda la cuadra.',
+  },
   // No password, no PIN, no code: the captain chose passwordless, and there is
   // deliberately nothing here to invent or forget.
   noSecret: {
@@ -287,6 +296,15 @@ export const ADMIN = {
    * admin never invents a number, and this is what it says instead.
    */
   nycUnresolved: { en: 'NYC bed not matched yet', es: 'Cantero NYC sin emparejar todavía' },
+  /**
+   * The bed-name row in the opened bed's panel — rendered only when the bed
+   * HAS a name. The switch removes it on save; the admin never types one.
+   */
+  bedNameLabel: { en: 'Bed name', es: 'Nombre del cantero' },
+  clearBedNameSub: {
+    en: 'Given by its first steward. Switch on and save to remove it.',
+    es: 'Lo puso su primera persona cuidadora. Enciende y guarda para quitarlo.',
+  },
   slotWord: { en: 'Slot', es: 'Lugar' },
   slotOpen: { en: 'open for adoption', es: 'en adopción' },
   slotNotOffered: { en: 'not offered', es: 'no ofrecido' },
