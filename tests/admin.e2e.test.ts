@@ -623,21 +623,30 @@ describe('deleting a bed', () => {
     expect(again.headers.get('location')).toContain('deleted=1');
   });
 
-  it('answers SAVE CHANGES on a bed deleted from another tab with the block page, not a bare 404', async () => {
+  it('answers SAVE CHANGES on a bed deleted from another tab with the block page, keeping the typed address', async () => {
     // The stale tab: the panel was open when the bed went, and the press has
-    // to land somewhere with a way back — mid-walk, one-handed.
+    // to land somewhere with a way back — mid-walk, one-handed. Nothing was
+    // written, so the address the captain retyped comes back in the field
+    // rather than being dropped by a redirect, and the page says so.
     const cookie = await adminCookie();
+    const typed = '712 W 171st St';
     const saved = await fetch(`${origin}${BLOCK_PATH}?bed=${PLATE}`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
-      body: new URLSearchParams({ plate: PLATE, referenceAddress: '', guard: 'on' }),
+      body: new URLSearchParams({ plate: PLATE, referenceAddress: typed, guard: 'on' }),
       redirect: 'manual',
     });
-    expect(saved.status).toBe(303);
-    const location = saved.headers.get('location')!;
-    expect(location).toContain('deleted=1');
-    const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
-    expect(after).toContain('Bed deleted');
+    expect(saved.status).toBe(409);
+    const after = await saved.text();
+    expect(after).toContain('was deleted somewhere else');
+    expect(after).toContain('Nothing was saved');
+    expect(after).toContain('data-es="Este cantero se eliminó en otro lugar');
+    // The typed address is in the field, one SAVE ADDRESS away from landing.
+    expect(after).toContain(`value="${typed}"`);
+    expect(after).toContain('SAVE ADDRESS');
+    // And it really was not written: a fresh load still shows the old address.
+    const fresh = await (await fetch(`${origin}${BLOCK_PATH}`, { headers: { cookie } })).text();
+    expect(fresh).not.toContain(`value="${typed}"`);
   });
 
   it('keeps the plain 404 for a block that does not exist — only the bed gets the screen', async () => {

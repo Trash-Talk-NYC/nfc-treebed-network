@@ -562,6 +562,11 @@ export const ADMIN = {
   deleteBedCancel: { en: 'KEEP THIS BED', es: 'CONSERVAR EL CANTERO' },
   /** The block page's flash after a delete. */
   bedDeleted: { en: 'Bed deleted. Its record is kept.', es: 'Cantero eliminado. Su registro se conserva.' },
+  /** A save whose open bed had been deleted elsewhere: nothing was written. */
+  bedDeletedElsewhere: {
+    en: 'This bed was deleted somewhere else while this page was open. Nothing was saved — the block address is still in the field above, press SAVE ADDRESS to keep it.',
+    es: 'Este cantero se eliminó en otro lugar mientras esta página estaba abierta. No se guardó nada: la dirección de la cuadra sigue en el campo de arriba, presione GUARDAR DIRECCIÓN para conservarla.',
+  },
   /** The heading over the deleted beds, below the street list. */
   retiredHead: { en: 'Deleted beds', es: 'Canteros eliminados' },
   /** Why they are still on the page at all — and the only thing to do with one. */

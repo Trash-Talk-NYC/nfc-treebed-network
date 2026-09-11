@@ -59,6 +59,8 @@ const blockId = Astro.params.block ?? '';
 // different selection, and the point of the press is that nothing is committed
 // until SAVE CHANGES.
 let slotError: Phrase | null = null;
+// The open bed was deleted elsewhere while this tab held it: nothing saved.
+let staleBed = false;
 let submitted: {
   address: string;
   guard: GuardMaterial | null | undefined;
@@ -164,12 +166,17 @@ if (Astro.request.method === 'POST') {
       if (err instanceof RuleError && err.code === 'bed-not-found') {
         // The open bed was deleted between this page rendering and the press —
         // another tab, or the phone in the captain's other hand. The block is
-        // fine, so the answer is the block page the bed has gone from, the
-        // same one `add-steward.astro` and `delete-bed.astro` give. A real
-        // missing block keeps its plain 404 above.
-        return Astro.redirect(langLink(`/admin/blocks/${blockId}?deleted=1`, lang), 303);
-      }
-      if (
+        // fine, so the answer is the block page the bed has gone from. It is
+        // RE-RENDERED rather than redirected to, because the save wrote
+        // nothing at all (`saveBlockSettings` finds every refusal before its
+        // first write) and a redirect would drop the address the captain had
+        // just retyped. It comes back in the field, and the flash says both
+        // things: the bed is gone, and nothing was saved. A real missing
+        // block keeps its plain 404 above.
+        staleBed = true;
+        submitted = asSubmitted();
+        Astro.response.status = 409;
+      } else if (
         err instanceof RuleError &&
         (err.code === 'invalid-input' || err.code === 'slot-out-of-range')
       ) {
@@ -385,6 +392,13 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
             )
           }
         </div>
+        {
+          staleBed && (
+            <div class="deleted-flash" {...bi(ADMIN.bedDeletedElsewhere, lang)}>
+              {ADMIN.bedDeletedElsewhere[lang]}
+            </div>
+          )
+        }
         {
           deletedFlash && (
             <div class="deleted-flash" {...bi(ADMIN.bedDeleted, lang)}>

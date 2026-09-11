@@ -1045,35 +1045,48 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
     // captain is standing in front of. Two codes, so the route can answer the
     // second one with a screen instead of a line of unstyled English.
     if (!block) throw new RuleError('block-not-found', `No block ${args.blockId}`);
+    // Every refusal is found BEFORE the first write, so a save either lands
+    // whole or writes nothing at all. Updating the address first and meeting
+    // a deleted bed after it rolled the address back too — the same outcome
+    // as this, but reached by a rollback the route could not describe to the
+    // captain, so it told them only half of what had happened.
+    const wanted = args.bed ?? null;
+    const bed = wanted ? await getActiveBed(tx, wanted.plate) : null;
+    if (wanted && (!bed || bed.blockId !== args.blockId)) {
+      throw new RuleError('bed-not-found', `No bed ${wanted.plate} in block ${args.blockId}`);
+    }
+    // The slot refusals are found here too, ahead of the address write, for
+    // the same reason: the page that comes back says "unsaved changes", and
+    // it must be telling the truth about the address as well as the switches.
+    let pending: { slots: number; offeredSlots: number } | null = null;
+    if (wanted && bed) {
+      const added = Number.isFinite(wanted.addSlots) ? Math.max(0, Math.floor(wanted.addSlots)) : 0;
+      const slots = Math.min(MAX_BED_SLOTS, bed.slots + added);
+      const filled = (await tx.getActiveAdoptions(bed.plate)).length;
+      pending = { slots, offeredSlots: offeredSlotCount(wanted.offeredSlotNumbers, filled, slots) };
+    }
+
     const referenceAddress = capped(args.referenceAddress, MAX_ADDRESS_CHARS);
     if (referenceAddress !== '' && referenceAddress !== block.referenceAddress) {
       await tx.updateBlock({ ...block, referenceAddress });
     }
-    if (!args.bed) return;
+    if (!wanted || !bed || !pending) return;
 
-    const bed = await getActiveBed(tx, args.bed.plate);
-    if (!bed || bed.blockId !== args.blockId) {
-      throw new RuleError('bed-not-found', `No bed ${args.bed.plate} in block ${args.blockId}`);
-    }
-    const added = Number.isFinite(args.bed.addSlots) ? Math.max(0, Math.floor(args.bed.addSlots)) : 0;
-    const slots = Math.min(MAX_BED_SLOTS, bed.slots + added);
-    const filled = (await tx.getActiveAdoptions(bed.plate)).length;
-    const offeredSlots = offeredSlotCount(args.bed.offeredSlotNumbers, filled, slots);
     await tx.updateBed({
       ...bed,
-      slots,
-      offeredSlots,
-      bedName: args.bed.clearBedName ? null : bed.bedName,
-      guard: args.bed.guard === undefined ? bed.guard : args.bed.guard,
-      treePresent: args.bed.treePresent === undefined ? bed.treePresent : args.bed.treePresent,
-      plantsPresent: args.bed.plantsPresent === undefined ? bed.plantsPresent : args.bed.plantsPresent,
+      slots: pending.slots,
+      offeredSlots: pending.offeredSlots,
+      bedName: wanted.clearBedName ? null : bed.bedName,
+      guard: wanted.guard === undefined ? bed.guard : wanted.guard,
+      treePresent: wanted.treePresent === undefined ? bed.treePresent : wanted.treePresent,
+      plantsPresent: wanted.plantsPresent === undefined ? bed.plantsPresent : wanted.plantsPresent,
       plantingRecommended:
-        args.bed.plantingRecommended === undefined
+        wanted.plantingRecommended === undefined
           ? bed.plantingRecommended
-          : args.bed.plantingRecommended,
-      plantsNote: keptNote(args.bed.plantsNote, bed.plantsNote),
-      recommendedPlantsNote: keptNote(args.bed.recommendedPlantsNote, bed.recommendedPlantsNote),
-      careNote: keptNote(args.bed.careNote, bed.careNote),
+          : wanted.plantingRecommended,
+      plantsNote: keptNote(wanted.plantsNote, bed.plantsNote),
+      recommendedPlantsNote: keptNote(wanted.recommendedPlantsNote, bed.recommendedPlantsNote),
+      careNote: keptNote(wanted.careNote, bed.careNote),
     });
   });
 }
