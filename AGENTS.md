@@ -65,6 +65,7 @@ Washington Heights is heavily Spanish-speaking.
 - Screens render the active language AND carry both in `data-en` / `data-es` attributes (`src/lib/bilingual.ts`), the same pattern the sister property `trashtalknyc-website` uses.
   The server render is what makes it correct with no script; the one inline script in `Screen.astro` upgrades the toggle to an instant, no-reload swap.
   **A bilingual element must be a LEAF node** — the swap sets `textContent` — which is why a sentence wrapping the tree type is split into leaves either side of it.
+  Visitor-supplied text is the one thing that carries no `data-en`/`data-es` pair: a bed's given name (`Bed.bedName`) renders as typed in both languages, on its own leaf, never inside one of our sentences.
 - Every link and redirect of ours carries the language through `langLink` / `withLang`, which preserve whatever else the URL held — including `tg_action`, without which a language switch would log a second tap (`plaque-url.ts`).
 - Plain-text refusals for machine callers (405, "Not a tag on this network.") are deliberately English-only: nothing renders those to a person.
 
@@ -149,7 +150,8 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   `netlify blobs:get treebed rev/<n> | jq` covers the readability.
   Growth is still linear in lifetime taps — `events` is append-only with nothing pruning it — which is fine at pilot scale and is the thing to revisit (a separate append-only key, or sampling) before traffic accumulates.
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
-  The per-bed slot cap (`min(slots, offeredSlots)`, and `slots` itself bounded by `MAX_BED_SLOTS`), one-report-per-person-per-bed-per-NY-day, single open report per bed, one applause per person per bed per NY day, escalate-to-dumping-once, one photo per NY week, the note cap, the typed-field caps (`MAX_NAME_CHARS` / `MAX_EMAIL_CHARS` / `MAX_ADDRESS_CHARS` / `MAX_TREE_TYPE_CHARS`, trimmed rather than refused), PIN hashing.
+  The per-bed slot cap (`min(slots, offeredSlots)`, and `slots` itself bounded by `MAX_BED_SLOTS`), one-report-per-person-per-bed-per-NY-day, single open report per bed, one applause per person per bed per NY day, escalate-to-dumping-once, one photo per NY week, the note cap, the typed-field caps (`MAX_NAME_CHARS` / `MAX_EMAIL_CHARS` / `MAX_ADDRESS_CHARS` / `MAX_TREE_TYPE_CHARS` / `MAX_BED_NAME_CHARS`, trimmed rather than refused), first-steward bed naming, PIN hashing.
+  Every typed field goes through `capped`, which STRIPS control characters and the bidirectional-format overrides before it trims and cuts — a hand-built POST is the only thing that can carry a U+202E into a field that renders as a leaf beside copy of ours.
   Anything in the browser is editable in devtools (spec §7).
 - **A rule that checks state before writing it runs inside `store.transaction()`, and reads and writes through the `tx` the callback is handed — never through the store it came from.**
   A bare sequence of store calls interleaves with concurrent requests, and two reports open on one bed is unrecoverable through the UI — `closeReport` only ever finds the first.
@@ -266,6 +268,13 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Our own plate encodes site type and neighbourhood and is **never rendered** — it survives as the join key every report, adoption and event hangs on.
   The opaque tag ID stays the URL and an internal key, and is displayed on exactly one screen: the calm "not assigned to a bed yet" one, where it is the only thing there is to say.
   A bed NYC has no number for prints no number at all rather than falling back to the plate.
+- **The FIRST steward names the bed, and the name is the BED's, not theirs** (`Bed.bedName`, nullable).
+  The captain's own words: "the first adopter names the bed".
+  `adopt.astro` offers the optional field only while the bed has no steward and no name, and `adoptBed` re-decides that inside its transaction against the adoptions it is committing against — anyone else's `bedName` is silently DROPPED and their adoption still goes through, because nobody standing at a tree is shown a rule.
+  Releasing or removing the steward who chose it changes nothing; only the block admin can take a name back to null, and a bed returned to unnamed may be named again by a later first steward.
+  There is no rename path and the admin never types one.
+  The name is **visitor free text rendered as typed in BOTH languages** — a name is not translated — so it is always its own leaf beside the bed's identity (both doors, plus `mine.astro`), never spliced into a bilingual sentence, and it is set in Londrina Solid because this is a plaque, not a form field.
+  An unnamed bed renders no element at all.
 - **A steward is shown as username first, then initials — `@marisol_r`, `M. R.`** (`publicHandle` / `publicInitials` in `types.ts`).
   The handle is DERIVED from the name, not typed: the approved form has no username field, and `deriveUsername` gives the first name plus the last initial — exactly as much as the initials printed under it already give away.
   Full name, email and phone are admin-only and must never reach a public screen or payload.
@@ -334,6 +343,7 @@ The captain's own surface — the one place full names, emails and phones render
 - **Gate: `TREEBED_ADMIN_KEY`** (session.ts). Where no key is configured, every /admin route answers 404 — a deploy that never configured one has no admin, deliberately; the pilot site has held a key site-level since 2026-09-10, so its /admin is live. Dev generates one into `.data/admin-key`. The signed `tg_admin` cookie lasts 30 days. This is deliberately NOT a username+PIN: the /auth screens are the dead end nothing builds on, and a long random key costs no bcrypt and offers no enumeration. Per-IP throttling is still the platform-tier debt recorded in request-body.ts.
 - **`Bed.offeredSlots` is a rule, not a display state**: `adoptBed` refuses past `min(slots, offeredSlots)`, and `BedView.openSlots` is derived from that same bound — the door screen and `adopt.astro` gate the invitation on it, so an unoffered bed shows no adopt button and no form the rules would then have to refuse. The six W 171st beds seed with `offeredSlots: 0` — opening one is the captain's act, on this page.
   The switches submit slot NUMBERS, not a count: `offeredSlots` covers slots 1..n, so a gapped selection is refused (bilingual, 422, switches re-rendered as submitted) rather than saved as its size, which would flip a switch nobody touched.
+- **The bed-name row is a takedown, not an edit.** It renders in the opened bed's panel only when the bed HAS a name, and the switch removes it on SAVE CHANGES (`BlockSaveInput.bed.clearBedName` → `bedName: null`), touching neither the bed nor its adoption. Visitor free text on a screen bolted to a street needs a way down; the admin never authors a name, and the only way one comes back is a later first steward naming the bed again.
 - **`POST /admin/sign-out` closes the session**, and the control sits in the admin bar on every admin screen (`AdminScreen.astro`) — the 30-day `tg_admin` cookie opens PII on a phone that gets handed around, and the alternatives were clearing site data or rotating the key for everyone.
 - The guard is two nullable dates (`guardOrderedAt`/`guardInstalledAt`, derived `guardStatus`), so the admin toggle can flip installs without ever losing "ordered".
 - `addStewardByAdmin` is the sidewalk case: email optional, `hasSignInRoute: false`, `recordHeldOnBehalf: true`, adoption `stewardKind: 'pen-and-paper'`. It may fill an unoffered slot (writing a neighbour in is the point) but never past `slots`. A typed username that collides is refused, not mutated.

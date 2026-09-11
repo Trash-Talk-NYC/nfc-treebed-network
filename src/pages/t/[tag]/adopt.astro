@@ -7,6 +7,11 @@
 // sidewalk"). The single "YOUR NAME" field the old form had is split in two,
 // which was the other gap note.
 //
+// A fifth, optional field appears for the FIRST steward only, and is the one
+// thing here the approved screens do not draw: naming the bed ("the first
+// adopter names the bed"). It sits below the contact fields and above the
+// bottom-pinned submit, so it never crowds the button.
+//
 // **No password, no PIN, no code.** The captain's passwordless decision
 // superseded the PIN plan, and ordered the field, the column and the
 // username+PIN screen dropped. Three reasons, all of which a secret here would
@@ -84,7 +89,7 @@ let formError: Phrase | null = null;
 let values = { firstName: '', lastName: '', email: '', phone: '', bedName: '' };
 
 if (Astro.request.method === 'POST') {
-  // Public and unauthenticated, like every POST here: four short text fields
+  // Public and unauthenticated, like every POST here: five short text fields
   // never need more, and an unbounded body is free memory exhaustion.
   const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'form');
   // Each reason gets its own answer: a 413 would send somebody off to shorten
