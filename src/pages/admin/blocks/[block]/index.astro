@@ -15,7 +15,7 @@ import AdminScreen from '../../../../layouts/AdminScreen.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
 import { ADMIN, ADOPT, AUTH, COMMON } from '../../../../lib/copy';
-import { sinceLabel, slotsFilledLabel } from '../../../../lib/format';
+import { capitalizeFirst, sinceLabel, slotsFilledLabel } from '../../../../lib/format';
 import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../../lib/presentation';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
@@ -152,14 +152,14 @@ const bedLink = (plate: string): string => langLink(`${base}?bed=${plate}`, lang
 
 /** "Willow oak · #2" — the bed list row. */
 const bedName = (b: AdminBedView): Phrase => ({
-  en: `${b.bed.treeType.en} · #${b.bed.blockPosition ?? ''}`,
-  es: `${b.bed.treeType.es} · #${b.bed.blockPosition ?? ''}`,
+  en: `${capitalizeFirst(b.bed.treeType.en)} · #${b.bed.blockPosition ?? ''}`,
+  es: `${capitalizeFirst(b.bed.treeType.es)} · #${b.bed.blockPosition ?? ''}`,
 });
 
 /** "Willow oak · bed #2" — the opened panel's heading. */
 const bedHeading = (b: AdminBedView): Phrase => ({
-  en: `${b.bed.treeType.en} · bed #${b.bed.blockPosition ?? ''}`,
-  es: `${b.bed.treeType.es} · cantero #${b.bed.blockPosition ?? ''}`,
+  en: `${capitalizeFirst(b.bed.treeType.en)} · bed #${b.bed.blockPosition ?? ''}`,
+  es: `${capitalizeFirst(b.bed.treeType.es)} · cantero #${b.bed.blockPosition ?? ''}`,
 });
 
 const GUARD_LABEL = {

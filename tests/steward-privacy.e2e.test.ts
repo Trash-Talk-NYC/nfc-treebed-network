@@ -333,6 +333,14 @@ describe('a steward who asked not to be named', () => {
     const html = await mine.text();
     expect(html).toContain('marisol_r');
     expect(html).toContain('M. R.');
+
+    // The species is stored in the casing the door sentence needs, and this
+    // screen prints it standalone as its heading: capitalized here, lowercase
+    // inside "El cantero de este roble sauce…" on the same bed's door.
+    expect(html).toContain('data-es="Roble sauce"');
+    expect(html).toContain('data-en="Willow oak"');
+    const door = await (await fetch(`${origin}/t/${TAG}?lang=es`)).text();
+    expect(door.replace(/<[^>]+>/g, '')).toContain('este roble sauce');
   });
 
   it("reads what a second neighbour said about the open report", async () => {

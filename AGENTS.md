@@ -68,6 +68,7 @@ Washington Heights is heavily Spanish-speaking.
 - Every link and redirect of ours carries the language through `langLink` / `withLang`, which preserve whatever else the URL held — including `tg_action`, without which a language switch would log a second tap (`plaque-url.ts`).
 - Plain-text refusals for machine callers (405, "Not a tag on this network.") are deliberately English-only: nothing renders those to a person.
 - A bed's Spanish species name defaults from the checked-in table in `src/lib/tree-species.ts` when a bed is added: an explicitly typed Spanish name wins, and an unknown species degrades to the generic "árbol" — never a guess, a transliteration, or a runtime translation.
+  Stored values are lowercase, because their commonest use is mid-sentence in that same frame; the screens that print the species STANDALONE — the steward's own heading and the admin bed labels — capitalize at the render site with `capitalizeFirst` (`format.ts`), never with CSS and never by changing what is stored.
   The table holds only names that sit after the door copy's fixed masculine "El cantero de este …", so species whose accepted Spanish names are all feminine (honeylocust, black locust, mulberry, catalpa, zelkova…) are deliberately absent; adding one means first teaching the copy gender agreement, not bending the name.
 
 ## Presentation is data-driven, not hardcoded
@@ -364,6 +365,9 @@ The pilot store was seeded *before* this change — seeding only ever runs on fi
 **That is remediated: `marisol_r`'s `pinHash` was rotated in place** by appending a revision copying the newest one with the hash replaced by a bcrypt of discarded random bytes.
 Signing in with `1234` on the live site now fails, and the pilot's data (report, events, adoption) came through intact.
 Rotating a hash forward is the procedure to repeat if it is ever needed again — do not wipe the store to re-seed it.
+`scripts/rewrite-species-casing.mjs` is that same forward-revision shape, written down: it lowercases a `treeType.es` a store was seeded with before the door frame's casing rule, and only where the stored value is the checked-in table's own value modulo casing, so a human's Spanish name is never rewritten.
+It is a deliberate act a human runs (dry run by default, `--commit` to write) and never `normalizeData` behaviour — that stays additive-only, so nothing on the read path ever corrects a field a stored record already has.
+Follow its shape for the next field a live store has to be corrected on.
 
 If a store genuinely has to be re-seeded, **delete the `head` key alongside the `rev/*` keys.**
 A surviving `head` is the store's own proof that it has been written to, and `BlobsStore` refuses to seed once it has read one — deliberately, because a key listing is eventually consistent and a stale-empty one would otherwise fork a fresh chain over live data.

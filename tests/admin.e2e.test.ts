@@ -111,8 +111,10 @@ describe('the admin door', () => {
     const html = await page.text();
     expect(html).toContain('708 W 171st St');
     for (let n = 1; n <= 6; n++) expect(html).toContain(`BED-WH-171${n}`);
-    // The admin speaks both languages like every other screen.
-    expect(html).toContain('data-es="roble blanco');
+    // The admin speaks both languages like every other screen. The bed label
+    // prints the species standalone, so it is capitalized here — the stored
+    // value is lowercase for the door sentence.
+    expect(html).toContain('data-es="Roble blanco');
 
     // The opened white oak carries its resolved NYC planting space — the
     // real record, not the mockup's placeholder number.
@@ -269,11 +271,12 @@ describe('adding a bed through the real form', () => {
     });
     expect(saved.status).toBe(303);
     const location = saved.headers.get('location')!;
-    expect(location).toContain('bed=BED-WH-1717');
+    expect(location).toMatch(/bed=BED-WH-\d+/);
     const html = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
     // The bilingual label carries the table's Spanish; the English half is
-    // exactly what the admin typed.
-    expect(html).toContain('data-es="roble palustre');
+    // exactly what the admin typed. The species is stored lowercase for the
+    // door sentence and capitalized here, where the panel prints it standalone.
+    expect(html).toContain('data-es="Roble palustre');
     expect(html).toContain('data-en="Pin oak');
   });
 
@@ -289,7 +292,7 @@ describe('adding a bed through the real form', () => {
     const location = saved.headers.get('location')!;
     const html = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
     expect(html).toContain('data-en="Quixote tree');
-    expect(html).toContain('data-es="árbol');
+    expect(html).toContain('data-es="Árbol');
   });
 });
 

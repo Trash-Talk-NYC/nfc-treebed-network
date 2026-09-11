@@ -19,6 +19,7 @@ import path from 'node:path';
 import { getStore as getBlobClientStore, type Store as BlobsClientStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
 import { BlobsStore } from '../src/lib/store-blobs';
+import { rewriteStoredSpeciesCasing } from '../scripts/rewrite-species-casing.mjs';
 import { runInRequestContext } from '../src/lib/request-context';
 import { reportProblem, signIn } from '../src/lib/service';
 import type { BedEvent } from '../src/lib/types';
@@ -322,6 +323,55 @@ describe('pruning', () => {
     expect(kept).toEqual([4, 5, 6, 7, 8, 9, 10, 11]);
     // Pruning is bookkeeping behind the newest revision, never over it.
     expect((await instance().getEvents(PLATE)).map((e) => e.id)).toHaveLength(10);
+  });
+});
+
+describe('the Spanish species casing remediation', () => {
+  // scripts/rewrite-species-casing.mjs, against the same wire protocol the
+  // pilot store speaks. The rewrite rule itself is held in
+  // tests/species-casing.test.ts; what these hold is the store side of it —
+  // it appends a revision and deletes nothing.
+  async function storeSeededCapitalized(): Promise<void> {
+    const store = instance();
+    await store.transaction(async (tx) => {
+      const bed = await tx.getBed(PLATE);
+      await tx.updateBed({ ...bed!, treeType: { ...bed!.treeType, es: 'Roble sauce' } });
+    });
+  }
+
+  it('appends a forward revision that lowercases the seeded name, keeping the old ones', async () => {
+    await storeSeededCapitalized();
+    const before = await revisionKeys();
+    expect((await instance().getBed(PLATE))!.treeType.es).toBe('Roble sauce');
+
+    const { changes, committed } = await rewriteStoredSpeciesCasing(client(), { commit: true });
+
+    expect(changes).toEqual([{ plate: PLATE, from: 'Roble sauce', to: 'roble sauce' }]);
+    expect((await instance().getBed(PLATE))!.treeType.es).toBe('roble sauce');
+    // Nothing is wiped: every revision that was there still is, plus the new one.
+    const after = await revisionKeys();
+    for (const key of before) expect(after).toContain(key);
+    expect(after).toContain(`rev/${committed}`);
+  });
+
+  it('writes nothing on a second run, and nothing at all in a dry run', async () => {
+    await storeSeededCapitalized();
+    await rewriteStoredSpeciesCasing(client(), { commit: true });
+    const after = await revisionKeys();
+
+    const second = await rewriteStoredSpeciesCasing(client(), { commit: true });
+    expect(second.changes).toEqual([]);
+    expect(second.committed).toBeNull();
+    expect(await revisionKeys()).toEqual(after);
+
+    // And a dry run on a store that does need it reports without committing.
+    await storeSeededCapitalized();
+    const keys = await revisionKeys();
+    const dry = await rewriteStoredSpeciesCasing(client());
+    expect(dry.changes).toHaveLength(1);
+    expect(dry.committed).toBeNull();
+    expect(await revisionKeys()).toEqual(keys);
+    expect((await instance().getBed(PLATE))!.treeType.es).toBe('Roble sauce');
   });
 });
 

@@ -10,7 +10,7 @@ import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { getBedView, hasPhotoThisWeek } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
-import { relativeAge, sinceLabel } from '../../../lib/format';
+import { capitalizeFirst, relativeAge, sinceLabel } from '../../../lib/format';
 import { bi } from '../../../lib/bilingual';
 import { COMMON, MINE } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
@@ -41,6 +41,13 @@ const { bed, stewards, openSlots, openReport } = view;
 const isSteward = stewards.some((s) => s.user.id === me.id);
 // Signed in but not a steward of this bed → back to the public screen.
 if (!isSteward) return Astro.redirect(langLink(ourPlaqueLink(base), lang), 303);
+
+// The species is stored in the casing the door sentence needs — lowercase in
+// Spanish, mid-sentence — and this screen prints it standalone as the heading.
+const treeTypeHeading = {
+  en: capitalizeFirst(bed.treeType.en),
+  es: capitalizeFirst(bed.treeType.es),
+};
 
 const photoLogged = await hasPhotoThisWeek(store, plate, me.id);
 // The picker is multi-select, so an open report names every tile the reporter
@@ -96,7 +103,7 @@ const visibleStewards = stewards.filter(
       <span class="kicker" {...bi(MINE.yourBed, lang)}>{MINE.yourBed[lang]}</span>
     </div>
     <div class="card">
-      <h1 class="title" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</h1>
+      <h1 class="title" {...bi(treeTypeHeading, lang)}>{treeTypeHeading[lang]}</h1>
       <div class="ident bed-ident">
         {bed.plantingSpaceId && <>#{bed.plantingSpaceId} · </>}
         {bed.crossStreets}
