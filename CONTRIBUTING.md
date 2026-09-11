@@ -14,6 +14,9 @@ feature branch -> dev -> qa -> stage -> prod
 2. Open your pull request against `dev`.
    That is the only branch feature work merges into.
 
+A clone made before `dev` became the default still caches `main` in `remote.origin.HEAD`, and that cached pointer — not the remote — is what `gh` and other tooling offer as the base branch.
+Run `git remote set-head origin -a` once in such a checkout; `git ls-remote --symref origin HEAD` shows what the remote actually says.
+
 ## Promoting a release
 
 Promote one step at a time, each via a pull request:
