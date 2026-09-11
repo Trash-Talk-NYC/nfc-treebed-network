@@ -81,7 +81,7 @@ function tapEvent(id: string): BedEvent {
     bedPlate: PLATE,
     eventType: 'tap',
     severity: null,
-    category: null,
+    categories: [],
     note: '',
     reportId: null,
     actorId: 'visitor-1',
@@ -391,7 +391,7 @@ describe('service rules across instances', () => {
           await reportProblem(b, {
             plate: PLATE,
             actorId: 'visitor-b',
-            category: 'guard',
+            categories: ['guard'],
             note: '',
             photoAttached: false,
           });
@@ -401,7 +401,7 @@ describe('service rules across instances', () => {
     const outcome = await reportProblem(racy, {
       plate: PLATE,
       actorId: 'visitor-a',
-      category: 'litter',
+      categories: ['litter'],
       note: '',
       photoAttached: false,
     });
@@ -412,7 +412,7 @@ describe('service rules across instances', () => {
     const fresh = instance();
     const open = await fresh.getOpenReport(PLATE);
     expect(open?.reporterId).toBe('visitor-b');
-    expect(open?.category).toBe('guard');
+    expect(open?.categories).toEqual(['guard']);
     expect(open?.confirmedBy).toEqual(['visitor-a']);
     expect((await fresh.getReports(PLATE)).length).toBe(1);
   });

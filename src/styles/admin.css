@@ -46,23 +46,33 @@
   color: color-mix(in srgb, var(--theme-ground) 72%, var(--theme-ink));
   overflow-wrap: anywhere;
 }
+/* The same two-state toggle as the tap flow, in the bar's own chrome ink:
+   both languages shown, the active one filled. */
 .admin-bar .admin-lang {
   margin-left: auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  min-height: 32px;
-  padding: 0 10px;
   border-radius: 16px;
   border: 2px solid color-mix(in srgb, var(--theme-ground) 45%, var(--theme-ink));
-  color: var(--theme-ground);
+  overflow: hidden;
+}
+.admin-bar .admin-lang-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 32px;
+  padding: 0 6px;
+  color: color-mix(in srgb, var(--theme-ground) 72%, var(--theme-ink));
   font-family: 'Barlow', sans-serif;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-decoration: none;
   -webkit-tap-highlight-color: transparent;
+}
+.admin-bar .admin-lang-choice[aria-current='true'] {
+  background: var(--theme-ground);
+  color: var(--theme-ink);
 }
 /* The way out of the PII session, beside the toggle: the same pill, in the
    bar's own ink, so it reads as chrome rather than as a street button. */

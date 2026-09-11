@@ -43,11 +43,13 @@ const isSteward = stewards.some((s) => s.user.id === me.id);
 if (!isSteward) return Astro.redirect(langLink(ourPlaqueLink(base), lang), 303);
 
 const photoLogged = await hasPhotoThisWeek(store, plate, me.id);
-const openProblem = openReport ? problemFor(openReport.category) : null;
+// The picker is multi-select, so an open report names every tile the reporter
+// pressed; an old single-category row reads as a one-entry list (store-dataset).
+const openProblems = openReport ? openReport.categories.map(problemFor) : [];
 const openAge = openReport ? relativeAge(new Date(openReport.openedAt)) : null;
 
 // What the neighbours who added their weight to the open report said. The
-// report itself belongs to whoever filed it, so their category and their
+// report itself belongs to whoever filed it, so their categories and their
 // sentence live on the `confirm` events (service.ts, `reportProblem`) and this
 // is where a steward reads them. The join is the event's own `reportId`, not a
 // time window: `report → clear → report` is a supported loop, so only the id
@@ -56,9 +58,9 @@ const openAge = openReport ? relativeAge(new Date(openReport.openedAt)) : null;
 // wrong one. Bounded by `MAX_CONFIRMATIONS`, so the list cannot run away.
 const alsoSaid = openReport
   ? (await store.getEvents(plate, 'confirm'))
-      .filter((e) => e.reportId === openReport.id && (e.category !== null || e.note !== ''))
+      .filter((e) => e.reportId === openReport.id && (e.categories.length > 0 || e.note !== ''))
       .reverse()
-      .map((e) => ({ problem: e.category ? problemFor(e.category) : null, note: e.note }))
+      .map((e) => ({ problems: e.categories.map(problemFor), note: e.note }))
   : [];
 
 // Green "you sorted it" band: the most recent report was closed by me,
@@ -91,7 +93,7 @@ const visibleStewards = stewards.filter(
       <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
         >{COMMON.backToBed[lang]}</a
       >
-      <span class="kicker your-bed" {...bi(MINE.yourBed, lang)}>{MINE.yourBed[lang]}</span>
+      <span class="kicker" {...bi(MINE.yourBed, lang)}>{MINE.yourBed[lang]}</span>
     </div>
     <div class="card">
       <h1 class="title" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</h1>
@@ -121,13 +123,17 @@ const visibleStewards = stewards.filter(
       </div>
     </div>
     {
-      openReport && openProblem && openAge && (
+      openReport && openProblems.length > 0 && openAge && (
         <div class="band band-alert">
           <div class="band-title" {...bi(MINE.openReport, lang)}>
             {MINE.openReport[lang]}
           </div>
           <div class="band-sub">
-            <span {...bi(openProblem.label, lang)}>{openProblem.label[lang]}</span> ·{' '}
+            {openProblems.map((problem) => (
+              <Fragment>
+                <span {...bi(problem.label, lang)}>{problem.label[lang]}</span> ·{' '}
+              </Fragment>
+            ))}
             <span {...bi(openAge, lang)}>{openAge[lang]}</span>
           </div>
         </div>
@@ -141,14 +147,19 @@ const visibleStewards = stewards.filter(
             {MINE.alsoSaid[lang]}
           </div>
           <ul class="also-said">
-            {alsoSaid.map(({ problem, note }) => (
+            {alsoSaid.map(({ problems, note }) => (
               <li>
-                {problem && (
+                {problems.length > 0 && (
                   <span class="also-cat">
                     <span {...bi(MINE.alsoReported, lang)}>{MINE.alsoReported[lang]}</span>{' '}
-                    <span class="also-label" {...bi(problem.label, lang)}>
-                      {problem.label[lang]}
-                    </span>
+                    {problems.map((problem, i) => (
+                      <Fragment>
+                        {i > 0 && <span class="also-sep">·</span>}
+                        <span class="also-label" {...bi(problem.label, lang)}>
+                          {problem.label[lang]}
+                        </span>
+                      </Fragment>
+                    ))}
                   </span>
                 )}
                 {note && <span class="also-note">“{note}”</span>}
@@ -203,7 +214,6 @@ const visibleStewards = stewards.filter(
 
 <style>
   .top-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  .your-bed { padding-right: 52px; }
   .bed-ident { margin-top: 6px; }
   .stewards-gap { margin-top: 14px; }
   .note-echo { font-style: italic; }
@@ -225,6 +235,7 @@ const visibleStewards = stewards.filter(
     color: var(--theme-muted);
   }
   .also-said .also-label { font-weight: 600; color: var(--theme-ink); }
+  .also-said .also-sep { color: var(--theme-faint); padding: 0 2px; }
   .also-said .also-cat + .also-note { margin-left: 6px; }
   .also-said .also-note { font-style: italic; }
   .stats {

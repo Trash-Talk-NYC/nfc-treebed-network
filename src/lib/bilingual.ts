@@ -7,7 +7,8 @@
 //
 //  - The server render is already correct. A visitor with JavaScript disabled —
 //    which every form on this site is built to survive (AGENTS.md) — gets the
-//    language they chose, and the toggle is a plain link that re-renders.
+//    language they chose, and the toggle is a pair of plain links that
+//    re-render.
 //  - The toggle can then swap the whole screen with no round trip, because
 //    every string is already in the document. On a phone at a tree bed on
 //    cellular, that is the difference between a toggle and a wait.

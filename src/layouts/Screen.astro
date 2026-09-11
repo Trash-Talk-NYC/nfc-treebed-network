@@ -61,21 +61,21 @@ const chrome = {
       <LangToggle lang={lang} url={url} />
     </div>
     <script is:inline>
-      // The only client JavaScript on the tap flow, and the only thing it does
-      // is make the language toggle instant.
+      // The only client JavaScript in this layout, and the only thing it does
+      // is make the language toggle instant. (The care screen ships the tap
+      // flow's one other script, for the photo state and the note counter.)
       //
       // Every screen already carries both languages (src/lib/bilingual.ts) and
       // is already rendered in the right one by the server, so this enhances
-      // and never enables: with it off, the toggle is a link, the server
+      // and never enables: with it off, each segment is a link, the server
       // re-renders, and nothing on any screen is lost. That is the same
       // standard every form here is held to.
       (function () {
-        var toggle = document.querySelector('[data-lang-toggle]');
-        if (!toggle) return;
+        var choices = document.querySelectorAll('[data-lang-choice]');
+        if (choices.length === 0) return;
         var YEAR = 60 * 60 * 24 * 365;
 
         function apply(lang) {
-          var other = lang === 'es' ? 'en' : 'es';
           document.documentElement.lang = lang;
           document.querySelectorAll('[data-bi]').forEach(function (el) {
             var next = el.getAttribute('data-' + lang);
@@ -104,16 +104,33 @@ const chrome = {
               el.setAttribute(pair[1], url.pathname + url.search + url.hash);
             });
           });
-          var self = new URL(location.href);
-          self.searchParams.set('lang', other);
-          toggle.setAttribute('href', self.pathname + self.search);
+          // A GET submit replaces its action's query string, so the language
+          // rides those forms as a hidden field instead (care.astro's
+          // "Something else") — kept current here, after the generic pass.
+          document.querySelectorAll('input[type=hidden][name=lang]').forEach(function (el) {
+            el.value = lang;
+          });
+          // The toggle's own segments: mark the one now speaking, and point
+          // each at the language it names on the URL we are now on — after
+          // the generic pass above, which knows nothing of what they mean.
+          choices.forEach(function (choice) {
+            var to = choice.getAttribute('data-lang-choice');
+            if (to === lang) choice.setAttribute('aria-current', 'true');
+            else choice.removeAttribute('aria-current');
+            var self = new URL(location.href);
+            self.searchParams.set('lang', to);
+            choice.setAttribute('href', self.pathname + self.search);
+          });
           // A preference, not an identity — no signature, and it grants nothing.
           document.cookie = 'tg_lang=' + lang + ';path=/;max-age=' + YEAR + ';samesite=lax';
         }
 
-        toggle.addEventListener('click', function (event) {
-          event.preventDefault();
-          apply(document.documentElement.lang === 'es' ? 'en' : 'es');
+        choices.forEach(function (choice) {
+          choice.addEventListener('click', function (event) {
+            event.preventDefault();
+            var to = choice.getAttribute('data-lang-choice');
+            if (to && document.documentElement.lang !== to) apply(to);
+          });
         });
       })();
     </script>

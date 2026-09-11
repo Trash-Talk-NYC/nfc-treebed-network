@@ -31,7 +31,8 @@ The captain changed door 1 to beige after the review; it is not an oversight to 
 No yellow appears on door 1 at all, which is what keeps it clear of the one pairing that cannot work on that ground.
 
 `THIS BED NEEDS CARE` opens the problem picker (`care.astro`): thirsty plants / litter / guard damage / something else, plus an optional photo.
-"Something else" is a LINK to `?tell=1`, which is the same route rendering the free-text box — a link rather than a script, so the second screen exists with JavaScript disabled.
+The picker is MULTI-select — the tiles are checkboxes and a report carries `categories`, a non-empty list in tile order (a bed that is thirsty AND full of litter is one report); an empty submission is the server's refusal, back to the picker with the bilingual pick-one line, because checkboxes have no `required` that means "at least one".
+"Something else" is a GET submit of the same form back to `?tell=1`, which is the same route rendering the free-text box — a form GET rather than a link or a script, so the second screen exists with JavaScript disabled AND the tiles already pressed ride its query string (a link's href cannot know what is checked); the sentence screen sends them back out as hidden fields beside `other`, and a hidden `lang` field carries the language because a GET replaces its action's query string.
 Both send to `report.ts`, which lands on the full-screen "Thank you" (`thanks.astro`).
 Adoption lands on the full-screen purple "Adopted!" (`adopted.astro`).
 
@@ -43,7 +44,7 @@ Their RULES are untouched in `service.ts` (`escalateReport`, `closeReport`), the
 Two consequences worth knowing before you "fix" something:
 - **A second neighbour reporting an open problem is not refused.**
   `reportProblem` adds their weight to the open report (the `confirmedBy` array, same `MAX_CONFIRMATIONS` bound) instead of opening a duplicate — two open reports on one bed is unrecoverable through the UI, because `closeReport` only ever finds the first.
-  What they said is carried, not dropped: their category and their note ride on the `confirm` event (`BedEvent.category` / `BedEvent.note`), and a photo they attached sets `photoAttached` on the open report.
+  What they said is carried, not dropped: their categories and their note ride on the `confirm` event (`BedEvent.categories` / `BedEvent.note`), and a photo they attached sets `photoAttached` on the open report.
   The steward reads them under the open-report band on `mine.astro`, headed "Neighbours also said" so they are not mistaken for the first reporter's own second thought.
   Which report an event is about is `BedEvent.reportId` — `report`, `confirm`, `escalate` and `clear` all name it — so that join is exact rather than a time window — `report → clear → report` is a supported loop and only the id says which lap an event belongs to.
   Events written before that field carry null and match nothing, which is the right way for it to degrade.
@@ -59,7 +60,7 @@ Washington Heights is heavily Spanish-speaking.
 
 - All copy lives in `src/lib/copy.ts` as `Phrase` (`{en, es}`) values, so there is no way to write an English string without its Spanish.
   `tests/i18n.test.ts` additionally fails on an empty value or one copied across untranslated.
-- `src/lib/i18n.ts` resolves the language: `?lang=` on the URL first (what the toggle link carries), then the `tg_lang` cookie, then English.
+- `src/lib/i18n.ts` resolves the language: `?lang=` on the URL first (what each of the toggle's two links carries), then the `tg_lang` cookie, then English.
   **Nothing reads `accept-language`** — the captain asked for a toggle the visitor operates, and a phone set to English in a Spanish-speaking household is common on this block.
 - Screens render the active language AND carry both in `data-en` / `data-es` attributes (`src/lib/bilingual.ts`), the same pattern the sister property `trashtalknyc-website` uses.
   The server render is what makes it correct with no script; the one inline script in `Screen.astro` upgrades the toggle to an instant, no-reload swap.
@@ -93,7 +94,7 @@ Washington Heights is heavily Spanish-speaking.
   That script builds the netlify target *and* runs `scripts/smoke-netlify.mjs`, which imports the emitted `.netlify/v1/functions/ssr/ssr.mjs` and renders one request through it: the break this repo actually hit (`app.getLogger()`) is a load-time crash that a build alone passes green, so the build without the boot would prove only that the adapter resolves and the bundle emits.
   The request it drives is the root redirect, the one route that reaches a rendered response without touching the store, so the gate needs no Blobs backend.
 - The tap flow ships two small inline scripts and nothing else: the language toggle's instant swap (`Screen.astro`) and the care screen's photo-attached state plus note counter (`care.astro`).
-  Both are enhancements. Every form is a plain HTML POST, the language toggle is a plain link, and the whole flow works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
+  Both are enhancements. Every form is a plain HTML POST (plus the care picker's one GET submit, above), the language toggle is a pair of plain links — a two-state control showing both languages with the active one marked `aria-current`, per the captain's ask (`LangToggle.astro`; the admin bar carries the same shape) — and the whole flow works with JavaScript disabled — keep it that way; the spec calls it the single most important resilience decision in the build.
 
 ## The tag URL (read before touching routing)
 
@@ -219,7 +220,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Every bound in this section, and `MAX_INFLIGHT_PIN_HASHES` above, is a module-level counter, so it bounds one process: the whole server on the node target (what `npm start` runs and what the e2e suite measures), one function instance on netlify.
   Fleet-wide peak heap and bcrypt concurrency there are these numbers times however many instances the platform is running, and a single warm instance serving concurrent invocations sheds legitimate sign-ins at the hash limit exactly as it sheds a flood.
   They are per-instance costs, not the pilot's surface-wide DoS ceiling — bounding the surface is the per-IP limiting at the platform tier already noted as owed.
-- The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the category, the note and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
+- The report route never buffers the photo. `readCappedHead` counts the bytes and keeps only the first `HEAD_BYTES`, which is where the categories, the note and the filename are, so a 12MB upload costs kilobytes instead of the 24–36MB that buffering plus `formData()` cost (~30MB measured per upload).
   `textFieldFromHead` is what reads them, which only works while the care screen's markup keeps its text parts ahead of the file input — browsers send parts in DOM order. Keep it that way if the screen gains a field; `tests/care-form-order.e2e.test.ts` pins it by reading the order off the rendered care screen and posting a body built in it, so a reordered field fails the suite rather than the street.
   The photo is discarded either way (spec §12) — this only stops it being copied on the way to being discarded.
   `readCappedForm` still buffers the text-only forms, where the whole body is 64KB and two copies of it are ~128KB.
@@ -242,7 +243,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - A read refused as `'busy'` drains on `BUSY_DRAIN_BYTES`/`BUSY_DRAIN_MS`, not the headroom the other refusals get.
   Refusing a body and then spending an admitted upload's worth of ingress on it sheds no load at all.
   Everything carrying something a person typed is far under that and still gets its answer; a multi-megabyte photo arriving while the server is full is the one case whose connection closes, and at capacity that is the answer rather than a courtesy owed.
-- Each refusal is its own answer: on `/report` every one of them reaches the too-large screen with the category and the note preserved, because the head holds them whichever way the upload ended and what the visitor told us is what is being rescued — the one exception being a read past `MAX_SHED_READS`, which keeps no head, so its screen offers the picker again instead of the one-tap resend.
+- Each refusal is its own answer: on `/report` every one of them reaches the too-large screen with every category picked and the note preserved, because the head holds them whichever way the upload ended and what the visitor told us is what is being rescued — the one exception being a read past `MAX_SHED_READS`, which keeps no head, so its screen offers the picker again instead of the one-tap resend.
   `?reason` picks the words — nothing (a photo to shrink), `busy` (a queue to retry), `incomplete` (an upload that stopped halfway, which is *not* to be blamed on a photo that may have been well under the cap).
   The text-only forms answer in plain text instead (413/408/503/400) because there is no filled-in report behind them to preserve.
   Those plain-text refusals are the one visitor-reachable surface that is English-only; they are the transport saying no before any screen exists to say it in, and a body that never arrived carries no language preference either.

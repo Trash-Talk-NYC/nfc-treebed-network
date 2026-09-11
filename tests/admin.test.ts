@@ -130,6 +130,58 @@ describe('the block reaches a store seeded before it existed', () => {
     expect(normalized.beds['BED-HRL-0847']!.blockId).toBe(DEMO_BLOCK_ID);
   });
 
+  it('reads a single-category report and event from before multi-select, losslessly', async () => {
+    // Live rows carry one `category`; the picker now files a list. Additive
+    // normalization reads the old field into the new one on the way in and
+    // deletes nothing, so an old row still says what it always said.
+    const data = await seedData();
+    data.reports.push({
+      id: 'RPT-2216-0847',
+      bedPlate: 'BED-HRL-0847',
+      reporterId: 'visitor-legacy',
+      category: 'guard',
+      note: '',
+      severity: null,
+      openedAt: '2026-08-01T12:00:00.000Z',
+      closedAt: null,
+      closedBy: null,
+      escalatedFrom: null,
+      confirmedBy: [],
+      photoAttached: false,
+    } as unknown as Data['reports'][number]);
+    data.events.push({
+      id: 'event-legacy',
+      bedPlate: 'BED-HRL-0847',
+      eventType: 'confirm',
+      severity: null,
+      category: 'thirsty',
+      note: 'legacy words',
+      reportId: 'RPT-2216-0847',
+      actorId: 'visitor-legacy-2',
+      createdAt: '2026-08-01T12:05:00.000Z',
+    } as unknown as Data['events'][number]);
+    // Older still: a report from before the picker existed, with no category.
+    data.reports.push({
+      id: 'RPT-2215-0847',
+      bedPlate: 'BED-HRL-0847',
+      reporterId: 'visitor-older',
+      openedAt: '2026-07-01T12:00:00.000Z',
+      closedAt: '2026-07-02T12:00:00.000Z',
+      closedBy: 'user-marisol',
+      confirmedBy: [],
+      photoAttached: false,
+    } as unknown as Data['reports'][number]);
+
+    const normalized = normalizeData(data);
+    const [withCategory, older] = normalized.reports;
+    expect(withCategory!.categories).toEqual(['guard']);
+    // The stored field survives — additive, never a rewrite.
+    expect((withCategory as unknown as Record<string, unknown>).category).toBe('guard');
+    expect(older!.categories).toEqual(['litter']);
+    expect(normalized.events[0]!.categories).toEqual(['thirsty']);
+    expect(normalized.events[0]!.note).toBe('legacy words');
+  });
+
   it('never overwrites what the captain has edited', async () => {
     const data = await seedData();
     data.blocks[W171_BLOCK_ID]!.referenceAddress = '710 W 171st St';

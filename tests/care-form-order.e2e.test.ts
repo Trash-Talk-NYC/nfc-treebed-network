@@ -77,7 +77,7 @@ afterAll(async () => {
 
 interface StoredReport {
   id: string;
-  category: string;
+  categories: string[];
   note: string;
   photoAttached: boolean;
   openedAt: string;
@@ -167,7 +167,6 @@ async function renderedForm(url: string, note: string): Promise<RenderedForm> {
   if (!action) throw new Error('the care form declares no action');
 
   const parts: Part[] = [];
-  let pickedCategory = false;
   for (const field of form[2]!.matchAll(/<(input|textarea)\b([^>]*)>/g)) {
     const tag = field[2]!;
     const name = attr(tag, 'name');
@@ -179,10 +178,9 @@ async function renderedForm(url: string, note: string): Promise<RenderedForm> {
       parts.push({ name, filename: 'tree.jpg', value: new Uint8Array(PHOTO_BYTES).fill(0x7f) });
       continue;
     }
-    if (type === 'radio') {
-      // A browser sends the one tile the visitor pressed; take the first.
-      if (pickedCategory) continue;
-      pickedCategory = true;
+    if (type === 'checkbox') {
+      // The tiles are multi-select; this visitor presses every one rendered,
+      // in the order the markup puts them.
       parts.push({ name, value: attr(tag, 'value') ?? '' });
       continue;
     }
@@ -227,28 +225,53 @@ function photoFirst(parts: Part[]): Part[] {
 }
 
 describe('the care form, posted exactly as it renders', () => {
-  it('files the picker screen’s choice, with the photo recorded', async () => {
+  it('files every tile pressed on the picker screen, with the photo recorded', async () => {
     const { action, parts } = await renderedForm(`${origin}/t/${TAG}/care`, '');
-    // Read out of the HTML, not assumed — the file input comes last.
-    expect(parts.map((part) => part.name)).toEqual(['category', 'photo']);
+    // Read out of the HTML, not assumed — the text fields lead, the file
+    // input comes last, and the three tiles are all `category` checkboxes.
+    expect(parts.map((part) => part.name)).toEqual([
+      'lang',
+      'category',
+      'category',
+      'category',
+      'photo',
+    ]);
 
     const posted = await send(action, parts);
     expect(posted.status).toBe(303);
     expect(posted.headers.get('location')).toBe(`/t/${TAG}/thanks`);
 
-    const chosen = parts.find((part) => part.name === 'category')!.value;
+    const chosen = parts.filter((part) => part.name === 'category').map((part) => part.value);
+    expect(chosen).toEqual(['thirsty', 'litter', 'guard']);
     const filed = await newestReport();
-    expect(filed.category).toBe(chosen);
+    expect(filed.categories).toEqual(chosen);
     expect(filed.photoAttached).toBe(true);
   });
 
-  it('loses the category when the photo is sent first', async () => {
+  it('files nothing and re-offers the picker when no tile was pressed', async () => {
     await clearAsSteward();
     const before = (await storedReports()).length;
     const { action, parts } = await renderedForm(`${origin}/t/${TAG}/care`, '');
 
+    // A visitor who pressed SEND IT with nothing chosen: the browser sends no
+    // category part at all. Checkboxes have no `required` that means "at
+    // least one", so the server is the rule — back to the picker, with the
+    // pick-one line, and nothing written.
+    const posted = await send(
+      action,
+      parts.filter((part) => part.name !== 'category'),
+    );
+    expect(posted.status).toBe(303);
+    expect(posted.headers.get('location')).toBe(`/t/${TAG}/care?pick=1`);
+    expect((await storedReports()).length).toBe(before);
+  });
+
+  it('loses the categories when the photo is sent first', async () => {
+    const before = (await storedReports()).length;
+    const { action, parts } = await renderedForm(`${origin}/t/${TAG}/care`, '');
+
     const posted = await send(action, photoFirst(parts));
-    // The category never reached the head, so the server sends the visitor
+    // No category reached the head, so the server sends the visitor
     // back to the picker and files nothing. This is the failure a markup
     // reorder would cause, which is what makes the case above a real test.
     expect(posted.status).toBe(303);
@@ -266,9 +289,78 @@ describe('the care form, posted exactly as it renders', () => {
     expect(posted.headers.get('location')).toBe(`/t/${TAG}/thanks`);
 
     const filed = await newestReport();
-    expect(filed.category).toBe('other');
+    expect(filed.categories).toEqual(['other']);
     expect(filed.note).toBe(sentence);
     expect(filed.photoAttached).toBe(true);
+  });
+
+  it('carries tiles pressed before "Something else" onto the sentence screen and files them together', async () => {
+    await clearAsSteward();
+    // What the picker's GET submit produces: the pressed tiles ride the query
+    // string onto the sentence screen, which sends them back out as hidden
+    // fields beside `other`.
+    const sentence = 'Hay una rata muerta debajo del protector.';
+    const { action, parts } = await renderedForm(
+      `${origin}/t/${TAG}/care?tell=1&category=thirsty`,
+      sentence,
+    );
+    expect(parts.map((part) => part.name)).toEqual(['category', 'category', 'note', 'photo']);
+
+    const posted = await send(action, parts);
+    expect(posted.status).toBe(303);
+    expect(posted.headers.get('location')).toBe(`/t/${TAG}/thanks`);
+
+    const filed = await newestReport();
+    // Tile order, whatever order the fields rode in.
+    expect(filed.categories).toEqual(['thirsty', 'other']);
+    expect(filed.note).toBe(sentence);
+  });
+
+  it('offers the picker’s GET route the pressed tiles pre-checked', async () => {
+    // The sentence screen's back link and the too-large screen's "pick it
+    // again" both come back through this URL shape; the tiles must not lose
+    // what was already pressed.
+    const page = await fetch(`${origin}/t/${TAG}/care?category=guard&category=thirsty`);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    const checkedValues = [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)]
+      .filter(([tag]) => / checked/.test(tag))
+      .map(([tag]) => /value="([a-z]+)"/.exec(tag)?.[1]);
+    expect(checkedValues).toEqual(['thirsty', 'guard']);
+  });
+
+  it('makes the report the picker’s default submit, not "Something else"', async () => {
+    // Implicit submission picks the first submit button in tree order, so a
+    // visitor who checks a tile and presses Enter must file the report rather
+    // than be carried off to the sentence screen. The hidden default button
+    // leads for exactly that reason.
+    const page = await fetch(`${origin}/t/${TAG}/care`);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    const form = /<form class="care-form"([^>]*)>([\s\S]*?)<\/form>/.exec(html);
+    if (!form) throw new Error('no care form rendered');
+    const buttons = [...form[2]!.matchAll(/<button\b([^>]*)>/g)].map(([, tag]) => tag);
+    expect(buttons.length).toBeGreaterThanOrEqual(3);
+
+    const first = buttons[0]!;
+    expect(attr(first, 'type')).toBe('submit');
+    // Carries nothing and overrides nothing: it submits the form's own POST.
+    expect(attr(first, 'formmethod')).toBeNull();
+    expect(attr(first, 'formaction')).toBeNull();
+    expect(attr(first, 'name')).toBeNull();
+    expect(/\shidden/.test(first)).toBe(true);
+    expect(attr(first, 'tabindex')).toBe('-1');
+    expect(attr(form[1]!, 'method')?.toUpperCase()).toBe('POST');
+    expect(attr(form[1]!, 'action')).toBe(`/t/${TAG}/report`);
+
+    // "Something else" keeps the scriptless GET route to the sentence screen.
+    const tell = buttons.find((tag) => /quad-tell/.test(tag));
+    if (!tell) throw new Error('the picker renders no "Something else" button');
+    expect(attr(tell, 'type')).toBe('submit');
+    expect(attr(tell, 'formmethod')).toBe('get');
+    expect(attr(tell, 'formaction')).toBe(`/t/${TAG}/care`);
+    expect(attr(tell, 'name')).toBe('tell');
+    expect(buttons.indexOf(tell)).toBeGreaterThan(0);
   });
 
   it('loses the sentence when the photo is sent first', async () => {

@@ -342,7 +342,10 @@ describe('a steward who asked not to be named', () => {
         redirect: 'manual',
       });
     expect((await send('category=litter&note=bolsas+en+la+esquina')).status).toBe(303);
-    expect((await send('category=guard&note=la+reja+est%C3%A1+doblada')).status).toBe(303);
+    // The second neighbour pressed two tiles — the picker is multi-select.
+    expect((await send('category=guard&category=thirsty&note=la+reja+est%C3%A1+doblada')).status).toBe(
+      303,
+    );
 
     const signedIn = await fetch(`${origin}/t/${TAG}/auth`, {
       method: 'POST',
@@ -358,6 +361,40 @@ describe('a steward who asked not to be named', () => {
     const html = await mine.text();
     expect(html).toContain('bolsas en la esquina');
     expect(html).toContain('la reja está doblada');
+    // Both of the second neighbour's tiles reach the steward, not just one.
     expect(html).toContain(problemFor('guard').label.en);
+    expect(html).toContain(problemFor('thirsty').label.en);
+  });
+});
+
+describe('the language toggle, with no script running', () => {
+  // fetch() runs no JavaScript, so everything below is what a no-JS visitor
+  // gets: two plain links, the active language visibly selected, and a switch
+  // that works by round trip alone. The inline script only makes it instant.
+  it('shows both languages with the current one selected', async () => {
+    const html = await (await fetch(`${origin}/t/${TAG}`)).text();
+    const en = /<a[^>]*data-lang-choice="en"[^>]*>/.exec(html)?.[0];
+    const es = /<a[^>]*data-lang-choice="es"[^>]*>/.exec(html)?.[0];
+    expect(en).toBeTruthy();
+    expect(es).toBeTruthy();
+    expect(en).toContain('aria-current="true"');
+    expect(es).not.toContain('aria-current');
+    // The other side is a working link carrying `?lang=`, nothing more.
+    expect(es).toContain(`href="/t/${TAG}?lang=es"`);
+  });
+
+  it('switches over the link alone, marks the other side, and remembers', async () => {
+    const response = await fetch(`${origin}/t/${TAG}?lang=es`);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain('<html lang="es"');
+    const en = /<a[^>]*data-lang-choice="en"[^>]*>/.exec(html)?.[0];
+    const es = /<a[^>]*data-lang-choice="es"[^>]*>/.exec(html)?.[0];
+    expect(es).toContain('aria-current="true"');
+    expect(en).not.toContain('aria-current');
+    // The way back to English is the other segment's own link.
+    expect(en).toContain('lang=en');
+    // The choice survives the next tap on the next bed.
+    expect(response.headers.getSetCookie().some((c) => c.startsWith('tg_lang=es'))).toBe(true);
   });
 });

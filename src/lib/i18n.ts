@@ -7,9 +7,10 @@
 // people this exists for. So nothing here reads the header.
 //
 // The choice is resolved server-side, in this order:
-//   1. `?lang=` on the URL — what the toggle link carries, so the toggle works
-//      with JavaScript disabled. Every form is a plain HTML POST on this site
-//      (AGENTS.md) and the language control is held to the same standard.
+//   1. `?lang=` on the URL — what each of the toggle's two links carries, so
+//      the toggle works with JavaScript disabled. Every form is a plain HTML
+//      POST on this site (AGENTS.md) and the language control is held to the
+//      same standard.
 //   2. the `tg_lang` cookie — set whenever (1) names a language, so the choice
 //      survives the next tap on the next bed.
 //   3. English.
@@ -43,7 +44,7 @@ export interface Phrase {
 const LANG_COOKIE = 'tg_lang';
 const YEAR_SECONDS = 60 * 60 * 24 * 365;
 
-/** The query parameter the toggle link carries. */
+/** The query parameter the toggle's links carry. */
 export const LANG_PARAM = 'lang';
 
 export function isLang(value: unknown): value is Lang {
@@ -83,7 +84,8 @@ export function readLang(url: URL, cookies: AstroCookies): Lang {
   return isLang(stored) ? stored : DEFAULT_LANG;
 }
 
-/** The other language — what the toggle offers. */
+/** The other language. The toggle shows both segments and links each at the
+ *  language it names, so no screen calls this today. */
 export function otherLang(lang: Lang): Lang {
   return lang === 'en' ? 'es' : 'en';
 }

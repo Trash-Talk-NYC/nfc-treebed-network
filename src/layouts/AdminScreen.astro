@@ -21,7 +21,7 @@ import '../styles/global.css';
 import '../styles/admin.css';
 import { bi, biAttr } from '../lib/bilingual';
 import { ADMIN, LANG_COPY } from '../lib/copy';
-import { langLink, otherLang, withLang, type Lang } from '../lib/i18n';
+import { LANGUAGES, langLink, withLang, type Lang } from '../lib/i18n';
 import { themeStyle, type Presentation } from '../lib/presentation';
 import { isAdminSession } from '../lib/session';
 
@@ -34,6 +34,14 @@ interface Props {
 }
 
 const { title, lang, presentation, url } = Astro.props;
+
+// The same two-state toggle as the tap flow (src/components/LangToggle.astro,
+// where the segment literals are explained); restyled for the bar rather than
+// reused, because the bar's chrome ink is its own context.
+const SEGMENT_LABELS: Record<Lang, { text: string; name: string }> = {
+  en: { text: 'EN', name: 'English' },
+  es: { text: 'ES', name: 'Español' },
+};
 
 // The way out of a 30-day PII session, on every screen that session opens.
 // A plain form, so it needs no script; the key screen has nothing to sign
@@ -61,13 +69,21 @@ const signedIn = isAdminSession(Astro.cookies);
           ></span
         >
         <span class="crumb">{url.pathname}</span>
-        <a
-          class="admin-lang"
-          data-lang-toggle
-          href={withLang(url, otherLang(lang))}
-          {...biAttr('aria-label', LANG_COPY.toggleLabel, lang)}
-          {...bi(LANG_COPY.toggleText, lang)}>{LANG_COPY.toggleText[lang]}</a
-        >
+        <nav class="admin-lang" {...biAttr('aria-label', LANG_COPY.toggleLabel, lang)}>
+          {
+            LANGUAGES.map((segment) => (
+              <a
+                class="admin-lang-choice"
+                data-lang-choice={segment}
+                href={withLang(url, segment)}
+                aria-label={SEGMENT_LABELS[segment].name}
+                aria-current={segment === lang ? 'true' : undefined}
+              >
+                {SEGMENT_LABELS[segment].text}
+              </a>
+            ))
+          }
+        </nav>
         {
           signedIn && (
             <form method="POST" action={langLink('/admin/sign-out', lang)} class="admin-signout-form">
@@ -84,14 +100,13 @@ const signedIn = isAdminSession(Astro.cookies);
       // The language toggle's instant swap — the same enhancement, and the
       // same standard, as the tap flow's (src/layouts/Screen.astro, where the
       // mechanism is explained): the server render is already correct, and
-      // with no script the toggle is a plain link.
+      // with no script the toggle's segments are plain links.
       (function () {
-        var toggle = document.querySelector('[data-lang-toggle]');
-        if (!toggle) return;
+        var choices = document.querySelectorAll('[data-lang-choice]');
+        if (choices.length === 0) return;
         var YEAR = 60 * 60 * 24 * 365;
 
         function apply(lang) {
-          var other = lang === 'es' ? 'en' : 'es';
           document.documentElement.lang = lang;
           document.querySelectorAll('[data-bi]').forEach(function (el) {
             var next = el.getAttribute('data-' + lang);
@@ -116,15 +131,26 @@ const signedIn = isAdminSession(Astro.cookies);
               el.setAttribute(pair[1], url.pathname + url.search + url.hash);
             });
           });
-          var self = new URL(location.href);
-          self.searchParams.set('lang', other);
-          toggle.setAttribute('href', self.pathname + self.search);
+          document.querySelectorAll('input[type=hidden][name=lang]').forEach(function (el) {
+            el.value = lang;
+          });
+          choices.forEach(function (choice) {
+            var to = choice.getAttribute('data-lang-choice');
+            if (to === lang) choice.setAttribute('aria-current', 'true');
+            else choice.removeAttribute('aria-current');
+            var self = new URL(location.href);
+            self.searchParams.set('lang', to);
+            choice.setAttribute('href', self.pathname + self.search);
+          });
           document.cookie = 'tg_lang=' + lang + ';path=/;max-age=' + YEAR + ';samesite=lax';
         }
 
-        toggle.addEventListener('click', function (event) {
-          event.preventDefault();
-          apply(document.documentElement.lang === 'es' ? 'en' : 'es');
+        choices.forEach(function (choice) {
+          choice.addEventListener('click', function (event) {
+            event.preventDefault();
+            var to = choice.getAttribute('data-lang-choice');
+            if (to && document.documentElement.lang !== to) apply(to);
+          });
         });
       })();
     </script>

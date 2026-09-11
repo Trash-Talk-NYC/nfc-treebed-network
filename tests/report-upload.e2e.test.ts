@@ -113,9 +113,9 @@ async function startServer(env: Record<string, string> = {}): Promise<Served> {
 /** What the server actually wrote for a report, out of its own store file. */
 async function storedReport(
   id: string,
-): Promise<{ category: string; note: string; photoAttached: boolean }> {
+): Promise<{ categories: string[]; note: string; photoAttached: boolean }> {
   const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
-    reports: Array<{ id: string; category: string; note: string; photoAttached: boolean }>;
+    reports: Array<{ id: string; categories: string[]; note: string; photoAttached: boolean }>;
   };
   const found = data.reports.find((report) => report.id === id);
   if (!found) throw new Error(`no report ${id} in the store`);
@@ -123,9 +123,9 @@ async function storedReport(
 }
 
 /** The newest report the server holds, however it got there. */
-async function newestReport(): Promise<{ id: string; category: string; photoAttached: boolean }> {
+async function newestReport(): Promise<{ id: string; categories: string[]; photoAttached: boolean }> {
   const data = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
-    reports: Array<{ id: string; category: string; photoAttached: boolean; openedAt: string }>;
+    reports: Array<{ id: string; categories: string[]; photoAttached: boolean; openedAt: string }>;
   };
   const sorted = [...data.reports].sort((a, b) => b.openedAt.localeCompare(a.openedAt));
   const found = sorted[0];
@@ -494,7 +494,7 @@ describe('oversized report uploads, end to end', () => {
     // The fields come off the head now, never out of a buffered body — so the
     // category and the attachment have to survive that, not just the redirect.
     const filed = await newestReport();
-    expect(filed.category).toBe('litter');
+    expect(filed.categories).toEqual(['litter']);
     expect(filed.photoAttached).toBe(true);
   });
 
@@ -516,7 +516,7 @@ describe('oversized report uploads, end to end', () => {
     expect(resent.headers.get('location')).toBe(`/t/${TAG}/thanks`);
 
     const filed = await storedReport((await newestReport()).id);
-    expect(filed.category).toBe('guard');
+    expect(filed.categories).toEqual(['guard']);
     expect(filed.note).toBe('The guard is bent.');
     expect(filed.photoAttached).toBe(false);
   });
@@ -611,7 +611,7 @@ describe('oversized report uploads, end to end', () => {
     });
     expect(filed.status).toBe(303);
     expect(filed.headers.get('location')).toBe(`/t/${TAG}/thanks`);
-    expect((await newestReport()).category).toBe('thirsty');
+    expect((await newestReport()).categories).toEqual(['thirsty']);
 
     // A second neighbour, on a bed that already has an open report, is not
     // shown a rule: same screen, and their weight lands on the open report
@@ -625,7 +625,7 @@ describe('oversized report uploads, end to end', () => {
     expect(second.status).toBe(303);
     expect(second.headers.get('location')).toBe(`/t/${TAG}/thanks`);
     const open = await newestReport();
-    expect(open.category).toBe('thirsty');
+    expect(open.categories).toEqual(['thirsty']);
     expect(await storedConfirmations(open.id)).toHaveLength(1);
   });
 

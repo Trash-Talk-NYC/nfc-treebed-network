@@ -9,6 +9,10 @@
 // rest of the presentation is (presentation.ts): a group of beds with its own
 // look changes the role's value, and these tiles follow without being touched.
 //
+// The picker is MULTI-select: a bed that is thirsty AND full of litter is one
+// report naming both, so a report carries a list of these (`problemsFrom`),
+// never one of them.
+//
 // `other` is the only one that opens the free-text box. That is a property of
 // the category rather than a branch in the screen, so the screen cannot forget
 // one of them.
@@ -86,6 +90,25 @@ export function problemFrom(raw: unknown): ProblemCategory | null {
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim();
   return PROBLEMS.some((p) => p.value === trimmed) ? (trimmed as ProblemCategory) : null;
+}
+
+/**
+ * Every category a set of submitted values names — the picker's tiles are
+ * checkboxes, so a report carries every one the visitor pressed.
+ *
+ * Deduplicated and returned in tile order rather than submission order, so
+ * two visitors picking the same pair store the same record whatever order
+ * they tapped in, and a hand-built body repeating one value buys nothing.
+ * Values naming no category are dropped, not refused: `problemFrom`'s
+ * strictness per value, over however many arrived.
+ */
+export function problemsFrom(raw: Iterable<unknown>): ProblemCategory[] {
+  const picked = new Set<ProblemCategory>();
+  for (const value of raw) {
+    const category = problemFrom(value);
+    if (category !== null) picked.add(category);
+  }
+  return PROBLEMS.filter((p) => picked.has(p.value)).map((p) => p.value);
 }
 
 /**
