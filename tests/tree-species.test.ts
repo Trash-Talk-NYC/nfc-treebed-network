@@ -17,17 +17,17 @@ describe('the species table', () => {
   it('covers every species this repo seeds', () => {
     // The captain's block: five willow oaks and a white oak; the tests'
     // habitual pin oak rides along.
-    expect(spanishSpeciesFor('Willow oak')).toBe('Roble sauce');
-    expect(spanishSpeciesFor('White oak')).toBe('Roble blanco');
-    expect(spanishSpeciesFor('Pin oak')).toBe('Roble palustre');
+    expect(spanishSpeciesFor('Willow oak')).toBe('roble sauce');
+    expect(spanishSpeciesFor('White oak')).toBe('roble blanco');
+    expect(spanishSpeciesFor('Pin oak')).toBe('roble palustre');
   });
 
   it('matches regardless of case, incidental whitespace, hyphens and cultivar quotes', () => {
-    expect(spanishSpeciesFor('  WILLOW   OAK  ')).toBe('Roble sauce');
+    expect(spanishSpeciesFor('  WILLOW   OAK  ')).toBe('roble sauce');
     // NYC's census spells it "tulip-poplar"; people type it both ways.
-    expect(spanishSpeciesFor('tulip-poplar')).toBe('Tulipanero');
-    expect(spanishSpeciesFor('Tulip poplar')).toBe('Tulipanero');
-    expect(spanishSpeciesFor("'Schubert' chokecherry")).toBe('Cerezo de Virginia');
+    expect(spanishSpeciesFor('tulip-poplar')).toBe('tulipanero');
+    expect(spanishSpeciesFor('Tulip poplar')).toBe('tulipanero');
+    expect(spanishSpeciesFor("'Schubert' chokecherry")).toBe('cerezo de Virginia');
   });
 
   it('answers null for a name it does not know — a near-miss misses', () => {
@@ -53,6 +53,12 @@ describe('the species table', () => {
       expect(es, key).not.toBe('');
       expect(es.toLowerCase(), key).not.toBe(GENERIC_TREE.es);
       expect(es.length, key).toBeLessThanOrEqual(MAX_TREE_TYPE_CHARS);
+      // Every name lands mid-sentence in the fixed Spanish frame 'El
+      // cantero de este …', where an initial capital is ungrammatical; a
+      // proper noun inside the name keeps its own ('roble de Shumard').
+      const first = [...es][0];
+      expect(first, key).toBe(first.toLowerCase());
+      expect(first, key).not.toBe(first.toUpperCase());
     }
   });
 });

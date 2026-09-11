@@ -151,7 +151,7 @@ describe('the door a bed with no steward opens', () => {
     // One plain sentence: the tree type is still its own bilingual leaf, but
     // nothing picks it out.
     expect(html).not.toContain('class="hl"');
-    expect(html).toContain('data-es="Roble sauce"');
+    expect(html).toContain('data-es="roble sauce"');
 
     // Same two buttons, same order, in the page ground's own pair.
     const adoptAt = html.indexOf(DOOR_UNSTEWARDED.adopt.en);
@@ -257,7 +257,7 @@ describe('the shipped W 171st tags', () => {
 
       // The right bed: the NYC planting space ID is the one public identity.
       expect(html, tagId).toContain(`#${plantingSpaceId}`);
-      expect(html, tagId).toContain('data-es="Roble sauce"');
+      expect(html, tagId).toContain('data-es="roble sauce"');
 
       // The not-yet-open door, with no invitation anywhere on it.
       expect(html, tagId).toContain(DOOR_NOT_OFFERED.headAfter.en);
@@ -277,7 +277,12 @@ describe('the shipped W 171st tags', () => {
     const html = await (await fetch(`${origin}/t/jjhq9gfj?lang=es`)).text();
     expect(html).toContain(DOOR_NOT_OFFERED.headAfter.es);
     expect(html).toContain(DOOR_NOT_OFFERED.sub.es);
-    expect(html).toContain('Roble sauce');
+    expect(html).toContain('roble sauce');
+    // The headline is split into leaves either side of the species, so the
+    // sentence only reads right once the tags are gone: the species sits
+    // lowercase inside the fixed frame.
+    const text = html.replace(/<[^>]+>/g, '');
+    expect(text).toContain('El cantero de este roble sauce');
     expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.es);
   });
 });

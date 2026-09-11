@@ -207,8 +207,8 @@ function w171Beds(): Bed[] {
     plantingSpaceId: args.plantingSpaceId,
     plantingSpaceGlobalId: args.plantingSpaceGlobalId,
     treeType: args.whiteOak
-      ? { en: 'White oak', es: 'Roble blanco' }
-      : { en: 'Willow oak', es: 'Roble sauce' },
+      ? { en: 'White oak', es: 'roble blanco' }
+      : { en: 'Willow oak', es: 'roble sauce' },
     treeId: args.treeId,
     tagUid: '',
     crossStreets: 'W 171 St × Fort Washington Ave & Haven Ave',
@@ -355,7 +355,7 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
       // block this bed sits in.
       plantingSpaceId: '15850293',
       plantingSpaceGlobalId: null,
-      treeType: { en: 'Willow oak', es: 'Roble sauce' },
+      treeType: { en: 'Willow oak', es: 'roble sauce' },
       treeId: '08-4211',
       tagUid: '04:A2:2F:9C',
       crossStreets: 'W 138 St × Adam Clayton Powell Jr Blvd',

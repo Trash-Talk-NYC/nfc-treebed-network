@@ -460,7 +460,7 @@ describe('adding a bed', () => {
     expect(bed.plantingSpaceId).toBeNull();
     expect(bed.plantingSpaceGlobalId).toBeNull();
     // Nobody looked anything up: the species table supplied the Spanish.
-    expect(bed.treeType.es).toBe('Roble palustre');
+    expect(bed.treeType.es).toBe('roble palustre');
   });
 
   it('fills the Spanish name from the species table when the admin leaves it blank', async () => {
@@ -471,7 +471,7 @@ describe('adding a bed', () => {
     // The English name stays exactly what was typed (trimmed by the route,
     // capped here); the Spanish resolves through the table's tolerant match.
     expect(bed.treeType.en).toBe('willow   oak');
-    expect(bed.treeType.es).toBe('Roble sauce');
+    expect(bed.treeType.es).toBe('roble sauce');
   });
 
   it('degrades an unknown species to the generic wording rather than guessing', async () => {

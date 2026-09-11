@@ -112,7 +112,7 @@ describe('the admin door', () => {
     expect(html).toContain('708 W 171st St');
     for (let n = 1; n <= 6; n++) expect(html).toContain(`BED-WH-171${n}`);
     // The admin speaks both languages like every other screen.
-    expect(html).toContain('data-es="Roble blanco');
+    expect(html).toContain('data-es="roble blanco');
 
     // The opened white oak carries its resolved NYC planting space — the
     // real record, not the mockup's placeholder number.
@@ -273,7 +273,7 @@ describe('adding a bed through the real form', () => {
     const html = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
     // The bilingual label carries the table's Spanish; the English half is
     // exactly what the admin typed.
-    expect(html).toContain('data-es="Roble palustre');
+    expect(html).toContain('data-es="roble palustre');
     expect(html).toContain('data-en="Pin oak');
   });
 
