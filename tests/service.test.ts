@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LocalStore } from '../src/lib/store-local';
 import { MAX_NOTE_CHARS } from '../src/lib/problem';
 import {
+  MAX_BED_NAME_CHARS,
   MAX_CONFIRMATIONS,
   MAX_INFLIGHT_PIN_HASHES,
   RuleError,
@@ -101,6 +102,87 @@ describe('PIN hashing', () => {
     await expect(signIn(store, { username: 'rita_o', pin: '1234' })).rejects.toMatchObject({
       code: 'invalid-credentials',
     });
+  });
+});
+
+describe('the first steward names the bed', () => {
+  /**
+   * A bed with nobody on it: the first W 171st bed, its one slot offered by
+   * hand — the seeded demo bed already has marisol, so it can only ever host
+   * a SECOND steward.
+   */
+  async function offeredEmptyBed(plate = 'BED-WH-1711'): Promise<string> {
+    const bed = (await store.getBed(plate))!;
+    await store.updateBed({ ...bed, offeredSlots: 1 });
+    return plate;
+  }
+
+  it('stores the first steward’s name on the bed, trimmed to the cap', async () => {
+    const plate = await offeredEmptyBed();
+    await adoptBed(store, { plate, input: adoptInput({ bedName: '  La Madrina  ' }) });
+    expect((await store.getBed(plate))!.bedName).toBe('La Madrina');
+  });
+
+  it('bounds the name like every other typed field', async () => {
+    const plate = await offeredEmptyBed();
+    await adoptBed(store, { plate, input: adoptInput({ bedName: 'x'.repeat(500) }) });
+    expect((await store.getBed(plate))!.bedName).toHaveLength(MAX_BED_NAME_CHARS);
+  });
+
+  it('strips control and bidi characters a hand-built POST can carry', async () => {
+    const plate = await offeredEmptyBed();
+    await adoptBed(store, {
+      plate,
+      input: adoptInput({ bedName: '\u202eLa\nMadrina\u2069\u200f' }),
+    });
+    expect((await store.getBed(plate))!.bedName).toBe('LaMadrina');
+  });
+
+  it('lets the first steward skip naming: the bed then simply has no name', async () => {
+    const plate = await offeredEmptyBed();
+    await adoptBed(store, { plate, input: adoptInput() });
+    expect((await store.getBed(plate))!.bedName).toBeNull();
+    // An explicit empty field is the same skip as an absent one.
+    const other = await offeredEmptyBed('BED-WH-1712');
+    await adoptBed(store, { plate: other, input: adoptInput({ bedName: '   ' }) });
+    expect((await store.getBed(other))!.bedName).toBeNull();
+  });
+
+  it('ignores a name from anyone but the first steward — the adoption still goes through', async () => {
+    // PLATE is the seeded demo bed: marisol already stewards it, so this is a
+    // SECOND adoption. The form never offers them the field; this is the
+    // hand-built POST that sends one anyway. Nobody at a tree is shown a
+    // rule: the adoption commits and only the name is dropped.
+    const user = await adoptBed(store, { plate: PLATE, input: adoptInput({ bedName: 'Hijacked' }) });
+    expect((await getBedView(store, PLATE))!.stewards.map((s) => s.user.id)).toContain(user.id);
+    expect((await store.getBed(PLATE))!.bedName).toBeNull();
+  });
+
+  it('keeps the name when its author leaves, and the next steward cannot rename', async () => {
+    const plate = await offeredEmptyBed();
+    const author = await adoptBed(store, { plate, input: adoptInput({ bedName: 'La Madrina' }) });
+    // Release the author directly in the stored file: no release flow exists
+    // in the visitor build, and the name surviving must not depend on how a
+    // steward comes off the bed — it is the bed's name, not their profile.
+    const raw = JSON.parse(readFileSync(storeFile, 'utf8')) as {
+      adoptions: Array<{ userId: string; releasedAt: string | null }>;
+    };
+    for (const adoption of raw.adoptions) {
+      if (adoption.userId === author.id) adoption.releasedAt = '2026-09-10T12:00:00.000Z';
+    }
+    writeFileSync(storeFile, JSON.stringify(raw));
+    const reopened = new LocalStore(storeFile);
+    const view = (await getBedView(reopened, plate))!;
+    expect(view.stewards).toHaveLength(0);
+    expect(view.bed.bedName).toBe('La Madrina');
+    // The next adopter is the first ACTIVE steward again, but the bed already
+    // has its name — "that name is the bed's name from then on". Only the
+    // admin's clear opens naming again.
+    await adoptBed(reopened, {
+      plate,
+      input: adoptInput({ firstName: 'Tam', email: 't@example.com', bedName: 'Renamed' }),
+    });
+    expect((await reopened.getBed(plate))!.bedName).toBe('La Madrina');
   });
 });
 

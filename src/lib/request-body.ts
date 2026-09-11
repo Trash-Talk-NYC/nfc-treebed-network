@@ -181,9 +181,11 @@
 // config line to revisit if that ever stops being the right trade.
 
 // What this sweep does NOT bound is CPU. A body admitted here is free to serve
-// until a rule turns it into work, and on /auth and /adopt that work is a
-// bcrypt — bounded separately by MAX_INFLIGHT_PIN_HASHES in service.ts, where
-// the rule that spends it lives.
+// until a rule turns it into work, and on /auth that work is a bcrypt —
+// bounded separately by MAX_INFLIGHT_PIN_HASHES in service.ts, where the rule
+// that spends it lives. /adopt used to hash too; passwordless removed that, so
+// the only work a flood buys there is the bed's offered slots at a few reads
+// each.
 
 import { boundFromEnv } from './bounds';
 import { noteFrom, problemsFrom, type ProblemCategory } from './problem';
