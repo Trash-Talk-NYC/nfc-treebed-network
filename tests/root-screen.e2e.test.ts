@@ -75,7 +75,7 @@ afterAll(async () => {
 
 describe('the site root', () => {
   it('redirects to the demo tag while its bed is live', async () => {
-    const origin = await startOn(await seedData());
+    const origin = await startOn(seedData());
     const response = await fetch(`${origin}/`, { redirect: 'manual' });
     expect(response.status).toBe(302);
     // Flagged, so the demo bed does not count a monitor's poll as a tap.
@@ -83,7 +83,7 @@ describe('the site root', () => {
   }, 60_000);
 
   it('renders the calm screen at 200 when the demo bed has been retired', async () => {
-    const data = await seedData();
+    const data = seedData();
     data.beds['BED-HRL-0847']!.retiredAt = '2026-09-11T12:00:00.000Z';
     const origin = await startOn(data);
 

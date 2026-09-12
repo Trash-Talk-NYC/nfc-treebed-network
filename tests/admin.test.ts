@@ -899,7 +899,7 @@ describe('deleting a bed', () => {
     // `ensureCheckedInBlocks` re-inserts a MISSING seeded bed on every load,
     // so a hard delete of one of the six would quietly resurrect. The
     // tombstone occupies the key, and insert-only means it is never touched.
-    const data = await seedData();
+    const data = seedData();
     data.beds[W171_PLATE]!.retiredAt = '2026-09-10T12:00:00.000Z';
     ensureCheckedInBlocks(data);
     expect(data.beds[W171_PLATE]!.retiredAt).toBe('2026-09-10T12:00:00.000Z');
