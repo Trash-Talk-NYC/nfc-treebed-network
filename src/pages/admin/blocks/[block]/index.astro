@@ -350,9 +350,10 @@ const openReport = selected?.openReport
 // panel redraws the record rather than inventing a NOT SET the save did not
 // make.
 // The species fields, same rule: what a refused save left typed, otherwise
-// what is stored. A stored species is shown as stored — lowercase, the way
-// the door frame needs it (`capitalizeFirst` is a render-site act elsewhere,
-// never a rewrite of the value) — so what the captain edits is the record.
+// what is stored. A stored species is shown as stored — the casing the
+// species table or the typist gave it, the way the door frame reads it
+// (`capitalizeFirst` is a render-site act elsewhere, never a rewrite of the
+// value) — so what the captain edits is the record.
 const panelSpecies = submitted?.treeType ?? {
   en: selected?.bed.treeType?.en ?? '',
   es: selected?.bed.treeType?.es ?? '',

@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  englishSpeciesFor,
   GENERIC_TREE,
   normalizeCommonName,
   spanishSpeciesFor,
@@ -52,11 +53,28 @@ describe('the species table', () => {
     expect(tableSpeciesCasingFor('Dragon tree', 'Drago')).toBeNull();
   });
 
+  it('owns the English casing a name reads with mid-sentence', () => {
+    // A common name built from ordinary words is lowercase in the door
+    // frame; one carrying a proper adjective keeps its capital there.
+    expect(englishSpeciesFor('WILLOW OAK')).toBe('willow oak');
+    expect(englishSpeciesFor('norway maple')).toBe('Norway maple');
+    expect(englishSpeciesFor('japanese tree lilac')).toBe('Japanese tree lilac');
+    expect(englishSpeciesFor('london planetree')).toBe('London planetree');
+    expect(englishSpeciesFor('callery pear')).toBe('Callery pear');
+    // A name the table does not know is the typist's, untouched by us.
+    expect(englishSpeciesFor('Honeylocust')).toBeNull();
+    expect(englishSpeciesFor('')).toBeNull();
+  });
+
   it('holds every entry to the table’s own rules', () => {
     const entries = speciesTableEntries();
     // The set is meant to cover NYC's street trees, not a handful.
     expect(entries.length).toBeGreaterThan(100);
-    for (const [key, es] of entries) {
+    for (const [key, [en, es]] of entries) {
+      // The English name is the key's own spelling, so a lookup and what it
+      // prints cannot drift; only its casing is authored.
+      expect(normalizeCommonName(en), key).toBe(key);
+      expect(en.length, key).toBeLessThanOrEqual(MAX_TREE_TYPE_CHARS);
       // Keys are stored pre-normalized, so lookups cannot drift from them.
       expect(key, key).toBe(normalizeCommonName(key));
       // A value is a real name that fits the stored field: never empty,

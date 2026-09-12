@@ -435,9 +435,8 @@ describe('the admin door', () => {
     expect(named.status).toBe(303);
     const after = await panel();
     expect(after).not.toContain(ADMIN.speciesUnsetSub.en);
-    // Both names are stored the way the door frame needs them — the English
-    // one lowercased on write like the Spanish, because its commonest use is
-    // mid-sentence there.
+    // Both names are stored the way the table authored them, which is the
+    // way the door frame reads them: mid-sentence, so this one lowercase.
     expect(after).toMatch(/name="tree-type-en"[^>]*value="willow oak"/);
     // The Spanish name came from the checked-in table, lowercase, because
     // its commonest use is mid-sentence in the door frame.
@@ -501,6 +500,53 @@ describe('the admin door', () => {
     });
     expect(cleared.status).toBe(303);
     expect(await panel()).toContain(ADMIN.speciesUnsetSub.en);
+  });
+
+  it('keeps a proper adjective’s capital mid-sentence on both doors', async () => {
+    // English common names are full of proper adjectives — Norway maple,
+    // Japanese zelkova, London planetree — and they keep their capital inside
+    // the door sentence where "willow oak" does not. The casing is the
+    // species table's (tree-species.ts), so typing the name in any case gets
+    // the one the frame needs.
+    const cookie = await adminCookie();
+    const saved = await fetch(`${origin}/admin/blocks/w-171-hfw-south?bed=6SHFW171`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({
+        plate: '6SHFW171',
+        'slot-open': '1',
+        'tree-type-en': 'norway maple',
+        'tree-type-es': '',
+      }),
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(303);
+
+    const door1 = await (await fetch(`${origin}/t/6shfw171`)).text();
+    expect(door1.replace(/<[^>]+>/g, '')).toContain('This Norway maple');
+    expect(door1).toContain('data-en="Norway maple"');
+    // The Spanish name rides its own leaf and stays lowercase after the
+    // frame's "este".
+    expect(door1).toContain('data-es="arce noruego"');
+
+    const adopted = await fetch(`${origin}/t/6shfw171/adopt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: new URLSearchParams({
+        firstName: 'Ana',
+        lastName: 'Ruiz',
+        email: 'ana-admin-e2e@example.invalid',
+        phone: '',
+        bedName: '',
+      }),
+      redirect: 'manual',
+    });
+    expect(adopted.status).toBe(303);
+
+    const door2 = await (await fetch(`${origin}/t/6shfw171`)).text();
+    expect(door2.replace(/<[^>]+>/g, '')).toContain('This Norway maple');
+    expect(door2).toContain('data-en="Norway maple"');
+    expect(door2).toContain('data-es="arce noruego"');
   });
 
   it('shows the panel’s three-way rows as submitted when a save is refused', async () => {

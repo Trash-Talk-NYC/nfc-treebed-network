@@ -1103,7 +1103,9 @@ describe('the panel’s species row', () => {
       bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Honeylocust', es: '' } }),
     });
     expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
-      en: 'honeylocust',
+      // A species the table has never heard of is stored exactly as typed:
+      // only the person at the tree knows how its name is spelled.
+      en: 'Honeylocust',
       es: 'árbol',
     });
 
@@ -1175,7 +1177,7 @@ describe('the panel’s species row', () => {
       bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Dragon tree', es: '' } }),
     });
     expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
-      en: 'dragon tree',
+      en: 'Dragon tree',
       es: 'árbol',
     });
   });
@@ -1254,7 +1256,7 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: 'Dragon tree', es: '' },
     });
-    expect(bed.treeType!.en).toBe('dragon tree');
+    expect(bed.treeType!.en).toBe('Dragon tree');
     // Never the English name and never a transliteration: "árbol" is the
     // same wording normalizeData gives a bed with no tree type at all.
     expect(bed.treeType!.es).toBe('árbol');

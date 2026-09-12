@@ -21,10 +21,15 @@ import type {
 import type { Lang, Phrase } from './i18n';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
-import { lowercaseFirst, nyCalendarDay } from './format';
+import { nyCalendarDay } from './format';
 import { signingSecret } from './signing-secret';
 import { CarryRefusal, carrySteward } from './steward-carry';
-import { GENERIC_TREE, spanishSpeciesFor, tableSpeciesCasingFor } from './tree-species';
+import {
+  englishSpeciesFor,
+  GENERIC_TREE,
+  spanishSpeciesFor,
+  tableSpeciesCasingFor,
+} from './tree-species';
 import { capped } from './typed-text';
 
 export class RuleError extends Error {
@@ -1516,11 +1521,14 @@ export function resolveSpecies(
   typed: { en: string; es: string },
   stored?: Phrase | null,
 ): Phrase | null {
-  // The leading character only, the inverse of `capitalizeFirst`: a species
-  // is stored for its commonest use, mid-sentence inside the door frame, and
-  // a proper noun inside the name ("roble de Shumard") keeps its capital.
-  const en = lowercaseFirst(capped(typed.en, MAX_TREE_TYPE_CHARS));
-  if (en === '') return null;
+  // Casing comes from the table or from the typist, never from a transform:
+  // a species the table knows is stored the way it authored it, mid-sentence
+  // ("willow oak", but "Norway maple"), and one it does not know is stored
+  // exactly as typed, because only the person at the tree knows whether its
+  // name carries a proper noun.
+  const typedEn = capped(typed.en, MAX_TREE_TYPE_CHARS);
+  if (typedEn === '') return null;
+  const en = englishSpeciesFor(typedEn) ?? typedEn;
   const typedEs = capped(typed.es, MAX_TREE_TYPE_CHARS);
   // What we ourselves would have written for the species the bed holds —
   // the table's name, or the generic word where the table has none. Both are

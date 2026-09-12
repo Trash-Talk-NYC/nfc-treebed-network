@@ -62,16 +62,14 @@ export function bedCountLabel(count: number): Phrase {
  * species rather than framing it — the About page's tree row — say "not
  * recorded" instead of using this (`ABOUT.treeUnknown`).
  *
- * The leading character is lowercased here rather than trusted: a species is
- * STORED for its commonest use, mid-sentence, but the live store already
- * holds rows written before that rule reached the English name ("Willow
- * oak"), and the frame would read "This Willow oak's bed…". The standalone
- * surfaces capitalize at the render site (`capitalizeFirst`), so doing it
- * here costs them nothing and needs no stored row rewritten.
+ * What is stored is printed: casing is the species table's or the typist's
+ * (tree-species.ts), never a transform applied here — lowercasing the
+ * leading character would take the capital off every "Norway maple" and
+ * "Japanese zelkova" the door frame is right to keep.
  */
 export function speciesShown(treeType: Phrase | null): Phrase {
   const species = treeType ?? GENERIC_TREE;
-  return { en: lowercaseFirst(species.en), es: lowercaseFirst(species.es) };
+  return { en: species.en, es: species.es };
 }
 
 /** "Willow oak · #2" — the admin bed list row, live or deleted. */
@@ -192,16 +190,6 @@ export function slotsJustFilledMessage(slots: number): Phrase {
 export function capitalizeFirst(text: string): string {
   const [first, ...rest] = [...text];
   return first === undefined ? text : first.toUpperCase() + rest.join('');
-}
-
-/**
- * Its inverse, for a value about to sit mid-sentence. The LEADING character
- * only: a species name can carry a proper noun inside it ("roble de
- * Shumard"), and lowercasing the whole string would take that with it.
- */
-export function lowercaseFirst(text: string): string {
-  const [first, ...rest] = [...text];
-  return first === undefined ? text : first.toLowerCase() + rest.join('');
 }
 
 /**

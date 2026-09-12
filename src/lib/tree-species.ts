@@ -37,199 +37,213 @@
  * Where a species has more than one accepted Spanish name, the value is the
  * one most transparent to the Caribbean and Mexican Spanish spoken around
  * Washington Heights; the alternatives are noted inline where the choice was
- * close. Values are lowercase ("roble sauce"), because the door frame puts
- * them mid-sentence — "El cantero de este roble sauce…" — where a capital
- * would be ungrammatical; proper nouns inside a name keep theirs ("roble de
- * Shumard"). The checked-in seeds in store-dataset.ts follow the same rule.
+ * close. Spanish values are lowercase ("roble sauce"), because the door
+ * frame puts them mid-sentence — "El cantero de este roble sauce…" — where a
+ * capital would be ungrammatical; proper nouns inside a name keep theirs
+ * ("roble de Shumard").
+ *
+ * The ENGLISH name is authored here too, and for the opposite reason: its
+ * frame is mid-sentence as well ("This willow oak's bed…"), but English
+ * common names are full of proper adjectives that keep their capital there —
+ * Norway maple, Japanese zelkova, London planetree, Callery pear. No derived
+ * rule can serve both languages, so each entry carries the casing it should
+ * read WITH inside a sentence, and a species this table does not know is
+ * stored and rendered exactly as the person typed it — never lowercased,
+ * never capitalized, by us. Standalone surfaces capitalize at the render
+ * site (`capitalizeFirst`, format.ts). The checked-in seeds in
+ * checked-in-beds.ts carry what this table says for their species.
  */
 
 /** The generic wording an unknown species degrades to — never a guess. */
 export const GENERIC_TREE = { en: 'tree', es: 'árbol' } as const;
 
+/** The table's own spelling of one species, both languages, mid-sentence. */
+type SpeciesNames = readonly [en: string, es: string];
+
 /**
  * Keys are stored pre-normalized (see `normalizeCommonName`);
  * tests/tree-species.test.ts fails a key that isn't its own normalization.
  */
-const SPANISH_BY_COMMON_NAME: Record<string, string> = {
+const SPECIES_BY_COMMON_NAME: Record<string, SpeciesNames> = {
   // Oaks — the captain's own block is willow oaks plus one white oak.
-  oak: 'roble',
-  'willow oak': 'roble sauce',
-  'white oak': 'roble blanco',
-  'pin oak': 'roble palustre',
-  'northern red oak': 'roble rojo',
-  'red oak': 'roble rojo',
-  'scarlet oak': 'roble escarlata',
-  'black oak': 'roble negro',
-  'swamp white oak': 'roble blanco de los pantanos',
-  'bur oak': 'roble bur',
-  'english oak': 'roble inglés',
-  'sawtooth oak': 'roble de dientes de sierra',
-  'shumard oak': 'roble de Shumard',
-  'chestnut oak': 'roble castaño',
+  oak: ['oak', 'roble'],
+  'willow oak': ['willow oak', 'roble sauce'],
+  'white oak': ['white oak', 'roble blanco'],
+  'pin oak': ['pin oak', 'roble palustre'],
+  'northern red oak': ['northern red oak', 'roble rojo'],
+  'red oak': ['red oak', 'roble rojo'],
+  'scarlet oak': ['scarlet oak', 'roble escarlata'],
+  'black oak': ['black oak', 'roble negro'],
+  'swamp white oak': ['swamp white oak', 'roble blanco de los pantanos'],
+  'bur oak': ['bur oak', 'roble bur'],
+  'english oak': ['English oak', 'roble inglés'],
+  'sawtooth oak': ['sawtooth oak', 'roble de dientes de sierra'],
+  'shumard oak': ['Shumard oak', 'roble de Shumard'],
+  'chestnut oak': ['chestnut oak', 'roble castaño'],
 
   // Maples.
-  maple: 'arce',
-  'norway maple': 'arce noruego',
+  maple: ['maple', 'arce'],
+  'norway maple': ['Norway maple', 'arce noruego'],
   // 'Crimson King' is a Norway maple cultivar; the census lists it apart.
-  'crimson king maple': 'arce noruego',
-  'red maple': 'arce rojo',
-  'silver maple': 'arce plateado',
-  'sugar maple': 'arce azucarero',
-  'black maple': 'arce negro',
-  'japanese maple': 'arce japonés',
-  'amur maple': 'arce del Amur',
-  'hedge maple': 'arce campestre',
+  'crimson king maple': ['Crimson King maple', 'arce noruego'],
+  'red maple': ['red maple', 'arce rojo'],
+  'silver maple': ['silver maple', 'arce plateado'],
+  'sugar maple': ['sugar maple', 'arce azucarero'],
+  'black maple': ['black maple', 'arce negro'],
+  'japanese maple': ['Japanese maple', 'arce japonés'],
+  'amur maple': ['Amur maple', 'arce del Amur'],
+  'hedge maple': ['hedge maple', 'arce campestre'],
   // Also "falso plátano"; "arce blanco" keeps the genus audible.
-  'sycamore maple': 'arce blanco',
-  boxelder: 'arce negundo',
-  'box elder': 'arce negundo',
-  'paperbark maple': 'arce de corteza de papel',
-  'trident maple': 'arce tridente',
+  'sycamore maple': ['sycamore maple', 'arce blanco'],
+  boxelder: ['boxelder', 'arce negundo'],
+  'box elder': ['box elder', 'arce negundo'],
+  'paperbark maple': ['paperbark maple', 'arce de corteza de papel'],
+  'trident maple': ['trident maple', 'arce tridente'],
 
   // Planes — NYC's most numerous street tree.
-  'london planetree': 'plátano de Londres',
-  'london plane': 'plátano de Londres',
+  'london planetree': ['London planetree', 'plátano de Londres'],
+  'london plane': ['London plane', 'plátano de Londres'],
   // Also "sicomoro americano"; kept beside "plátano de Londres" so the two
   // planes read as kin.
-  'american sycamore': 'plátano americano',
-  sycamore: 'plátano americano',
+  'american sycamore': ['American sycamore', 'plátano americano'],
+  sycamore: ['sycamore', 'plátano americano'],
 
   // Lindens.
-  linden: 'tilo',
-  'littleleaf linden': 'tilo de hoja pequeña',
-  'american linden': 'tilo americano',
-  basswood: 'tilo americano',
-  'silver linden': 'tilo plateado',
-  'crimean linden': 'tilo de Crimea',
-  'european linden': 'tilo europeo',
+  linden: ['linden', 'tilo'],
+  'littleleaf linden': ['littleleaf linden', 'tilo de hoja pequeña'],
+  'american linden': ['American linden', 'tilo americano'],
+  basswood: ['basswood', 'tilo americano'],
+  'silver linden': ['silver linden', 'tilo plateado'],
+  'crimean linden': ['Crimean linden', 'tilo de Crimea'],
+  'european linden': ['European linden', 'tilo europeo'],
 
   // Elms.
-  elm: 'olmo',
-  'american elm': 'olmo americano',
-  'chinese elm': 'olmo chino',
-  'siberian elm': 'olmo siberiano',
-  'english elm': 'olmo inglés',
-  'slippery elm': 'olmo rojo',
+  elm: ['elm', 'olmo'],
+  'american elm': ['American elm', 'olmo americano'],
+  'chinese elm': ['Chinese elm', 'olmo chino'],
+  'siberian elm': ['Siberian elm', 'olmo siberiano'],
+  'english elm': ['English elm', 'olmo inglés'],
+  'slippery elm': ['slippery elm', 'olmo rojo'],
 
   // Ashes.
-  ash: 'fresno',
-  'green ash': 'fresno verde',
-  'white ash': 'fresno blanco',
-  'black ash': 'fresno negro',
-  'european ash': 'fresno común',
+  ash: ['ash', 'fresno'],
+  'green ash': ['green ash', 'fresno verde'],
+  'white ash': ['white ash', 'fresno blanco'],
+  'black ash': ['black ash', 'fresno negro'],
+  'european ash': ['European ash', 'fresno común'],
 
   // Rosaceae: pears, cherries, plums and their kin.
-  'callery pear': 'peral de Callery',
-  pear: 'peral',
-  'crab apple': 'manzano silvestre',
-  crabapple: 'manzano silvestre',
-  apple: 'manzano',
-  cherry: 'cerezo',
-  'japanese flowering cherry': 'cerezo japonés',
+  'callery pear': ['Callery pear', 'peral de Callery'],
+  pear: ['pear', 'peral'],
+  'crab apple': ['crab apple', 'manzano silvestre'],
+  crabapple: ['crabapple', 'manzano silvestre'],
+  apple: ['apple', 'manzano'],
+  cherry: ['cherry', 'cerezo'],
+  'japanese flowering cherry': ['Japanese flowering cherry', 'cerezo japonés'],
   // Kwanzan is a Prunus serrulata cultivar.
-  'kwanzan cherry': 'cerezo japonés',
-  'yoshino cherry': 'cerezo de Yoshino',
-  'black cherry': 'cerezo negro',
-  chokecherry: 'cerezo de Virginia',
-  'schubert chokecherry': 'cerezo de Virginia',
+  'kwanzan cherry': ['Kwanzan cherry', 'cerezo japonés'],
+  'yoshino cherry': ['Yoshino cherry', 'cerezo de Yoshino'],
+  'black cherry': ['black cherry', 'cerezo negro'],
+  chokecherry: ['chokecherry', 'cerezo de Virginia'],
+  'schubert chokecherry': ['Schubert chokecherry', 'cerezo de Virginia'],
   // Also "ciruelo mirobolano"; "rojo" is what nurseries actually say.
-  'purple leaf plum': 'ciruelo rojo',
-  plum: 'ciruelo',
+  'purple leaf plum': ['purple leaf plum', 'ciruelo rojo'],
+  plum: ['plum', 'ciruelo'],
   // "duraznero" over Spain's "melocotonero": it is the word on this block.
-  peach: 'duraznero',
-  hawthorn: 'espino',
+  peach: ['peach', 'duraznero'],
+  hawthorn: ['hawthorn', 'espino'],
 
   // Ginkgo.
-  ginkgo: 'ginkgo',
+  ginkgo: ['ginkgo', 'ginkgo'],
 
   // Conifers.
-  pine: 'pino',
-  'eastern white pine': 'pino blanco americano',
-  'white pine': 'pino blanco americano',
-  'austrian pine': 'pino austríaco',
-  'japanese black pine': 'pino negro japonés',
-  'scots pine': 'pino silvestre',
-  'red pine': 'pino rojo',
-  baldcypress: 'ciprés calvo',
-  'bald cypress': 'ciprés calvo',
-  'eastern redcedar': 'enebro de Virginia',
-  'atlas cedar': 'cedro del Atlas',
-  'deodar cedar': 'cedro del Himalaya',
-  cedar: 'cedro',
-  fir: 'abeto',
-  larch: 'alerce',
-  'european larch': 'alerce europeo',
-  tamarack: 'alerce americano',
+  pine: ['pine', 'pino'],
+  'eastern white pine': ['eastern white pine', 'pino blanco americano'],
+  'white pine': ['white pine', 'pino blanco americano'],
+  'austrian pine': ['Austrian pine', 'pino austríaco'],
+  'japanese black pine': ['Japanese black pine', 'pino negro japonés'],
+  'scots pine': ['Scots pine', 'pino silvestre'],
+  'red pine': ['red pine', 'pino rojo'],
+  baldcypress: ['baldcypress', 'ciprés calvo'],
+  'bald cypress': ['bald cypress', 'ciprés calvo'],
+  'eastern redcedar': ['eastern redcedar', 'enebro de Virginia'],
+  'atlas cedar': ['Atlas cedar', 'cedro del Atlas'],
+  'deodar cedar': ['deodar cedar', 'cedro del Himalaya'],
+  cedar: ['cedar', 'cedro'],
+  fir: ['fir', 'abeto'],
+  larch: ['larch', 'alerce'],
+  'european larch': ['European larch', 'alerce europeo'],
+  tamarack: ['tamarack', 'alerce americano'],
 
   // Everything else NYC plants, alphabetical by English name.
-  'american chestnut': 'castaño americano',
-  'american holly': 'acebo americano',
-  'american hornbeam': 'carpe americano',
-  'amur cork tree': 'árbol del corcho del Amur',
-  'amur corktree': 'árbol del corcho del Amur',
-  blackgum: 'tupelo',
-  'black gum': 'tupelo',
-  'black tupelo': 'tupelo',
-  'black walnut': 'nogal negro',
-  'black willow': 'sauce negro',
-  birch: 'abedul',
-  butternut: 'nogal ceniciento',
-  'chinese chestnut': 'castaño chino',
-  'cornelian cherry': 'cornejo macho',
-  cottonwood: 'álamo',
-  'crepe myrtle': 'árbol de Júpiter',
-  'crape myrtle': 'árbol de Júpiter',
-  dogwood: 'cornejo',
-  'eastern cottonwood': 'álamo americano',
-  'eastern redbud': 'ciclamor canadiense',
-  'english walnut': 'nogal común',
-  'european hornbeam': 'carpe europeo',
-  'european white birch': 'abedul común',
-  'flowering dogwood': 'cornejo florido',
-  'golden raintree': 'jabonero de la China',
-  'goldenrain tree': 'jabonero de la China',
-  'gray birch': 'abedul gris',
-  hackberry: 'almez americano',
-  'common hackberry': 'almez americano',
-  holly: 'acebo',
-  hornbeam: 'carpe',
-  'horse chestnut': 'castaño de Indias',
-  horsechestnut: 'castaño de Indias',
-  'japanese pagoda tree': 'árbol de las pagodas',
-  'japanese tree lilac': 'lilo japonés',
-  'kentucky coffeetree': 'árbol del café de Kentucky',
-  'kousa dogwood': 'cornejo japonés',
-  'lombardy poplar': 'álamo de Lombardía',
-  magnolia: 'magnolio',
-  mimosa: 'árbol de la seda',
-  'osage orange': 'naranjo de Osage',
-  'pagoda tree': 'árbol de las pagodas',
-  'paper birch': 'abedul de papel',
-  persimmon: 'caqui americano',
-  'common persimmon': 'caqui americano',
-  poplar: 'álamo',
-  'quaking aspen': 'álamo temblón',
-  'red horse chestnut': 'castaño de Indias rojo',
-  'river birch': 'abedul de río',
-  sassafras: 'sasafrás',
-  'saucer magnolia': 'magnolio chino',
-  'scholar tree': 'árbol de las pagodas',
-  'silk tree': 'árbol de la seda',
-  sophora: 'árbol de las pagodas',
-  'southern magnolia': 'magnolio',
-  'sweetbay magnolia': 'magnolio',
-  sweetgum: 'liquidámbar',
-  'sweet gum': 'liquidámbar',
-  'tree of heaven': 'ailanto',
-  'tulip poplar': 'tulipanero',
-  'tulip tree': 'tulipanero',
-  tuliptree: 'tulipanero',
-  'turkish hazelnut': 'avellano turco',
-  walnut: 'nogal',
-  'weeping willow': 'sauce llorón',
-  'white birch': 'abedul blanco',
-  'white poplar': 'álamo blanco',
-  willow: 'sauce',
+  'american chestnut': ['American chestnut', 'castaño americano'],
+  'american holly': ['American holly', 'acebo americano'],
+  'american hornbeam': ['American hornbeam', 'carpe americano'],
+  'amur cork tree': ['Amur cork tree', 'árbol del corcho del Amur'],
+  'amur corktree': ['Amur corktree', 'árbol del corcho del Amur'],
+  blackgum: ['blackgum', 'tupelo'],
+  'black gum': ['black gum', 'tupelo'],
+  'black tupelo': ['black tupelo', 'tupelo'],
+  'black walnut': ['black walnut', 'nogal negro'],
+  'black willow': ['black willow', 'sauce negro'],
+  birch: ['birch', 'abedul'],
+  butternut: ['butternut', 'nogal ceniciento'],
+  'chinese chestnut': ['Chinese chestnut', 'castaño chino'],
+  'cornelian cherry': ['Cornelian cherry', 'cornejo macho'],
+  cottonwood: ['cottonwood', 'álamo'],
+  'crepe myrtle': ['crepe myrtle', 'árbol de Júpiter'],
+  'crape myrtle': ['crape myrtle', 'árbol de Júpiter'],
+  dogwood: ['dogwood', 'cornejo'],
+  'eastern cottonwood': ['eastern cottonwood', 'álamo americano'],
+  'eastern redbud': ['eastern redbud', 'ciclamor canadiense'],
+  'english walnut': ['English walnut', 'nogal común'],
+  'european hornbeam': ['European hornbeam', 'carpe europeo'],
+  'european white birch': ['European white birch', 'abedul común'],
+  'flowering dogwood': ['flowering dogwood', 'cornejo florido'],
+  'golden raintree': ['golden raintree', 'jabonero de la China'],
+  'goldenrain tree': ['goldenrain tree', 'jabonero de la China'],
+  'gray birch': ['gray birch', 'abedul gris'],
+  hackberry: ['hackberry', 'almez americano'],
+  'common hackberry': ['common hackberry', 'almez americano'],
+  holly: ['holly', 'acebo'],
+  hornbeam: ['hornbeam', 'carpe'],
+  'horse chestnut': ['horse chestnut', 'castaño de Indias'],
+  horsechestnut: ['horsechestnut', 'castaño de Indias'],
+  'japanese pagoda tree': ['Japanese pagoda tree', 'árbol de las pagodas'],
+  'japanese tree lilac': ['Japanese tree lilac', 'lilo japonés'],
+  'kentucky coffeetree': ['Kentucky coffeetree', 'árbol del café de Kentucky'],
+  'kousa dogwood': ['kousa dogwood', 'cornejo japonés'],
+  'lombardy poplar': ['Lombardy poplar', 'álamo de Lombardía'],
+  magnolia: ['magnolia', 'magnolio'],
+  mimosa: ['mimosa', 'árbol de la seda'],
+  'osage orange': ['Osage orange', 'naranjo de Osage'],
+  'pagoda tree': ['pagoda tree', 'árbol de las pagodas'],
+  'paper birch': ['paper birch', 'abedul de papel'],
+  persimmon: ['persimmon', 'caqui americano'],
+  'common persimmon': ['common persimmon', 'caqui americano'],
+  poplar: ['poplar', 'álamo'],
+  'quaking aspen': ['quaking aspen', 'álamo temblón'],
+  'red horse chestnut': ['red horse chestnut', 'castaño de Indias rojo'],
+  'river birch': ['river birch', 'abedul de río'],
+  sassafras: ['sassafras', 'sasafrás'],
+  'saucer magnolia': ['saucer magnolia', 'magnolio chino'],
+  'scholar tree': ['scholar tree', 'árbol de las pagodas'],
+  'silk tree': ['silk tree', 'árbol de la seda'],
+  sophora: ['sophora', 'árbol de las pagodas'],
+  'southern magnolia': ['southern magnolia', 'magnolio'],
+  'sweetbay magnolia': ['sweetbay magnolia', 'magnolio'],
+  sweetgum: ['sweetgum', 'liquidámbar'],
+  'sweet gum': ['sweet gum', 'liquidámbar'],
+  'tree of heaven': ['tree of heaven', 'ailanto'],
+  'tulip poplar': ['tulip poplar', 'tulipanero'],
+  'tulip tree': ['tulip tree', 'tulipanero'],
+  tuliptree: ['tuliptree', 'tulipanero'],
+  'turkish hazelnut': ['Turkish hazelnut', 'avellano turco'],
+  walnut: ['walnut', 'nogal'],
+  'weeping willow': ['weeping willow', 'sauce llorón'],
+  'white birch': ['white birch', 'abedul blanco'],
+  'white poplar': ['white poplar', 'álamo blanco'],
+  willow: ['willow', 'sauce'],
 };
 
 /**
@@ -253,7 +267,17 @@ function normalizeCommonName(name: string): string {
  * invents a name.
  */
 export function spanishSpeciesFor(englishCommonName: string): string | null {
-  return SPANISH_BY_COMMON_NAME[normalizeCommonName(englishCommonName)] ?? null;
+  return SPECIES_BY_COMMON_NAME[normalizeCommonName(englishCommonName)]?.[1] ?? null;
+}
+
+/**
+ * The table's own spelling of an English common name it knows, or null for
+ * one it does not — a species the table has never heard of is stored and
+ * printed exactly as the person typed it, because they are the one standing
+ * at the tree and they know whether its name carries a proper noun.
+ */
+export function englishSpeciesFor(englishCommonName: string): string | null {
+  return SPECIES_BY_COMMON_NAME[normalizeCommonName(englishCommonName)]?.[0] ?? null;
 }
 
 /**
@@ -278,8 +302,8 @@ export function tableSpeciesCasingFor(
 }
 
 /** For the tests that hold every entry to the table's own rules. */
-export function speciesTableEntries(): ReadonlyArray<[string, string]> {
-  return Object.entries(SPANISH_BY_COMMON_NAME);
+export function speciesTableEntries(): ReadonlyArray<[string, SpeciesNames]> {
+  return Object.entries(SPECIES_BY_COMMON_NAME);
 }
 
 export { normalizeCommonName };
