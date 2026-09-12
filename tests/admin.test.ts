@@ -817,9 +817,10 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: '  willow   oak ', es: '' },
     });
-    // The English name stays exactly what was typed (trimmed by the route,
-    // capped here); the Spanish resolves through the table's tolerant match.
-    expect(bed.treeType.en).toBe('willow   oak');
+    // The English name is what was typed, through `capped` — whitespace runs
+    // collapse to one space; the Spanish resolves through the table's tolerant
+    // match, which tolerates the run either way.
+    expect(bed.treeType.en).toBe('willow oak');
     expect(bed.treeType.es).toBe('roble sauce');
   });
 

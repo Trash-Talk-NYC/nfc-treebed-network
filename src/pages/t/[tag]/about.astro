@@ -21,6 +21,7 @@ import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { getBedView } from '../../../lib/service';
 import { bi } from '../../../lib/bilingual';
+import { capitalizeFirst } from '../../../lib/format';
 import { ABOUT, ABOUT_FAQ, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang, type Phrase } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
@@ -61,6 +62,14 @@ const RESOURCES: ReadonlyArray<{ label: Phrase; href: string }> = [
   { label: ABOUT_FAQ.nyc311Link, href: 'https://portal.311.nyc.gov/' },
 ];
 
+// The species is stored lowercase for the door sentence that wraps it; here
+// it stands alone as its own leaf, so it is capitalized the same way every
+// other standalone printing of it is.
+const species: Phrase = {
+  en: capitalizeFirst(bed.treeType.en),
+  es: capitalizeFirst(bed.treeType.es),
+};
+
 const back = langLink(ourPlaqueLink(base), lang);
 ---
 
@@ -93,7 +102,7 @@ const back = langLink(ourPlaqueLink(base), lang);
           line instead of replacing the species. */}
       <div class="fact">
         <span class="fact-label" {...bi(ABOUT.treeLabel, lang)}>{ABOUT.treeLabel[lang]}</span>
-        <span class="fact-value" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+        <span class="fact-value" {...bi(species, lang)}>{species[lang]}</span>
         {/* Omitted entirely while nobody has recorded whether a tree stands
             (types.ts), the same rule as every fact below: the species is what
             the bed is FOR and is always named, but a default is not somebody
