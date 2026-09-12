@@ -1,13 +1,16 @@
-// One-off remediation: lowercase the Spanish species names a store was
-// seeded with before the casing rule existed.
+// One-off remediation: put a store's species names into the casing the
+// checked-in species table says, on both halves of `Bed.treeType`.
 //
-// `Bed.treeType.es` is stored in the casing the door frame needs — "El
-// cantero de este roble sauce…", mid-sentence, so lowercase. The pilot store
-// was seeded with the old capitalized values ("Roble sauce"), and seeding
-// only ever runs on first contact: `ensureCheckedInBlocks` inserts by key and
-// `normalizeData` is additive by decision, so nothing on the read path will
-// ever correct a field a stored record already has. A human runs this
-// instead, deliberately, against a store that needs it.
+// Both are stored in the casing the door frame needs, mid-sentence — "El
+// cantero de este roble sauce…", "This willow oak's bed…" — which the table
+// authors per species, so Spanish is always lowercase while an English name
+// carrying a proper adjective ("Norway maple") keeps its capital. The pilot
+// store was seeded before either rule existed, with "Roble sauce" and
+// "Willow oak", and seeding only ever runs on first contact:
+// `ensureCheckedInBlocks` inserts by key and `normalizeData` is additive by
+// decision, so nothing on the read path will ever correct a field a stored
+// record already has. A human runs this instead, deliberately, against a
+// store that needs it.
 //
 // It follows the pinHash rotation's shape (AGENTS.md, seed data): append a
 // forward revision copying the newest one with only the target field
@@ -16,11 +19,14 @@
 // transaction would write back a normalized dataset, and this may change
 // exactly one field of exactly one record type.
 //
-// Safety, in the rewrite rule itself: a bed's `es` is replaced only when the
-// species table knows its English name AND the stored value is that table
-// value modulo casing. Anything else is a value a human typed and is left
-// byte-for-byte — including a species the table does not know. That also
-// makes a second run a no-op, so re-running it is free.
+// Safety, in the rewrite rule itself: a field is replaced only when the
+// species table knows the bed's English name AND the stored value is that
+// table value modulo casing. Anything else is a value a human typed and is
+// left byte-for-byte — including a species the table does not know. That
+// also makes a second run a no-op, so re-running it is free. The output says
+// both halves out loud, per field: what it changed, and what it left alone
+// and why, so whoever runs this at the live store can see the rule reached
+// no further than casing.
 //
 // Requires Node >= 22.18: this is a plain `.mjs` that imports `.ts` modules
 // directly, which only resolves where type stripping is on without a flag.
@@ -72,7 +78,7 @@ function requireCredentials(storeName) {
   );
   throw new Refusal(
     `Missing ${missing.join(' and ')}. This script was about to read the ` +
-      `"${storeName}" Blobs store and append a revision correcting Spanish ` +
+      `"${storeName}" Blobs store and append a revision correcting ` +
       `species-name casing; both NETLIFY_SITE_ID and NETLIFY_AUTH_TOKEN are ` +
       `required to reach it.`,
   );

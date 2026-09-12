@@ -210,6 +210,25 @@ describe('the script’s path: the same rule over a raw dataset', () => {
     expect(restored[0]!.adoptedAt).toBe(adoptionsBefore[0]!.adoptedAt);
   });
 
+  it('reads a raw revision whose adoption predates `releasedAt` as active', async () => {
+    // `normalizeAdoption` fills in every other field it added, so this is the
+    // one shape a pre-normalization revision can carry that a strict compare
+    // would hide from the carry — and the refusal would then blame the
+    // steward for holding no adoption.
+    const data = seedData();
+    delete (data.adoptions[0] as { releasedAt?: unknown }).releasedAt;
+
+    await carrySteward(dataCarryPort(data), {
+      userId: 'user-marisol',
+      fromPlate: 'BED-HRL-0847',
+      toPlate: '3NHFW171',
+    });
+
+    const active = data.adoptions.filter((a) => !a.releasedAt);
+    expect(active).toHaveLength(1);
+    expect(active[0]!.bedPlate).toBe('3NHFW171');
+  });
+
   it('refuses through the same CarryRefusal codes the service wrapper translates', async () => {
     const data = seedData();
     await expect(

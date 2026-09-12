@@ -308,7 +308,7 @@ describe('pruning', () => {
   });
 });
 
-describe('the Spanish species casing remediation', () => {
+describe('the species casing remediation', () => {
   // scripts/rewrite-species-casing.mjs, against the same wire protocol the
   // pilot store speaks. The rewrite rule itself is held in
   // tests/species-casing.test.ts; what these hold is the store side of it —
@@ -317,19 +317,28 @@ describe('the Spanish species casing remediation', () => {
     const store = instance();
     await store.transaction(async (tx) => {
       const bed = await tx.getBed(PLATE);
-      await tx.updateBed({ ...bed!, treeType: { ...bed!.treeType!, es: 'Roble sauce' } });
+      await tx.updateBed({ ...bed!, treeType: { en: 'Willow oak', es: 'Roble sauce' } });
     });
   }
 
-  it('appends a forward revision that lowercases the seeded name, keeping the old ones', async () => {
+  it('appends a forward revision that corrects both seeded names, keeping the old ones', async () => {
     await storeSeededCapitalized();
     const before = await revisionKeys();
-    expect((await instance().getBed(PLATE))!.treeType!.es).toBe('Roble sauce');
+    expect((await instance().getBed(PLATE))!.treeType).toEqual({
+      en: 'Willow oak',
+      es: 'Roble sauce',
+    });
 
     const { changes, committed } = await rewriteStoredSpeciesCasing(client(), { commit: true });
 
-    expect(changes).toEqual([{ plate: PLATE, from: 'Roble sauce', to: 'roble sauce' }]);
-    expect((await instance().getBed(PLATE))!.treeType!.es).toBe('roble sauce');
+    expect(changes).toEqual([
+      { plate: PLATE, field: 'en', from: 'Willow oak', to: 'willow oak' },
+      { plate: PLATE, field: 'es', from: 'Roble sauce', to: 'roble sauce' },
+    ]);
+    expect((await instance().getBed(PLATE))!.treeType).toEqual({
+      en: 'willow oak',
+      es: 'roble sauce',
+    });
     // Nothing is wiped: every revision that was there still is, plus the new one.
     const after = await revisionKeys();
     for (const key of before) expect(after).toContain(key);
@@ -350,7 +359,8 @@ describe('the Spanish species casing remediation', () => {
     await storeSeededCapitalized();
     const keys = await revisionKeys();
     const dry = await rewriteStoredSpeciesCasing(client());
-    expect(dry.changes).toHaveLength(1);
+    expect(dry.changes).toHaveLength(2);
+    expect(dry.kept.length).toBeGreaterThan(0);
     expect(dry.committed).toBeNull();
     expect(await revisionKeys()).toEqual(keys);
     expect((await instance().getBed(PLATE))!.treeType!.es).toBe('Roble sauce');

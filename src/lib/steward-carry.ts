@@ -190,7 +190,10 @@ export function dataCarryPort(data: {
       return beds[plate] ?? null;
     },
     async getActiveAdoptions(bedPlate) {
-      return adoptions.filter((a) => a.bedPlate === bedPlate && a.releasedAt === null);
+      // `releasedAt` is the one adoption field `normalizeAdoption` does not
+      // fill in, so a raw row may carry undefined where the app writes null;
+      // a strict compare would hide a live adoption from the carry.
+      return adoptions.filter((a) => a.bedPlate === bedPlate && !a.releasedAt);
     },
     async updateAdoption(adoption) {
       const i = adoptions.findIndex((a) => a.id === adoption.id);
