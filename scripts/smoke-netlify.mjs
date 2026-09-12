@@ -10,10 +10,21 @@
 // equivalent, and the reason CI's netlify build is a gate rather than a
 // spelling check.
 //
-// The root redirect is the request it drives because it is the one route that
-// reaches a rendered response without touching the store, so this needs no
-// Blobs backend — what is being proved is that the handler loads, the
-// middleware runs and the app renders, not what the dataset holds.
+// Two requests, neither of which needs a Blobs backend — what is being proved
+// is that the handler loads, the middleware runs and the app renders, not what
+// the dataset holds:
+//
+//   /t/<invalid>  an ID no normalization can resolve, answered 404 in plain
+//                 text before any store read. The handler loading, the
+//                 middleware running and a route answering, with nothing
+//                 behind it that a missing backend can break.
+//   /             the root, which DOES consult the store (it redirects to the
+//                 demo tag only while that binding still names a live bed) and
+//                 is built not to fail when it cannot: with no backend here it
+//                 falls to the calm bilingual screen at 200, which is a full
+//                 render through the layout. Either answer — the 302 where a
+//                 store answered, the rendered 200 where none could — proves
+//                 the app renders.
 import { fileURLToPath } from 'node:url';
 
 const FUNCTION_ENTRY = new URL('../.netlify/v1/functions/ssr/ssr.mjs', import.meta.url);
@@ -35,19 +46,34 @@ if (handler === null) fail('the built function has no default export to invoke.'
 // session-secret assertion is the likeliest one locally — is this script's
 // failure to report, not node's: an unhandled rejection reads as a broken
 // gate rather than a missing variable.
-let response;
-try {
-  response = await handler(new Request('https://treebed-plaque.test/'), { ip: '127.0.0.1' });
-} catch (err) {
-  fail(`the built function loaded but threw while rendering GET / — ${err}`);
+async function render(path) {
+  try {
+    return await handler(new Request(`https://treebed-plaque.test${path}`), { ip: '127.0.0.1' });
+  } catch (err) {
+    return fail(`the built function loaded but threw while rendering GET ${path} — ${err}`);
+  }
 }
 
-if (response.status !== 302) {
-  fail(`GET / answered ${response.status}, expected the 302 redirect to the seeded bed.`);
-}
-const location = response.headers.get('location');
-if (!location?.startsWith('/t/')) {
-  fail(`GET / redirected to ${location ?? '(nothing)'}, expected a plaque URL.`);
+// An ID carrying `u`, which the Crockford alphabet has no mapping for, so no
+// binding and no store read can be reached from it.
+const refused = await render('/t/uuuuuuuu');
+if (refused.status !== 404) {
+  fail(`GET /t/uuuuuuuu answered ${refused.status}, expected the plain-text 404.`);
 }
 
-console.log(`netlify smoke: the built function boots and answers GET / with 302 ${location}.`);
+const root = await render('/');
+if (root.status === 302) {
+  const location = root.headers.get('location');
+  if (!location?.startsWith('/t/')) {
+    fail(`GET / redirected to ${location ?? '(nothing)'}, expected a plaque URL.`);
+  }
+  console.log(`netlify smoke: the built function boots, refuses an invalid tag 404, and answers GET / with 302 ${location}.`);
+} else if (root.status === 200) {
+  const html = await root.text();
+  if (!/<!doctype html>/i.test(html) || !html.includes('</html>')) {
+    fail('GET / answered 200 without a rendered document, expected the calm root screen.');
+  }
+  console.log('netlify smoke: the built function boots, refuses an invalid tag 404, and renders the calm root screen at 200.');
+} else {
+  fail(`GET / answered ${root.status}, expected the 302 to the demo bed or the calm screen at 200.`);
+}

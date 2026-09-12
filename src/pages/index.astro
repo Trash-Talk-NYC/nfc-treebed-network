@@ -9,6 +9,7 @@ import { abandonBody } from '../lib/request-body';
 import { getActiveBed } from '../lib/service';
 import { getStore } from '../lib/store';
 import { demoBinding } from '../lib/tag-bindings';
+import type { Bed } from '../lib/types';
 
 // Rendered for any method, and an answer given without touching its body
 // leaves Node to read that body to its end. Nothing here wants one.
@@ -31,9 +32,22 @@ await abandonBody(Astro.request);
 // connected to the root. The bed is not made undeletable to prevent that —
 // the root is made not to depend on it. Where there is nothing to redirect
 // to, the screen below is a calm 200.
+//
+// The lookup is also the one place a store failure must not become a 500:
+// root traffic is monitors and crawlers, and a backend that is down or
+// misconfigured turning the uptime check red is the same alert-on-the-wrong-
+// thing the conditional redirect exists to avoid. A store that cannot answer
+// is simply nothing to redirect to.
 const lang: Lang = resolveLang(Astro.url, Astro.cookies);
 const demo = demoBinding();
-const bed = demo === null ? null : await getActiveBed(getStore(), demo.sitePlate);
+let bed: Bed | null = null;
+if (demo !== null) {
+  try {
+    bed = await getActiveBed(getStore(), demo.sitePlate);
+  } catch (err) {
+    console.error(`site root: the store could not be read, serving the calm screen — ${err}`);
+  }
+}
 if (demo !== null && bed !== null) {
   const seeOther = Astro.request.method !== 'GET' && Astro.request.method !== 'HEAD';
   return Astro.redirect(ourPlaqueLink(`/t/${demo.tagId}`), seeOther ? 303 : 302);
