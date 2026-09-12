@@ -424,7 +424,7 @@ The captain's own surface — the one place full names, emails and phones render
   Until then they stay exactly as resolved: nothing may null them, re-guess them or shuffle them between rows.
   Read the docstring as the method, not as a settled answer.
 - Admin styles are `src/styles/admin.css` — same law as global.css: no hex anywhere, tints via `color-mix` on the `--theme-*` roles, so the presentation tests still hold the whole surface.
-- The admin is bilingual like everything else (`ADMIN` in copy.ts); tests/i18n.test.ts names the only four identical-in-both entries (PIN, ADMIN, DEMO, NFC) and fails any new one.
+- The admin is bilingual like everything else (`ADMIN` in copy.ts); tests/i18n.test.ts names the only three identical-in-both entries (ADMIN, DEMO, NFC) and fails any new one.
 
 ## Seed data
 
@@ -525,7 +525,9 @@ The trigger has **no `branches:` filter**; the base branch is filtered inside th
 This is load-bearing rather than stylistic.
 With a `branches:` filter, retargeting a PR off a guarded base (the fix for an out-of-chain PR, e.g. `main` -> `dev`) matches no event, so no new run reports on the unchanged head SHA and the earlier failed check stays red on a PR that is now correct.
 Running on every PR keeps the check an answer about the current base.
-The retarget still needs the `edited` event to produce a run: where it does not, the earlier failure stays reported on the unchanged head SHA, so push a commit to the branch after retargeting rather than reading the stale red as a reason to touch the check.
+The retarget itself produces a run through the `edited` event, and the job reads the PR's base from the API (`repos/:repo/pulls/:number`, which is what `permissions: pull-requests: read` is there for) rather than from `github.base_ref` — a payload records the base the run was CREATED with, and a re-run replays it, so a payload-trusting check would stay red on a PR that has since been corrected.
+Re-running the failed check therefore clears a retargeted PR on its own; pushing a commit is not needed, and neither is touching the check.
+The payload remains the fallback for a failed API call, so a run without that permission degrades to the stale answer rather than erroring.
 
 The check is **advisory only — it cannot prevent anything.**
 GitHub branch protection, rulesets, and required status checks all return `403 Upgrade to GitHub Pro or make this repository public` because the Trash-Talk-NYC org is on a free plan and this repo is private.
