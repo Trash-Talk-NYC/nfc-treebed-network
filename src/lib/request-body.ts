@@ -386,6 +386,22 @@ export const FORM_READ_IDLE_MS = 5_000;
  *
  * Past the head the long clocks take over, because from there the body really
  * may be 12MB arriving slowly, and that case must stay graceful.
+ *
+ * Residual, stated rather than closed, and node-target only: a head that merely
+ * CLAIMS a photo — a `filename="…"` in those first 8KB — buys the keep-upgrade's
+ * `2 × limit` reservation before one photo byte has arrived, and then inherits
+ * these long clocks. On the node target that is 24MB of the 48MB budget per
+ * socket, so roughly two sockets trickling a byte every 25s can hold the
+ * photo-carrying path at `busy` indefinitely, where before the photo was stored
+ * the same trick bought a head's worth. Photo-less reports stay head-only and
+ * hundreds still fit, and on netlify — what production deploys — the platform
+ * buffers the whole body before the function is invoked, so a trickling socket
+ * never reaches this code at all. This is the same accepted node-target tier as
+ * the concurrency ceiling on `MAX_INFLIGHT_BODY_BYTES`, to revisit before ever
+ * serving the pilot from the node target behind the custom domain; the known fix
+ * is to grow the reservation as bytes actually accumulate, or to hold the head
+ * clocks until some real byte threshold past the head has arrived, rather than
+ * granting both on the claim.
  */
 export const HEAD_READ_TIMEOUT_MS = FORM_READ_TIMEOUT_MS;
 
@@ -716,6 +732,8 @@ async function consume(
       // `2 × limit` an always-keep read reserves up front — and a budget with
       // no room for that answers `busy` exactly as it would have at entry,
       // with the head kept so the answer still carries the typed fields.
+      // The claim is what is paid for, not the bytes — see the node-target
+      // residual on HEAD_READ_TIMEOUT_MS above.
       if (!decided && headBytes >= HEAD_BYTES) {
         decided = true;
         if (!(keepMode as (head: Uint8Array) => boolean)(concat(headChunks, headBytes))) {

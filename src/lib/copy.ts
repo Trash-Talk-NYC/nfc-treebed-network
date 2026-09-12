@@ -468,11 +468,12 @@ export const APPLAUSE_MAIL = {
   },
   /**
    * Why there is at most one of these a day, said in the mail itself so a
-   * popular bed's steward knows the quiet days were not empty ones.
+   * popular bed's steward knows the quiet days were not empty ones. It promises
+   * nothing about the digest, which is off by default and may never arrive.
    */
   oncePerDay: {
-    en: 'You’ll hear about applause at most once a day; the rest shows up in your digest.',
-    es: 'Te avisaremos de los aplausos como mucho una vez al día; el resto aparece en tu resumen.',
+    en: 'You’ll hear about applause at most once a day.',
+    es: 'Te avisaremos de los aplausos como mucho una vez al día.',
   },
 } satisfies Record<string, Phrase>;
 
