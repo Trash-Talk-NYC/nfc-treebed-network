@@ -246,7 +246,12 @@ export interface User {
   phone: string;
   /** Rendered from stored values; earning rules are out of MVP scope. */
   points: number;
-  /** Weekly photo streak, in weeks. Rendered from stored values only. */
+  /**
+   * Weekly photo streak, in weeks — history from when the steward screen
+   * asked for a weekly photo. Nothing renders or writes it since that ask
+   * was removed; kept stored because this removes an ask from a screen, not
+   * a steward's record.
+   */
   streakWeeks: number;
   createdAt: string;
 }
@@ -326,6 +331,8 @@ export type EventType =
   | 'adopt'
   | 'release'
   | 'clear'
+  // Written while the steward screen asked for a weekly photo; the ask is
+  // gone but events are append-only, so stored rows still carry the kind.
   | 'photo';
 
 export interface BedEvent {

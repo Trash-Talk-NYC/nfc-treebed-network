@@ -347,7 +347,7 @@ export function ensureCheckedInBlocks(data: Data): void {
 // rather than a data one: the door screen engraves `@marisol_r` on a public
 // screen and sign-in has no rate limiting yet (see the security notes), so a
 // well-known PIN on a publicly reachable store hands any passer-by the bed's
-// steward — `/mine`, `/photo` and the deliberately auth-gated `/clear`.
+// steward — `/mine` and the deliberately auth-gated `/clear`.
 // Passing `null` seeds the steward with a hash of a random secret nobody
 // holds: the adoption still renders exactly as approved, and no PIN opens it
 // until a real one is issued.
