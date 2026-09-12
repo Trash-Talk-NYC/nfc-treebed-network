@@ -756,6 +756,28 @@ describe('restoring a deleted bed', () => {
     expect(again.headers.get('location')).toContain('restored=1');
   });
 
+  it('opens a restore link on a live bed onto the plain block page, with no "restored" flash', async () => {
+    // A bookmarked or history-navigated link is not a press: the bed was not
+    // restored by it, so the page must not say it was. Restored here first,
+    // so the case stands on its own rather than on the one above.
+    const cookie = await adminCookie();
+    await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    const opened = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
+      headers: { cookie },
+      redirect: 'manual',
+    });
+    expect(opened.status).toBe(302);
+    const location = opened.headers.get('location')!;
+    expect(location).toBe(BLOCK_PATH);
+    const landing = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    expect(landing).not.toContain('Bed restored');
+  });
+
   it('takes no restore from a caller with no session', async () => {
     const refused = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=BED-WH-1713`, {
       method: 'POST',

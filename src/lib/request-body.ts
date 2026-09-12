@@ -118,10 +118,10 @@
 //                                      for an unbounded body, and an
 //                                      unauthenticated POST here reaches no
 //                                      store read and writes nothing.
-//   POST /admin/sign-out,              Close the admin session; retire the
-//        /admin/blocks/…/delete-bed    bed the URL names. Behind the same
-//                                      gate, and each carries nothing but
-//                                      the press, so the body is
+//   POST /admin/sign-out,              Close the admin session; retire or
+//        /admin/blocks/…/delete-bed,   restore the bed the URL names. Behind
+//        /admin/blocks/…/restore-bed   the same gate, and each carries
+//                                      nothing but the press, so the body is
 //                                      `abandonBody`'d rather than read: a
 //                                      form with no fields has no form to
 //                                      buffer.
