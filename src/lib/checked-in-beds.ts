@@ -127,9 +127,11 @@ export function checkedInBlocks(): Block[] {
  * guards (tag-bindings.ts), so by the time anyone can tap a W 171st bed a
  * guard is standing there, and the public screen must not say otherwise until
  * the captain has recorded the material on the admin page. For the same
- * reason `tagUid` is empty and every bed starts unoffered (`offeredSlots: 0`)
- * until the captain opens it on the admin page — which is the page's whole
- * point.
+ * reason `tagUid` is empty and four of the six start unoffered
+ * (`offeredSlots: 0`) until the captain opens them on the admin page — which
+ * is the page's whole point. The exceptions are the two he renamed onto
+ * N-run ids on 2026-09-12 (BED-WH-1712, BED-WH-1713): those seed offered,
+ * with the plant facts he stated, because he opened them himself.
  */
 export function w171Beds(): Bed[] {
   const LOOKED_UP_AT = '2026-09-10T00:00:00.000Z';

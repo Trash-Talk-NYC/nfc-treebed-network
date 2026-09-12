@@ -108,6 +108,10 @@ export interface DigestContent {
  * replaces until somebody retires it — so the MOST RECENTLY BOUND active row
  * wins: the newest tag is the bed's current address, and the older URL keeps
  * resolving for whoever already holds it.
+ *
+ * The plain string compare IS the ordering: `assertValidBindings` holds every
+ * `boundAt` to one canonical UTC stamp shape, so the field widths match and
+ * lexicographic order is chronological order.
  */
 function mineLink(plate: string, lang: Lang, bindings: readonly TagBinding[]): string | null {
   let bound: TagBinding | null = null;

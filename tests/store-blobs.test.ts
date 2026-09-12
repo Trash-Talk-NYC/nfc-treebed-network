@@ -22,8 +22,17 @@ import { BlobsStore } from '../src/lib/store-blobs';
 import { rewriteStoredSpeciesCasing } from '../scripts/species-casing-rewrite.mjs';
 import { CarryRefusal, carryStoredSteward } from '../scripts/steward-carry-apply.mjs';
 import { fillStoredCaptainFacts } from '../scripts/captain-facts-apply.mjs';
+import {
+  ORPHAN_RUN_PLATES,
+  retireStoredOrphanRunBeds,
+} from '../scripts/orphan-run-beds-apply.mjs';
 import { runInRequestContext } from '../src/lib/request-context';
-import { consumeSignInToken, reportProblem, requestSignInLink } from '../src/lib/service';
+import {
+  adoptBed,
+  consumeSignInToken,
+  reportProblem,
+  requestSignInLink,
+} from '../src/lib/service';
 import type { BedEvent } from '../src/lib/types';
 
 const PLATE = 'BED-HRL-0847';
@@ -463,6 +472,105 @@ describe('the captain-facts remediation', () => {
     const { changes, committed } = await fillStoredCaptainFacts(client(), { commit: true });
     expect(changes).toEqual([]);
     expect(committed).toBeNull();
+    expect(await revisionKeys()).toEqual(keys);
+  });
+});
+
+describe('the orphan run-bed remediation', () => {
+  // scripts/retire-orphan-run-beds.mjs → orphan-run-beds-apply.mjs. PR #29
+  // seeded 8NHFW171 and 9NHFW171 as fresh beds and deployed; the captain's
+  // rename then made those ids names for BED-WH-1713 / BED-WH-1712, so the
+  // seed stopped minting them and the live rows were left reachable by no
+  // tag. Retiring them is reversible from the admin; deleting them would not
+  // be, and a row a person has touched is not this script's to tidy away.
+
+  /** The live store as PR #29 left it: the two blank rows, seeded and stranded. */
+  async function storeWithOrphanRows(): Promise<void> {
+    const store = instance();
+    const template = (await store.getBed('1NHFW171'))!;
+    await store.transaction(async (tx) => {
+      for (const [i, plate] of ORPHAN_RUN_PLATES.entries()) {
+        await tx.createBed({
+          ...template,
+          plate,
+          guard: null,
+          blockPosition: 8 + i,
+          retiredAt: null,
+        });
+      }
+    });
+  }
+
+  it('retires both blank rows as one forward revision, deleting nothing', async () => {
+    await storeWithOrphanRows();
+    const before = await revisionKeys();
+
+    const { changes, committed } = await retireStoredOrphanRunBeds(client(), { commit: true });
+
+    expect(committed).not.toBeNull();
+    expect(changes.map(({ plate }) => plate)).toEqual([...ORPHAN_RUN_PLATES]);
+    // Nothing is wiped: every revision that was there still is, plus the new one.
+    const after = await revisionKeys();
+    for (const key of before) expect(after).toContain(key);
+    for (const plate of ORPHAN_RUN_PLATES) {
+      // The row stays — retired, not erased, so the admin can restore it.
+      const bed = await instance().getBed(plate);
+      expect(bed, plate).not.toBeNull();
+      expect(bed!.retiredAt, plate).not.toBeNull();
+    }
+
+    // A second run has nothing to do, and commits nothing.
+    const keys = await revisionKeys();
+    const second = await retireStoredOrphanRunBeds(client(), { commit: true });
+    expect(second.changes).toEqual([]);
+    expect(second.committed).toBeNull();
+    expect(await revisionKeys()).toEqual(keys);
+  });
+
+  it('refuses a row somebody adopted, and reports it instead', async () => {
+    await storeWithOrphanRows();
+    const [adopted, blank] = ORPHAN_RUN_PLATES;
+    // A neighbour adopted the blank duplicate while PR #29 was live.
+    await adoptBed(instance(), {
+      plate: adopted!,
+      input: { firstName: 'Ana', lastName: 'Lopez', email: 'ana@example.invalid', phone: '' },
+    });
+
+    const { changes, kept } = await retireStoredOrphanRunBeds(client(), { commit: true });
+
+    expect(changes.map(({ plate }) => plate)).toEqual([blank]);
+    expect(kept.find(({ plate }) => plate === adopted)!.reason).toMatch(/adoption/);
+    // Left byte-for-byte: the person's bed is still live and still theirs.
+    expect((await instance().getBed(adopted!))!.retiredAt).toBeNull();
+    expect((await instance().getBed(blank!))!.retiredAt).not.toBeNull();
+  });
+
+  it('refuses a row somebody edited, and writes nothing at all in a dry run', async () => {
+    await storeWithOrphanRows();
+    const [edited] = ORPHAN_RUN_PLATES;
+    const store = instance();
+    await store.transaction(async (tx) => {
+      const bed = await tx.getBed(edited!);
+      await tx.updateBed({ ...bed!, guard: 'wood' });
+    });
+    const keys = await revisionKeys();
+
+    const dry = await retireStoredOrphanRunBeds(client());
+    expect(dry.committed).toBeNull();
+    expect(dry.kept.find(({ plate }) => plate === edited)!.reason).toMatch(/guard/);
+    expect(await revisionKeys()).toEqual(keys);
+    for (const plate of ORPHAN_RUN_PLATES) {
+      expect((await instance().getBed(plate))!.retiredAt, plate).toBeNull();
+    }
+  });
+
+  it('does nothing on a store seeded after the rename, where no row was orphaned', async () => {
+    await instance().getBed(PLATE); // fresh seed: the plates were never minted
+    const keys = await revisionKeys();
+    const { changes, kept, committed } = await retireStoredOrphanRunBeds(client(), { commit: true });
+    expect(changes).toEqual([]);
+    expect(committed).toBeNull();
+    expect(kept).toHaveLength(ORPHAN_RUN_PLATES.length);
     expect(await revisionKeys()).toEqual(keys);
   });
 });

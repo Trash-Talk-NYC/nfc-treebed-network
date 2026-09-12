@@ -54,10 +54,13 @@ export const TAG_BINDINGS: readonly TagBinding[] = [
   // must write these exact IDs. The ID is opaque and carries no meaning, so a
   // mismatch cannot be repaired by editing a row here — it means physically
   // visiting the tag and re-encoding it.
-  // The guards these tags will mount on are ordered, not installed, and the
-  // beds stay unoffered (`offeredSlots: 0`) until the captain opens them — so
-  // each of these renders the not-yet-open door, which is the state being
-  // shown, not a bug.
+  // The guards these tags will mount on are ordered, not installed. Two of
+  // these four beds are the ones the captain renamed onto N-run ids on
+  // 2026-09-12 (BED-WH-1712 → 9NHFW171, BED-WH-1713 → 8NHFW171), and they
+  // seed OFFERED (`offeredSlots: 1`), so `1hc0t9cj` and `729v19w4` render the
+  // adopt invitation. The other two stay unoffered until the captain opens
+  // them on the admin page — so `jjhq9gfj` and `jpv8bksx` render the
+  // not-yet-open door, which is the state being shown, not a bug.
   { tagId: 'jjhq9gfj', sitePlate: 'BED-WH-1711', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
   { tagId: '1hc0t9cj', sitePlate: 'BED-WH-1712', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
   { tagId: '729v19w4', sitePlate: 'BED-WH-1713', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
@@ -152,17 +155,40 @@ export function resolveTagParam(
 }
 
 /**
+ * The canonical stamp shape every row's timestamps are written in: UTC, with
+ * milliseconds and the `Z` suffix, exactly what `Date.toISOString()` emits.
+ * One fixed field width is what makes a plain string compare an ordering —
+ * `mineLink` (digest.ts) picks a plate's newest tag that way — so the shape
+ * is an invariant of the registry rather than a convention of its typists.
+ */
+const CANONICAL_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+function assertCanonicalStamp(stamp: string, tagId: string, field: string): void {
+  if (!CANONICAL_STAMP.test(stamp) || Number.isNaN(Date.parse(stamp))) {
+    throw new Error(
+      `tag-bindings: "${tagId}" has a non-canonical ${field} ("${stamp}") — ` +
+        `write UTC with milliseconds, e.g. 2026-09-12T19:00:00.000Z`,
+    );
+  }
+}
+
+/**
  * What must hold for the registry to make sense; throws on the edit that
  * breaks it. Two active rows for one tag would make /t/<id> ambiguous — one
  * tag is on one guard. Two active tags for one *site* are legal (a plaque tag
  * and a rail tag can both name the bed), which is why only the tag side is
- * unique.
+ * unique — and where a site carries several, `boundAt` is what orders them,
+ * so both stamps are held to the canonical shape above.
  */
 export function assertValidBindings(bindings: readonly TagBinding[]): void {
   const active = new Set<string>();
   for (const b of bindings) {
     if (!isCanonicalTagId(b.tagId)) {
       throw new Error(`tag-bindings: "${b.tagId}" is not a canonical tag ID`);
+    }
+    assertCanonicalStamp(b.boundAt, b.tagId, 'boundAt');
+    if (b.retiredAt !== null) {
+      assertCanonicalStamp(b.retiredAt, b.tagId, 'retiredAt');
     }
     if (b.retiredAt !== null) continue;
     if (active.has(b.tagId)) {

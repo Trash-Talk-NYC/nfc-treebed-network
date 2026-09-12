@@ -220,4 +220,29 @@ describe('registry validation', () => {
       ]),
     ).not.toThrow();
   });
+
+  // Where a site carries several tags, `boundAt` is what orders them — the
+  // digest's `mineLink` picks the newest by a plain string compare — so one
+  // canonical stamp shape is the invariant that makes that compare an
+  // ordering rather than a coincidence of how somebody typed the row.
+  it.each([
+    ['an offset instead of Z', '2026-08-26T12:00:00.000+00:00'],
+    ['no milliseconds', '2026-08-26T12:00:00Z'],
+    ['a date alone', '2026-08-26'],
+    ['not a time at all', 'yesterday'],
+  ])('rejects a boundAt with %s', (_why, stamp) => {
+    expect(() =>
+      assertValidBindings([
+        { tagId: '2mq2amhv', sitePlate: 'BED-HRL-0847', boundAt: stamp, retiredAt: null },
+      ]),
+    ).toThrow(/non-canonical boundAt/);
+  });
+
+  it('holds a retirement stamp to the same shape', () => {
+    expect(() =>
+      assertValidBindings([
+        { tagId: '2mq2amhv', sitePlate: 'BED-HRL-0847', boundAt, retiredAt: '2026-09-01' },
+      ]),
+    ).toThrow(/non-canonical retiredAt/);
+  });
 });
