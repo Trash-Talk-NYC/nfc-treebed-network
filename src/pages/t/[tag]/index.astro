@@ -54,7 +54,7 @@ import { isPostAction } from '../../../lib/plaque-url';
 import { resolveTagParam } from '../../../lib/tag-bindings';
 import { abandonBody } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
-import { capitalizeFirst } from '../../../lib/format';
+import { capitalizeFirst, speciesShown } from '../../../lib/format';
 import { ABOUT, BOOKMARK, COMMON, DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, UNBOUND } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../lib/presentation';
@@ -158,8 +158,14 @@ const care = langLink(`${base}/care`, lang);
 const adopt = langLink(`${base}/adopt`, lang);
 const about = langLink(`${base}/about`, lang);
 
-const title = bed
-  ? `${capitalizeFirst(bed.treeType[lang])} · ${presentation.copy.wordmark}`
+// A bed whose species is NOT YET RECORDED (the captain-run beds seed that
+// way) degrades to the generic tree inside the door frames, which stay whole
+// sentences in both languages — never a broken headline, never a guessed
+// species (format.ts, `speciesShown`).
+const species = bed ? speciesShown(bed.treeType) : null;
+
+const title = species
+  ? `${capitalizeFirst(species[lang])} · ${presentation.copy.wordmark}`
   : `${presentation.copy.wordmark}`;
 ---
 
@@ -211,7 +217,7 @@ const title = bed
               textContent, so a bilingual node may not have children. */}
           <h1 class="hero">
             <span {...bi(door1.headBefore, lang)}>{door1.headBefore[lang]}</span>
-            <span {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+            <span {...bi(species!, lang)}>{species![lang]}</span>
             <span {...bi(door1.headAfter, lang)}>{door1.headAfter[lang]}</span>
           </h1>
           <p class="body-copy door-sub" {...bi(door1.sub, lang)}>
@@ -249,7 +255,7 @@ const title = bed
         </div>
         <h1 class="title adopted-head">
           <span {...bi(DOOR_STEWARDED.headBefore, lang)}>{DOOR_STEWARDED.headBefore[lang]}</span>
-          <span class="hl" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+          <span class="hl" {...bi(species!, lang)}>{species![lang]}</span>
           <span {...bi(DOOR_STEWARDED.headAfter, lang)}>{DOOR_STEWARDED.headAfter[lang]}</span>
         </h1>
         {/* No box at all when every steward has asked not to be named: an

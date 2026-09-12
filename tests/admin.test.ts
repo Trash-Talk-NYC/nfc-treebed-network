@@ -9,6 +9,9 @@ import path from 'node:path';
 import { LocalStore } from '../src/lib/store-local';
 import {
   DEMO_BLOCK_ID,
+  HAVEN_EAST_RUN_BLOCK_ID,
+  NORTH_RUN_BLOCK_ID,
+  SOUTH_RUN_BLOCK_ID,
   W171_BLOCK_ID,
   ensureCheckedInBlocks,
   normalizeData,
@@ -81,7 +84,7 @@ describe('the six real beds on W 171st', () => {
     expect(view!.block.referenceAddress).toBe('708 W 171st St');
     expect(view!.block.demo).toBe(false);
     expect(view!.beds.map((b) => b.bed.blockPosition)).toEqual([1, 2, 3, 4, 5, 6]);
-    const species = view!.beds.map((b) => b.bed.treeType.en);
+    const species = view!.beds.map((b) => b.bed.treeType!.en);
     expect(species.filter((s) => s === 'Willow oak')).toHaveLength(5);
     expect(species.filter((s) => s === 'White oak')).toHaveLength(1);
   });
@@ -135,9 +138,17 @@ describe('the six real beds on W 171st', () => {
     expect(demo!.beds.map((b) => b.bed.plate)).toEqual(['BED-HRL-0847']);
   });
 
-  it('lists the real block above the demo one, whatever the ids alphabetise to', async () => {
+  it('lists the real blocks above the demo one, whatever the ids alphabetise to', async () => {
     const blocks = await freshStore().getBlocks();
-    expect(blocks.map((b) => b.id)).toEqual([W171_BLOCK_ID, DEMO_BLOCK_ID]);
+    // Every real street — the captain's original block and the three named
+    // runs — sits above the DEMO-badged one, in stable id order.
+    expect(blocks.map((b) => b.id)).toEqual([
+      HAVEN_EAST_RUN_BLOCK_ID,
+      W171_BLOCK_ID,
+      NORTH_RUN_BLOCK_ID,
+      SOUTH_RUN_BLOCK_ID,
+      DEMO_BLOCK_ID,
+    ]);
   });
 });
 
@@ -1040,7 +1051,7 @@ describe('adding a bed', () => {
     expect(bed.plantingSpaceId).toBeNull();
     expect(bed.plantingSpaceGlobalId).toBeNull();
     // Nobody looked anything up: the species table supplied the Spanish.
-    expect(bed.treeType.es).toBe('roble palustre');
+    expect(bed.treeType!.es).toBe('roble palustre');
   });
 
   it('fills the Spanish name from the species table when the admin leaves it blank', async () => {
@@ -1051,8 +1062,8 @@ describe('adding a bed', () => {
     // The English name is what was typed, through `capped` — whitespace runs
     // collapse to one space; the Spanish resolves through the table's tolerant
     // match, which tolerates the run either way.
-    expect(bed.treeType.en).toBe('willow oak');
-    expect(bed.treeType.es).toBe('roble sauce');
+    expect(bed.treeType!.en).toBe('willow oak');
+    expect(bed.treeType!.es).toBe('roble sauce');
   });
 
   it('degrades an unknown species to the generic wording rather than guessing', async () => {
@@ -1060,10 +1071,10 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: 'Dragon tree', es: '' },
     });
-    expect(bed.treeType.en).toBe('Dragon tree');
+    expect(bed.treeType!.en).toBe('Dragon tree');
     // Never the English name and never a transliteration: "árbol" is the
     // same wording normalizeData gives a bed with no tree type at all.
-    expect(bed.treeType.es).toBe('árbol');
+    expect(bed.treeType!.es).toBe('árbol');
   });
 
   it('lets an explicitly supplied Spanish name win over the table', async () => {
@@ -1071,7 +1082,7 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: 'Pin oak', es: 'Roble de los pantanos' },
     });
-    expect(bed.treeType.es).toBe('Roble de los pantanos');
+    expect(bed.treeType!.es).toBe('Roble de los pantanos');
   });
 
   it('normalizes a typed name that is the table’s own shouted, so the door sentence reads', async () => {
@@ -1080,7 +1091,7 @@ describe('adding a bed', () => {
       treeType: { en: 'Willow oak', es: 'Roble Sauce' },
     });
     // "El cantero de este roble sauce…" — mid-sentence, so lowercase.
-    expect(bed.treeType.es).toBe('roble sauce');
+    expect(bed.treeType!.es).toBe('roble sauce');
   });
 
   it('stores a genuinely different typed name byte-for-byte, casing included', async () => {
@@ -1088,7 +1099,7 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: 'Willow oak', es: 'Mi roble favorito' },
     });
-    expect(bed.treeType.es).toBe('Mi roble favorito');
+    expect(bed.treeType!.es).toBe('Mi roble favorito');
   });
 
   it('keeps the siblings’ zero padding, so a block’s plates stay one series', async () => {

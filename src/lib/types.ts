@@ -80,8 +80,17 @@ export interface Bed {
    * before the table may still repeat `en` in `es`; that stands rather than
    * being backfilled, because an identical pair is also what an admin who
    * typed both deliberately looks like.
+   *
+   * `null` is NOT YET RECORDED, the same rule as `guard` below: nobody has
+   * said what stands (or belongs) in this bed. The 22 captain-run beds seed
+   * here — he will fill species in from NYC Parks' data — and the screens
+   * degrade to the generic tree (`GENERIC_TREE`) inside the door frames,
+   * which stay grammatical in both languages ("This tree's bed…" / "El
+   * cantero de este árbol…"), never to a guessed species and never to a
+   * broken sentence. The About page states "not recorded" instead of a
+   * species, because there the value is an assertion rather than a frame.
    */
-  treeType: Phrase;
+  treeType: Phrase | null;
   /** City forestry tree id. Internal; the tree churns, the bed does not. */
   treeId: string;
   /**

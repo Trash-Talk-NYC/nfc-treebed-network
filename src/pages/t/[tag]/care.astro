@@ -22,7 +22,7 @@ import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { getBedView } from '../../../lib/service';
 import { bi, biAttr } from '../../../lib/bilingual';
-import { capitalizeFirst } from '../../../lib/format';
+import { capitalizeFirst, speciesShown } from '../../../lib/format';
 import { CARE, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor, themeVar } from '../../../lib/presentation';
@@ -74,7 +74,7 @@ const backToChoices = langLink(`${base}/care${carriedQuery ? `?${carriedQuery}` 
 ---
 
 <Screen
-  title={`${(telling ? CARE.noteTitle : CARE.title)[lang]} · ${capitalizeFirst(bed.treeType[lang])}`}
+  title={`${(telling ? CARE.noteTitle : CARE.title)[lang]} · ${capitalizeFirst(speciesShown(bed.treeType)[lang])}`}
   lang={lang}
   presentation={presentation}
   url={Astro.url}

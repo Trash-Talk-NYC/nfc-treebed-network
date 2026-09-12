@@ -231,6 +231,15 @@ export const ABOUT = {
   title: { en: 'About this bed', es: 'Sobre este cantero' },
   treeLabel: { en: 'Tree', es: 'Árbol' },
   /**
+   * `Bed.treeType` null — the species is NOT YET RECORDED (the 22 captain-run
+   * beds seed that way, until he fills them in from NYC Parks' data). Stated
+   * here rather than degraded to the generic "tree": this row asserts what
+   * the species IS, and "Tree" under the label "Tree" would read as an
+   * answer nobody gave. The door frames one tap away degrade to the generic
+   * instead, because there the word sits inside a sentence (`speciesShown`).
+   */
+  treeUnknown: { en: 'Species not recorded yet', es: 'Especie aún no registrada' },
+  /**
    * `treePresent` off: a stump or an empty pit. The species is still named
    * above this line — it is what the bed is FOR, and the doors one tap away
    * headline it — so this says what is missing without contradicting them.

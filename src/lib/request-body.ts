@@ -25,6 +25,12 @@
 //        signin, thanks, adopted,
 //        too-large, about
 //   GET  .../mine                      Same, behind a session check.
+//   Any  /t/<tag>/<suffix>             The decoration route ([suffix].ts):
+//                                      a known decoration (`/m`) is a
+//                                      redirect to the bare bed URL, anything
+//                                      else 404 plain text — no store read
+//                                      either way, and any method's body is
+//                                      `abandonBody`'d before the answer.
 //   POST .../signin                    The interstitial's one press — the
 //                                      token in one hidden field. Size:
 //                                      MAX_FORM_BYTES buffered, FORM_READ_*

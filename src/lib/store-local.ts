@@ -185,6 +185,10 @@ export class LocalStore implements Store {
     await this.mutate((data) => ops.createAdoption(data, adoption));
   }
 
+  async updateAdoption(adoption: Adoption): Promise<void> {
+    await this.mutate((data) => ops.updateAdoption(data, adoption));
+  }
+
   async getOpenReport(bedPlate: string): Promise<Report | null> {
     return ops.getOpenReport(await this.load(), bedPlate);
   }

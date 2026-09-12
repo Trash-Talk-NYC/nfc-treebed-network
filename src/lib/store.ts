@@ -91,6 +91,12 @@ export interface Store {
   /** Active adoptions held by one user, oldest first — the digest's beds. */
   getActiveAdoptionsForUser(userId: string): Promise<Adoption[]>;
   createAdoption(adoption: Adoption): Promise<void>;
+  /**
+   * Rewrite one adoption row by id. The only field anything writes through
+   * this today is `releasedAt` — the release half of carrying a steward
+   * between beds (`carryStewardByAdmin`); adoptions are otherwise immutable.
+   */
+  updateAdoption(adoption: Adoption): Promise<void>;
 
   // -- reports ---------------------------------------------------------
   getOpenReport(bedPlate: string): Promise<Report | null>;

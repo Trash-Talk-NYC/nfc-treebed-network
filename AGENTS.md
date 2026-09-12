@@ -1,8 +1,8 @@
 # NFC Tree Bed Network — agent notes
 
 The post-tap experience for Trash Talk NYC's NFC tree bed network.
-A pedestrian taps a tag on a tree guard and lands on `/t/<tag>` — an opaque 8-character tag ID, e.g. `/t/2mq2amhv` (production host `https://trashtalknyc.org/t/<id>`; the custom domain is separate work).
-The bed's plate (`BED-HRL-0847`) is an INTERNAL join key and is never rendered — see "The tag URL" and "The two doors" below.
+A pedestrian taps a tag on a tree guard and lands on `/t/<tag>` — an opaque 8-character tag ID, e.g. `/t/2mq2amhv`, or one of the captain's named bed ids, e.g. `/t/1nhfw171` (production host `https://trashtalknyc.org/t/<id>`; the custom domain is separate work).
+The bed's plate (`BED-HRL-0847`) is an INTERNAL join key and no screen ever renders one; on the named-run beds the plate happens to BE the captain's bed id (its lowercase is the URL, his 2026-09-12 decision), so those plates are no secret, but the render rule is unchanged — see "The tag URL" and "The two doors" below.
 
 **Every feature-work pull request is opened against `dev`, never against `main`** — `dev` is the default branch and `main` mirrors `prod`.
 This is repeated here, at the top, because automation that picks a base by the conventional name `main` fails the promotion-chain check, and by then the base is already wrong; see "Branching model" below for the whole chain and for the retarget that clears it.
@@ -70,6 +70,7 @@ Washington Heights is heavily Spanish-speaking.
   Visitor-supplied text is the one thing that carries no `data-en`/`data-es` pair: a bed's given name (`Bed.bedName`) renders as typed in both languages, on its own leaf, never inside one of our sentences.
 - Every link and redirect of ours carries the language through `langLink` / `withLang`, which preserve whatever else the URL held — including `tg_action`, without which a language switch would log a second tap (`plaque-url.ts`).
 - Plain-text refusals for machine callers (405, "Not a tag on this network.") are deliberately English-only: nothing renders those to a person.
+- A bed's species can be NOT YET RECORDED (`Bed.treeType: null` — the 22 captain-run beds seed that way): the door frames then take the generic tree and stay whole sentences in both languages — "This tree's bed is looking for a steward." / "El cantero de este árbol busca quien lo cuide." (`speciesShown`, format.ts) — while the About page, where the species is an assertion rather than a frame, states "not recorded" (`ABOUT.treeUnknown`). Never a guessed species, never a broken sentence.
 - A bed's Spanish species name defaults from the checked-in table in `src/lib/tree-species.ts` when a bed is added: an explicitly typed Spanish name wins, and an unknown species degrades to the generic "árbol" — never a guess, a transliteration, or a runtime translation.
   Stored values are lowercase, because their commonest use is mid-sentence in that same frame; the screens that print the species STANDALONE — the steward's own heading and the admin bed labels — capitalize at the render site with `capitalizeFirst` (`format.ts`), never with CSS and never by changing what is stored.
   The table holds only names that sit after the door copy's fixed masculine "El cantero de este …", so species whose accepted Spanish names are all feminine (honeylocust, black locust, mulberry, catalpa, zelkova…) are deliberately absent; adding one means first teaching the copy gender agreement, not bending the name.
@@ -105,19 +106,26 @@ Washington Heights is heavily Spanish-speaking.
 
 ## The tag URL (read before touching routing)
 
-- **The URL on a tag is `/t/<id>` and the ID is opaque — no meaning encoded, ever.**
-  Locked on the wayfinder map (issue #3, decision 3; re-keyed from `/b/<plate>` in issue #5): the plate encodes site type and neighbourhood, and a tag's site is unknowable at encoding time — tags are bulk-encoded and may sit in the wood before a guard exists.
-  Re-encoding means physically visiting every tag, so nothing may creep back into the URL.
-  The format also has to tolerate NTAG424 query parameters later (map decision 4): route logic must ignore unknown query params, which is also why tap suppression matches only our own flags (`plaque-url.ts`).
-- **ID format (issue #5, decided): 8 chars of Crockford base32, lowercase, alphabet `0-9a-z` minus `i l o u`.**
-  `src/lib/tag-id.ts` normalizes lookups — case-insensitive, strips hyphens/spaces, maps `i`/`l`→`1` and `o`→`0` — so an ID typed off a sign still resolves; `u` has no mapping and is simply invalid.
+- **The URL on a tag is `/t/<id>`, and the ID is either OPAQUE or one of the captain's NAMED bed ids — nothing else.**
+  Opaque was the only rule, locked on the wayfinder map (issue #3, decision 3; re-keyed from `/b/<plate>` in issue #5): the plate encodes site type and neighbourhood, a tag's site is unknowable at encoding time, and re-encoding means physically visiting every tag.
+  **On 2026-09-12 the captain deliberately overrode that for his three W 171st/Haven runs**: "the bed IDs should be name XE170171HFW … it's supposed to be the url actually and the bed id."
+  He reaffirmed it knowing the trade — a readable id broadcasts which bed it is, and renaming means re-encoding the chip — because the id a neighbour reads off the guard, the URL, and the bed id the team says out loud must be the same string.
+  Do not "fix" the named ids back to opaque; the opaque format stays valid beside them for every already-minted tag and future bulk batch (tag-id.ts records the whole override).
+  The format still has to tolerate NTAG424 query parameters later (map decision 4): route logic must ignore unknown query params, which is also why tap suppression matches only our own flags (`plaque-url.ts`).
+- **ID formats: 8 chars (opaque, issue #5) or 11 chars (the named E run), both Crockford base32, lowercase canonical, alphabet `0-9a-z` minus `i l o u`.**
+  `src/lib/tag-id.ts` normalizes lookups — case-insensitive, strips hyphens/spaces, maps `i`/`l`→`1` and `o`→`0` — so an ID typed off a sign still resolves; `u` has no mapping and is simply invalid, and so is any length but the two known ones (`TAG_ID_LENGTHS`).
+  The captain's ids fit the alphabet exactly as he spells them: `/t/1NHFW171` normalizes to `/t/1nhfw171`, whose bed's plate is `1NHFW171` — the named runs' S and N ids share the opaque length, and only the bindings registry tells the classes apart, which is fine because nothing routes on the difference.
   The plaque route redirects a non-canonical spelling to the canonical URL, query string intact — 302 for a GET or HEAD, 303 for anything that arrived with a body, so a client reading RFC 9110 doesn't repeat a POST at the one screen that logs a tap.
+- **`/t/<id>/m` is DECORATION, and the app never reads it.**
+  The captain's metal-guard marker ("that denotes if it's metal or not … decoration only"): the chips on `1NHFW171` and `2NHFW171` are encoded with the `/m` suffix so a human reading the tag sees the material.
+  `src/pages/t/[tag]/[suffix].ts` redirects a known decoration to the bare bed URL and 404s anything else; it never touches the store, and `Bed.guard` stays the single source of truth for material — branching on `/m` would let the chip and the record drift the day a guard is replaced.
+  Named sibling screens (`/mine`, `/care`…) are static segments and outrank the dynamic suffix, so `/m` can never shadow one; `tests/named-beds.e2e.test.ts` pins all of it.
 - **Tag → site is a binding, and only `src/lib/tag-bindings.ts` knows it.**
   A tag is a physical object, a site is a place; theft is expected.
   Retiring a stolen tag (`retiredAt`) and binding a replacement to the same plate loses no history, because reports and events are keyed by the plate, never the tag.
   The registry is a checked-in table *by decision*: the team binds pilot tags itself (map note 14 — paperwork binding suffices until ~tag twenty), the in-field claim flow is a later ticket, and until it lands nothing at runtime writes a binding.
   When that flow arrives, the binding moves behind the `Store` interface; `resolveTagParam` is the only thing the route helpers call and the only thing routes reach it through, so the swap is contained.
-  The four W 171st IDs there were **minted in this repo ahead of the guards going in** — nothing was read off hardware — so for those rows the table is the SOURCE for what must be encoded onto the chips, not a record of what is already on them; whoever encodes them writes those exact IDs, and a mismatch is repaired by re-encoding the tag, never by editing a row.
+  The four opaque W 171st IDs there — and the 22 named-run ids beside them — were **minted in this repo ahead of the guards going in**: nothing was read off hardware, so for those rows the table is the SOURCE for what must be encoded onto the chips, not a record of what is already on them; whoever encodes them writes those exact IDs (the two metal-guard chips with the `/m` suffix), and a mismatch is repaired by re-encoding the tag, never by editing a row.
 - **An unbound tag is a normal state, not an error.**
   A well-formed ID with no active binding renders the calm "not assigned to a bed yet" screen (with the ID on it) at 404 — never a 500.
   It logs no tap: sites own history and an unbound tag has none to write to.
@@ -393,11 +401,17 @@ The captain's own surface — the one place full names, emails and phones render
 **The captain's real block seeds and BACKFILLS: `w-171-fort-washington-haven`, reference address 708 W 171st — six real beds `BED-WH-1711`…`1716` (five willow oaks with guards ordered in the real world; one white oak at position 5, no guard coming), each bound to its real NYC planting space and each seeding `guard: null` — not yet recorded, never `none`, because the tags go in with the guards.**
 `ensureCheckedInBlocks` (store-dataset.ts) runs inside `normalizeData`, so an already-seeded store — the LIVE pilot store included — gains the blocks and beds on its next load, insert-only by key: nothing the captain edits on the admin page is ever overwritten by a later load. That is how new checked-in records reach live data without a migration step; follow the same shape for the next block.
 
+**The captain's three NAMED runs (2026-09-12) seed 22 more beds** (`captainRunBeds`, one block per run so the admin tells them apart by label, not id): `1E170171HFW`…`6E170171HFW` (east sidewalk of Haven Ave, W 170–171), `1SHFW171`…`7SHFW171` (south side of W 171, Haven–Fort Washington), `1NHFW171`…`9NHFW171` (north side of the same block).
+The id is the bed's plate AND — lowercased — its tag URL, by the captain's decision (see "The tag URL").
+Everything about them seeds UNASSERTED — species and every profile fact not yet recorded, NYC ids null, no address (his street numbers are loose cluster references, not locators) — except the two metal guards he named himself (`1NHFW171`, `2NHFW171`, whose chips carry the decorative `/m`), and each opens with its one slot OFFERED: "just want to get this ready for people to adopt and name."
+**Some of the six older `BED-WH-171x` beds are physically among the 22, but nothing can say which** — the captain hasn't, and addresses can't — so no named id maps onto a `BED-WH` plate and the six keep their old tags untouched.
+The day the captain says which bed is his, the fix is `scripts/carry-steward.mjs` → `carrySteward` (steward-carry.ts): it releases the adoption on the old plate and recreates it on the new one keeping its `adoptedAt`, is reversible by swapping `--from`/`--to`, and moves nothing else — history stays keyed where it was written. Retire the duplicate bed and its binding rather than deleting either.
+
 One hand-seeded DEMO bed `BED-HRL-0847` — planting space `#15850293`, which is a mockup number matching NO real NYC record (checked 2026-09-10), a willow oak — with seeded steward `marisol_r` (Marisol Rivera, shown publicly as `@marisol_r` / `M. R.`).
 It deliberately lives in its own `demo`-flagged block (`w-138-acp-demo`), never in the captain's, so the admin can reach its live pilot history without a fake bed reading as part of a real street.
 The sign-in flow is driven locally through the dev outbox: request a link at `/t/2mq2amhv/auth` with the seed email `seed-marisol@example.invalid` and read it out of `.data/outbox/` — the seed holds no secret of any kind.
 The checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed, so `/t/2mq2amhv` renders on first run; the e2e suite and the site-root redirect both key off that binding.
-It is not the only binding — four of the captain's real W 171st beds (`BED-WH-1711`…`1714`) carry real tags there too, so read `tag-bindings.ts` rather than assuming a single demo row.
+It is not the only binding — four of the captain's real W 171st beds (`BED-WH-1711`…`1714`) carry opaque tags there, and the 22 named-run beds each bind their own lowercase id — so read `tag-bindings.ts` rather than assuming a single demo row.
 The site root redirects to the demo binding **by name** (`DEMO_TAG_ID`), never to whichever row sits first: root traffic is monitors, crawlers and typed domains, and a real bed's tap count must not absorb it.
 It follows that binding only while it still resolves to a LIVE bed — the demo bed is retirable from the admin like any other — and otherwise renders a calm bilingual "tap a tag to begin" screen at 200 (`ROOT` in `copy.ts`).
 The demo bed is deliberately NOT made undeletable; the root is made not to depend on it, so a delete can never turn a pinned uptime check red.

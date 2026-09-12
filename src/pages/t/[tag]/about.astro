@@ -26,7 +26,7 @@ import { ABOUT, ABOUT_FAQ, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang, type Phrase } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
-import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
+import { refuseMissingBedScreen, requireBoundTagForView } from '../../../lib/tag-route';
 import type { GuardMaterial } from '../../../lib/types';
 
 const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
@@ -34,9 +34,11 @@ if (notBound) return notBound;
 const { plate, base } = bound;
 const store = getStore();
 const view = await getBedView(store, plate);
-if (!view) {
-  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
-}
+// The bed behind a bound tag can legitimately go away: a delete on the admin
+// page retires it (service.ts). Every sub-page sends the visitor to the door
+// screen for that — the calm "not assigned to a bed yet" screen, 404 there —
+// rather than a line of unstyled English.
+if (!view) return await refuseMissingBedScreen(Astro.request, base);
 
 const lang = resolveLang(Astro.url, Astro.cookies);
 const { bed } = view;
@@ -64,11 +66,16 @@ const RESOURCES: ReadonlyArray<{ label: Phrase; href: string }> = [
 
 // The species is stored lowercase for the door sentence that wraps it; here
 // it stands alone as its own leaf, so it is capitalized the same way every
-// other standalone printing of it is.
-const species: Phrase = {
-  en: capitalizeFirst(bed.treeType.en),
-  es: capitalizeFirst(bed.treeType.es),
-};
+// other standalone printing of it is. A species NOT YET RECORDED is STATED as
+// unrecorded rather than degraded to the generic tree: this row asserts what
+// the species is, and "Tree" under the label "Tree" would read as an answer
+// nobody gave (the door frames one tap away take the generic instead).
+const species: Phrase = bed.treeType
+  ? {
+      en: capitalizeFirst(bed.treeType.en),
+      es: capitalizeFirst(bed.treeType.es),
+    }
+  : ABOUT.treeUnknown;
 
 const back = langLink(ourPlaqueLink(base), lang);
 ---

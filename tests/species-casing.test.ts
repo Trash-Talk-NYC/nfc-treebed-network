@@ -12,12 +12,18 @@ import { describe, expect, it } from 'vitest';
 import { rewriteSpeciesCasing } from '../scripts/species-casing-rewrite.mjs';
 import { seedData } from '../src/lib/store-dataset';
 
-/** The store as it was seeded before the casing rule — "Roble sauce". */
+/**
+ * The store as it was seeded before the casing rule — "Roble sauce". The 22
+ * captain-run beds seed with no species at all (`treeType: null`, not yet
+ * recorded) and are skipped: a pre-rule store never held them capitalized,
+ * and the rewrite has nothing to say about a species nobody recorded.
+ */
 async function datasetSeededCapitalized() {
   const data = seedData();
   for (const bed of Object.values(data.beds)) {
+    if (bed.treeType === null) continue;
     const [first, ...rest] = [...bed.treeType.es];
-    bed.treeType.es = first.toUpperCase() + rest.join('');
+    bed.treeType.es = first!.toUpperCase() + rest.join('');
   }
   return data;
 }
@@ -25,18 +31,19 @@ async function datasetSeededCapitalized() {
 describe('the Spanish species casing rewrite', () => {
   it('lowercases the capitalized values a pre-rule store was seeded with', async () => {
     const before = await datasetSeededCapitalized();
-    expect(Object.values(before.beds).map((b) => b.treeType.es)).toContain('Roble sauce');
-    expect(Object.values(before.beds).map((b) => b.treeType.es)).toContain('Roble blanco');
+    expect(Object.values(before.beds).map((b) => b.treeType?.es)).toContain('Roble sauce');
+    expect(Object.values(before.beds).map((b) => b.treeType?.es)).toContain('Roble blanco');
 
     const { data, changes } = rewriteSpeciesCasing(before);
 
     expect(changes.length).toBeGreaterThan(0);
     for (const bed of Object.values(data.beds)) {
-      const first = [...bed.treeType.es][0];
+      if (bed.treeType === null) continue;
+      const first = [...bed.treeType.es][0]!;
       expect(first, bed.plate).toBe(first.toLowerCase());
     }
-    expect(Object.values(data.beds).map((b) => b.treeType.es)).toContain('roble sauce');
-    expect(Object.values(data.beds).map((b) => b.treeType.es)).toContain('roble blanco');
+    expect(Object.values(data.beds).map((b) => b.treeType?.es)).toContain('roble sauce');
+    expect(Object.values(data.beds).map((b) => b.treeType?.es)).toContain('roble blanco');
   });
 
   it('changes nothing on a second run — re-running it is free', async () => {
@@ -49,15 +56,15 @@ describe('the Spanish species casing rewrite', () => {
   it('leaves a human-supplied Spanish name byte-for-byte', async () => {
     const before = await datasetSeededCapitalized();
     const plate = Object.keys(before.beds)[0];
-    before.beds[plate].treeType.es = 'Mi roble favorito';
+    before.beds[plate].treeType!.es = 'Mi roble favorito';
     // A species the table does not know keeps whatever a human gave it.
     const other = Object.keys(before.beds)[1];
     before.beds[other].treeType = { en: 'Honeylocust', es: 'Acacia de tres espinas' };
 
     const { data, changes } = rewriteSpeciesCasing(before);
 
-    expect(data.beds[plate].treeType.es).toBe('Mi roble favorito');
-    expect(data.beds[other].treeType.es).toBe('Acacia de tres espinas');
+    expect(data.beds[plate].treeType!.es).toBe('Mi roble favorito');
+    expect(data.beds[other].treeType!.es).toBe('Acacia de tres espinas');
     expect(changes.map((c) => c.plate)).not.toContain(plate);
     expect(changes.map((c) => c.plate)).not.toContain(other);
   });
@@ -73,7 +80,7 @@ describe('the Spanish species casing rewrite', () => {
     // And within a bed, only treeType.es moved.
     for (const [plate, bed] of Object.entries(data.beds)) {
       expect({ ...bed, treeType: null }).toEqual({ ...before.beds[plate], treeType: null });
-      expect(bed.treeType.en).toBe(before.beds[plate].treeType.en);
+      expect(bed.treeType?.en).toBe(before.beds[plate].treeType?.en);
     }
   });
 

@@ -23,6 +23,7 @@ import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
 import { signingSecret } from './signing-secret';
+import { CarryRefusal, carrySteward } from './steward-carry';
 import { GENERIC_TREE, spanishSpeciesFor, tableSpeciesCasingFor } from './tree-species';
 import { capped } from './typed-text';
 
@@ -1439,6 +1440,32 @@ export async function addStewardByAdmin(
     await appendEvent(tx, args.plate, 'adopt', user.id, null, now);
     return user;
   });
+}
+
+/**
+ * Carry a steward from one bed's record to another's — the correction for a
+ * record that sits on the wrong bed, not a street action.
+ *
+ * The rule itself lives in steward-carry.ts — a leaf module, because the
+ * live-store remediation script (`scripts/carry-steward.mjs`) has to load it
+ * under bare `node` and cannot resolve this file's extension-free imports.
+ * Its header carries the whole story: why the captain's 2026-09-12 named
+ * bed ids make the carry necessary, what moves (the adoption, with its
+ * original `adoptedAt`), what stays (reports, events, the bed's name — sites
+ * own history), and why running it again with the plates swapped reverses
+ * it. This wrapper is the in-app/tests path: the same rule inside a store
+ * transaction, refusals translated to this layer's RuleError codes.
+ */
+export async function carryStewardByAdmin(
+  store: Store,
+  args: { userId: string; fromPlate: string; toPlate: string; now?: Date },
+): Promise<Adoption> {
+  try {
+    return await store.transaction((tx) => carrySteward(tx, args));
+  } catch (err) {
+    if (err instanceof CarryRefusal) throw new RuleError(err.code, err.message);
+    throw err;
+  }
 }
 
 /**

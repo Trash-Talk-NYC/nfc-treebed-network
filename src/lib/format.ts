@@ -9,6 +9,7 @@
 
 import type { Phrase } from './i18n';
 import { LANGUAGES } from './i18n';
+import { GENERIC_TREE } from './tree-species';
 import type { Bed } from './types';
 
 const NY = 'America/New_York';
@@ -50,11 +51,27 @@ export function bedCountLabel(count: number): Phrase {
   };
 }
 
+/**
+ * The species a screen prints inside a sentence frame, for a bed whose
+ * species may be NOT YET RECORDED (`Bed.treeType` null — the 22 captain-run
+ * beds seed that way). The generic tree is the degrade, never a guessed
+ * species: the door frames stay whole sentences in both languages ("This
+ * tree's bed is looking for a steward." / "El cantero de este árbol busca
+ * quien lo cuide."), and the generic word already satisfies the Spanish
+ * frame's masculine "este" (tree-species.ts). Surfaces that ASSERT the
+ * species rather than framing it — the About page's tree row — say "not
+ * recorded" instead of using this (`ABOUT.treeUnknown`).
+ */
+export function speciesShown(treeType: Phrase | null): Phrase {
+  return treeType ?? GENERIC_TREE;
+}
+
 /** "Willow oak · #2" — the admin bed list row, live or deleted. */
 export function bedRowName(bed: Bed): Phrase {
+  const species = speciesShown(bed.treeType);
   return {
-    en: `${capitalizeFirst(bed.treeType.en)} · #${bed.blockPosition ?? ''}`,
-    es: `${capitalizeFirst(bed.treeType.es)} · #${bed.blockPosition ?? ''}`,
+    en: `${capitalizeFirst(species.en)} · #${bed.blockPosition ?? ''}`,
+    es: `${capitalizeFirst(species.es)} · #${bed.blockPosition ?? ''}`,
   };
 }
 
@@ -64,9 +81,10 @@ export function bedRowName(bed: Bed): Phrase {
  * languages diverge here ("bed" / "cantero") where the row above them does not.
  */
 export function bedHeadingName(bed: Bed): Phrase {
+  const species = speciesShown(bed.treeType);
   return {
-    en: `${capitalizeFirst(bed.treeType.en)} · bed #${bed.blockPosition ?? ''}`,
-    es: `${capitalizeFirst(bed.treeType.es)} · cantero #${bed.blockPosition ?? ''}`,
+    en: `${capitalizeFirst(species.en)} · bed #${bed.blockPosition ?? ''}`,
+    es: `${capitalizeFirst(species.es)} · cantero #${bed.blockPosition ?? ''}`,
   };
 }
 

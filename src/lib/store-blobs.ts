@@ -428,6 +428,10 @@ export class BlobsStore implements Store {
     await this.transaction((tx) => tx.createAdoption(adoption));
   }
 
+  async updateAdoption(adoption: Adoption): Promise<void> {
+    await this.transaction((tx) => tx.updateAdoption(adoption));
+  }
+
   async getOpenReport(bedPlate: string): Promise<Report | null> {
     return ops.getOpenReport((await this.load()).data, bedPlate);
   }

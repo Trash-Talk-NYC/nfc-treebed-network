@@ -18,7 +18,6 @@ import type {
   SignInToken,
   User,
 } from './types';
-import { GENERIC_TREE } from './tree-species';
 
 export interface Data {
   beds: Record<string, Bed>;
@@ -91,8 +90,12 @@ function normalizeBed(bed: Bed): void {
   // neighbourhood — on a public screen.
   bed.plantingSpaceId ??= null;
   bed.plantingSpaceGlobalId ??= null;
-  if (typeof legacy.treeType !== 'object' || legacy.treeType === null) {
-    bed.treeType = { ...GENERIC_TREE };
+  // A record with no species is a species NOT YET RECORDED (types.ts): the
+  // screens degrade to the generic tree inside the door frames rather than
+  // storing the generic words as if somebody had entered them — the same
+  // "a default is not somebody having looked" rule as `guard` below.
+  if (typeof legacy.treeType !== 'object') {
+    bed.treeType = null;
   }
   // A bed written before naming existed is simply a bed nobody has named.
   bed.bedName ??= null;
@@ -197,6 +200,20 @@ export const W171_BLOCK_ID = 'w-171-fort-washington-haven';
 /** The pilot demo bed's own block, so it never sits inside a real street. */
 export const DEMO_BLOCK_ID = 'w-138-acp-demo';
 
+/**
+ * The captain's three named runs (2026-09-12), one block each — a block is
+ * one side of one street, and these are three real sidewalks he confirmed:
+ * the south and north sides of W 171st between Haven and Fort Washington,
+ * and the east sidewalk of Haven Ave between W 170th and W 171st. The
+ * reference addresses are RUN LABELS rather than street numbers, so the
+ * admin index tells the runs apart at a glance — the captain's own street
+ * numbers are loose cluster references, his words, not locators, and he can
+ * retype these in place like any block heading.
+ */
+export const SOUTH_RUN_BLOCK_ID = 'w-171-hfw-south';
+export const NORTH_RUN_BLOCK_ID = 'w-171-hfw-north';
+export const HAVEN_EAST_RUN_BLOCK_ID = 'haven-east-170-171';
+
 function checkedInBlocks(): Block[] {
   return [
     {
@@ -205,6 +222,24 @@ function checkedInBlocks(): Block[] {
       referenceAddress: '708 W 171st St',
       demo: false,
       createdAt: '2026-09-10T00:00:00.000Z',
+    },
+    {
+      id: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: 'S run · W 171 St, south side (Haven–Fort Washington)',
+      demo: false,
+      createdAt: '2026-09-12T00:00:00.000Z',
+    },
+    {
+      id: NORTH_RUN_BLOCK_ID,
+      referenceAddress: 'N run · W 171 St, north side (Haven–Fort Washington)',
+      demo: false,
+      createdAt: '2026-09-12T00:00:00.000Z',
+    },
+    {
+      id: HAVEN_EAST_RUN_BLOCK_ID,
+      referenceAddress: 'E run · Haven Ave, east side (W 170–W 171)',
+      demo: false,
+      createdAt: '2026-09-12T00:00:00.000Z',
     },
     {
       id: DEMO_BLOCK_ID,
@@ -349,6 +384,91 @@ function w171Beds(): Bed[] {
 }
 
 /**
+ * The 22 beds of the captain's three named runs (2026-09-12), keyed by the
+ * ids he chose: `1E170171HFW`–`6E170171HFW`, `1SHFW171`–`7SHFW171`,
+ * `1NHFW171`–`9NHFW171`. The id is the bed's PLATE and — lowercased — its
+ * tag URL (`tag-bindings.ts`), by his decision: "it's supposed to be the url
+ * actually and the bed id". See tag-id.ts for the opacity rule this
+ * deliberately overrides.
+ *
+ * Everything about them is seeded UNASSERTED, because the captain will fill
+ * the records in from NYC Parks' data ("i will update it to match NYC
+ * parks"): NYC identifiers null — resolved or null, never invented — the
+ * species NOT YET RECORDED (`treeType: null`; the doors degrade to the
+ * generic tree), every three-way profile fact NOT YET RECORDED, no notes, no
+ * address (his street numbers are loose cluster references, not locators).
+ * The one exception is the guard on `1NHFW171` and `2NHFW171`: the captain
+ * himself said those two carry METAL guards — their chips get the decorative
+ * `/m` suffix — and seeding them unrecorded while the chip asserts metal
+ * would be exactly the drift the guard field exists to prevent.
+ *
+ * Every bed opens with its one slot OFFERED (`offeredSlots: 1`), unlike the
+ * six W 171st beds above: "open all beds for adoption actually … just want
+ * to get this ready for people to adopt and name."
+ *
+ * The six existing W 171st beds are deliberately NOT mapped onto these ids.
+ * Some of them are physically among these 22 — the captain has not yet said
+ * which — so the day he stands at his tree and tells us, the steward moves
+ * by `carryStewardByAdmin` (service.ts / scripts/carry-steward.mjs), the
+ * duplicate record retires, and nothing keyed to either plate is lost.
+ */
+function captainRunBeds(): Bed[] {
+  const runBed = (args: {
+    run: string;
+    position: number;
+    blockId: string;
+    crossStreets: string;
+    guard?: 'metal';
+  }): Bed => ({
+    plate: `${args.position}${args.run}`,
+    plantingSpaceId: null,
+    plantingSpaceGlobalId: null,
+    treeType: null,
+    treeId: '',
+    bedName: null,
+    tagUid: '',
+    crossStreets: args.crossStreets,
+    address: '',
+    slots: 1,
+    offeredSlots: 1,
+    guard: args.guard ?? null,
+    treePresent: null,
+    plantsPresent: null,
+    plantsNote: '',
+    plantingRecommended: null,
+    recommendedPlantsNote: '',
+    careNote: '',
+    blockId: args.blockId,
+    blockPosition: args.position,
+    nycSyncedAt: null,
+    nycMissingSince: null,
+    retiredAt: null,
+  });
+  const run = (
+    name: string,
+    count: number,
+    blockId: string,
+    crossStreets: string,
+    metalPositions: readonly number[] = [],
+  ): Bed[] =>
+    Array.from({ length: count }, (_, i) =>
+      runBed({
+        run: name,
+        position: i + 1,
+        blockId,
+        crossStreets,
+        guard: metalPositions.includes(i + 1) ? 'metal' : undefined,
+      }),
+    );
+  return [
+    ...run('E170171HFW', 6, HAVEN_EAST_RUN_BLOCK_ID, 'Haven Ave × W 170 St & W 171 St'),
+    ...run('SHFW171', 7, SOUTH_RUN_BLOCK_ID, 'W 171 St × Fort Washington Ave & Haven Ave'),
+    // 1N and 2N are the captain's two metal-guard beds — see the header.
+    ...run('NHFW171', 9, NORTH_RUN_BLOCK_ID, 'W 171 St × Fort Washington Ave & Haven Ave', [1, 2]),
+  ];
+}
+
+/**
  * Make sure the checked-in blocks and the six W 171st beds exist, on the way
  * past every load.
  *
@@ -372,6 +492,9 @@ export function ensureCheckedInBlocks(data: Data): void {
     data.blocks[block.id] ??= block;
   }
   for (const bed of w171Beds()) {
+    data.beds[bed.plate] ??= bed;
+  }
+  for (const bed of captainRunBeds()) {
     data.beds[bed.plate] ??= bed;
   }
   const demo = data.beds['BED-HRL-0847'];
@@ -444,6 +567,7 @@ export function seedData(): Data {
     },
   };
   for (const bed of w171Beds()) beds[bed.plate] = bed;
+  for (const bed of captainRunBeds()) beds[bed.plate] = bed;
   return {
     beds,
     blocks: Object.fromEntries(checkedInBlocks().map((block) => [block.id, block])),
@@ -561,6 +685,11 @@ export const ops = {
   },
   createAdoption(data: Data, adoption: Adoption): void {
     data.adoptions.push(detach(adoption));
+  },
+  updateAdoption(data: Data, adoption: Adoption): void {
+    const i = data.adoptions.findIndex((a) => a.id === adoption.id);
+    if (i === -1) throw new Error(`Adoption not found: ${adoption.id}`);
+    data.adoptions[i] = detach(adoption);
   },
   getOpenReport(data: Data, bedPlate: string): Report | null {
     return detach(data.reports.find((r) => r.bedPlate === bedPlate && r.closedAt === null) ?? null);
@@ -711,6 +840,10 @@ export class TransactionStore implements Store {
 
   async createAdoption(adoption: Adoption): Promise<void> {
     ops.createAdoption(this.data, adoption);
+  }
+
+  async updateAdoption(adoption: Adoption): Promise<void> {
+    ops.updateAdoption(this.data, adoption);
   }
 
   async getOpenReport(bedPlate: string): Promise<Report | null> {

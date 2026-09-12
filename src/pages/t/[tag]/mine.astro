@@ -10,7 +10,7 @@ import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { getBedView, getOpenReportConfirms } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
-import { capitalizeFirst, relativeAge, sinceLabel } from '../../../lib/format';
+import { capitalizeFirst, relativeAge, sinceLabel, speciesShown } from '../../../lib/format';
 import { bi } from '../../../lib/bilingual';
 import { COMMON, MINE } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
@@ -46,9 +46,12 @@ if (!isSteward) return Astro.redirect(langLink(ourPlaqueLink(base), lang), 303);
 
 // The species is stored in the casing the door sentence needs — lowercase in
 // Spanish, mid-sentence — and this screen prints it standalone as the heading.
+// A species not yet recorded degrades to the generic tree (format.ts), so a
+// steward of a captain-run bed is headed "Tree" / "Árbol" until it is filled in.
+const species = speciesShown(bed.treeType);
 const treeTypeHeading = {
-  en: capitalizeFirst(bed.treeType.en),
-  es: capitalizeFirst(bed.treeType.es),
+  en: capitalizeFirst(species.en),
+  es: capitalizeFirst(species.es),
 };
 
 // The picker is multi-select, so an open report names every tile the reporter
@@ -84,7 +87,7 @@ const visibleStewards = stewards.filter(
 ---
 
 <Screen
-  title={`${MINE.yourBed[lang]} · ${capitalizeFirst(bed.treeType[lang])}`}
+  title={`${MINE.yourBed[lang]} · ${capitalizeFirst(species[lang])}`}
   lang={lang}
   presentation={presentation}
   url={Astro.url}
