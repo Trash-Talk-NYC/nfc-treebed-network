@@ -10,6 +10,7 @@
 // lost race re-reads rather than overwrites.
 
 import { CarryRefusal, carrySteward, dataCarryPort } from '../src/lib/steward-carry.ts';
+import { ensureCheckedInRecords } from '../src/lib/checked-in-beds.ts';
 import { HEAD_KEY, REVISION_PREFIX } from '../src/lib/store-keys.ts';
 
 export { CarryRefusal };
@@ -80,6 +81,14 @@ export async function carryStoredSteward(blobs, args, options = {}) {
     const { data, revision } = await readNewest(blobs);
     const user = resolveUser(data, args.user);
     const next = structuredClone(data);
+    // The checked-in records first, the same insert-only pass every load
+    // makes (`ensureCheckedInRecords`): the 22 named-run beds exist as
+    // checked-in seed until some commit happens to persist them, so without
+    // this the carry would refuse the captain's own day-one target as a bed
+    // that does not exist. What this appends is therefore exactly what the
+    // next `normalizeData` load would have inserted anyway — nothing is
+    // overwritten, and a bed the store already holds keeps every edit.
+    ensureCheckedInRecords(next);
     const adoption = await carrySteward(dataCarryPort(next), {
       userId: user.id,
       fromPlate: args.from,

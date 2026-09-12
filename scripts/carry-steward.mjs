@@ -1,6 +1,6 @@
 // Carry a steward from one bed's record to another's on the LIVE store —
 // the day the captain stands at his tree and says which of the 22 named-run
-// beds (store-dataset.ts, `captainRunBeds`) is the one his adoption on
+// beds (checked-in-beds.ts, `captainRunBeds`) is the one his adoption on
 // BED-WH-1711 actually belongs to. Nothing can map the old records onto the
 // new ids for him: his street numbers are loose cluster references, not
 // locators, so the answer only exists at the tree.
@@ -10,6 +10,12 @@
 // (the adoption, keeping its original `adoptedAt`) and what stays (reports,
 // events, the bed's given name; sites own history). REVERSIBLE: run it again
 // with --from and --to swapped and the original state is restored.
+//
+// The checked-in records are applied first, the same insert-only pass every
+// app load makes (`ensureCheckedInRecords`, checked-in-beds.ts): the named-run
+// beds exist as checked-in seed until some commit persists them, so the
+// captain's own day-one target is found rather than refused as a plate that
+// does not exist.
 //
 // It follows rewrite-species-casing.mjs, the sanctioned forward-revision
 // shape (AGENTS.md, seed data): read the newest revision, apply the change

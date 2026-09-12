@@ -405,6 +405,70 @@ describe('the admin door', () => {
     expect(back).not.toMatch(/name="plants-present" value="(yes|no)"[^>]*checked/);
   });
 
+  it('records a species on a named-run bed, and takes it back on a cleared name', async () => {
+    // The 22 named-run beds seed with no species (checked-in-beds.ts), so this
+    // row is the captain's only way to record one — and the doors headline
+    // what it writes. Through the rendered page and its own field names,
+    // because that is where a form and a rule can drift apart.
+    const cookie = await adminCookie();
+    const headers = { 'content-type': 'application/x-www-form-urlencoded', origin, cookie };
+    const runPath = '/admin/blocks/w-171-hfw-south';
+    const panel = () =>
+      fetch(`${origin}${runPath}?bed=5SHFW171`, { headers: { cookie } }).then((r) => r.text());
+
+    const before = await panel();
+    expect(before).toContain(ADMIN.speciesUnsetSub.en);
+    // Astro renders an empty string attribute bare, so this is the field
+    // standing there with nothing typed in it.
+    expect(before).toMatch(/name="tree-type-en"[^>]*value[ >]/);
+
+    const named = await fetch(`${origin}${runPath}?bed=5SHFW171`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({
+        plate: '5SHFW171',
+        'tree-type-en': 'Willow oak',
+        'tree-type-es': '',
+      }),
+      redirect: 'manual',
+    });
+    expect(named.status).toBe(303);
+    const after = await panel();
+    expect(after).not.toContain(ADMIN.speciesUnsetSub.en);
+    expect(after).toMatch(/name="tree-type-en"[^>]*value="Willow oak"/);
+    // The Spanish name came from the checked-in table, lowercase, because
+    // its commonest use is mid-sentence in the door frame.
+    expect(after).toMatch(/name="tree-type-es"[^>]*value="roble sauce"/);
+
+    // And the door says it now, in both languages, instead of "this tree".
+    const door = await (await fetch(`${origin}/t/5shfw171`)).text();
+    expect(door).toContain('Willow oak');
+    expect(door).toContain('roble sauce');
+
+    // A save that carries neither field keeps it — the whole profile's rule.
+    await fetch(`${origin}${runPath}?bed=5SHFW171`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({ plate: '5SHFW171', guard: 'wood' }),
+      redirect: 'manual',
+    });
+    expect(await panel()).toMatch(/name="tree-type-en"[^>]*value="Willow oak"/);
+
+    // A cleared English name is the way back to NOT YET RECORDED.
+    const cleared = await fetch(`${origin}${runPath}?bed=5SHFW171`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({
+        plate: '5SHFW171',
+        'tree-type-en': '',
+        'tree-type-es': 'roble sauce',
+      }),
+      redirect: 'manual',
+    });
+    expect(cleared.status).toBe(303);
+    expect(await panel()).toContain(ADMIN.speciesUnsetSub.en);
+  });
+
   it('shows the panel’s three-way rows as submitted when a save is refused', async () => {
     // A refused save re-renders rather than redirecting, and the badge, the
     // sub-line and the radios must read the same value: a panel that says NOT

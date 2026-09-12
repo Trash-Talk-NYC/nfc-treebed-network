@@ -401,6 +401,40 @@ describe('the steward carry remediation', () => {
     expect(await instance().getActiveAdoptions(NAMED_PLATE)).toHaveLength(0);
   });
 
+  it('finds a run bed the live store has not persisted yet', async () => {
+    // The day-one shape: the pilot store was seeded before the named runs
+    // existed, so its newest revision holds none of the 22 — they are
+    // checked-in records every load would insert, and a commit is what
+    // finally persists them. The script applies that same insert-only pass,
+    // so the captain's own target is found rather than refused as a typo.
+    await instance().getBed(PLATE); // first contact seeds the store
+    const legacy = (await client().get('rev/1', { type: 'json' })) as {
+      beds: Record<string, unknown>;
+    };
+    for (const plate of Object.keys(legacy.beds)) {
+      if (plate !== PLATE) delete legacy.beds[plate];
+    }
+    await client().set('rev/2', JSON.stringify(legacy));
+    await client().set('head', '2');
+
+    const carried = await carryStoredSteward(
+      client(),
+      { user: 'marisol_r', from: PLATE, to: NAMED_PLATE },
+      { commit: true },
+    );
+    expect(carried.committed).toBe(3);
+    const moved = await instance().getActiveAdoptions(NAMED_PLATE);
+    expect(moved).toHaveLength(1);
+    expect(moved[0]!.adoptedAt).toBe(SEEDED_ADOPTED_AT);
+    // Insert-only, exactly what the next load would have written: the bed
+    // the revision already held is untouched.
+    const committed = (await client().get('rev/3', { type: 'json' })) as {
+      beds: Record<string, { plate: string }>;
+    };
+    expect(committed.beds[NAMED_PLATE]!.plate).toBe(NAMED_PLATE);
+    expect(committed.beds[PLATE]).toBeDefined();
+  });
+
   it('writes nothing on a dry run, and nothing on a refusal', async () => {
     await instance().getBed(PLATE);
     const keys = await revisionKeys();

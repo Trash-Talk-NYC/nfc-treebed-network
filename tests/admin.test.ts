@@ -24,6 +24,7 @@ import {
   MAX_BED_NOTE_CHARS,
   MAX_BED_SLOTS,
   MAX_NAME_CHARS,
+  MAX_TREE_TYPE_CHARS,
   addBedByAdmin,
   addStewardByAdmin,
   adoptBed,
@@ -50,6 +51,7 @@ function bedSave(overrides: Partial<BedSave> = {}): BedSave {
     plate: W171_PLATE,
     // Every profile field defaults to "the form did not carry it", which is
     // the save's keep-as-it-stands: a test says what it means to change.
+    treeType: undefined,
     guard: undefined,
     treePresent: undefined,
     plantsPresent: undefined,
@@ -1033,6 +1035,97 @@ describe('restoring a deleted bed', () => {
       restoreBedByAdmin(store, { blockId: DEMO_BLOCK_ID, plate: W171_PLATE }),
     ).rejects.toMatchObject({ code: 'bed-not-found' });
     expect((await store.getBed(W171_PLATE))!.retiredAt).not.toBeNull();
+  });
+});
+
+describe('the panel’s species row', () => {
+  // The 22 named-run beds seed with no species at all (checked-in-beds.ts,
+  // "i will update it to match NYC parks"), so this row is the only way the
+  // captain records one — and it must read like the add-bed form, because
+  // both go through `resolveSpecies`.
+  const RUN_PLATE = '5SHFW171';
+
+  it('records a species on a bed that had none, filling the Spanish from the table', async () => {
+    const store = freshStore();
+    expect((await store.getBed(RUN_PLATE))!.treeType).toBeNull();
+
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Willow oak', es: '' } }),
+    });
+    const bed = await store.getBed(RUN_PLATE);
+    expect(bed!.treeType).toEqual({ en: 'Willow oak', es: 'roble sauce' });
+  });
+
+  it('lets a typed Spanish name win, and stores the table’s own name lowercase', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Pin oak', es: 'Mi roble favorito' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('Mi roble favorito');
+
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Willow oak', es: 'Roble Sauce' } }),
+    });
+    // Mid-sentence in the door frame, so the table's own name is stored
+    // the way that sentence needs it.
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('roble sauce');
+  });
+
+  it('degrades an unknown species to the generic wording rather than guessing', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Dragon tree', es: '' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      en: 'Dragon tree',
+      es: 'árbol',
+    });
+  });
+
+  it('keeps the species a form did not carry, and takes it back on a cleared name', async () => {
+    const store = freshStore();
+    const before = (await store.getBed(W171_PLATE))!.treeType;
+    expect(before).not.toBeNull();
+
+    // A partial POST blanks nothing — the same rule as every profile field.
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ guard: 'wood' }),
+    });
+    expect((await store.getBed(W171_PLATE))!.treeType).toEqual(before);
+
+    // A cleared English name is the way back to NOT YET RECORDED, never an
+    // empty word inside the door frame.
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ treeType: { en: '   ', es: 'roble sauce' } }),
+    });
+    expect((await store.getBed(W171_PLATE))!.treeType).toBeNull();
+  });
+
+  it('caps a typed species like every other typed field', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        plate: RUN_PLATE,
+        treeType: { en: 'x'.repeat(200), es: 'y'.repeat(200) },
+      }),
+    });
+    const bed = await store.getBed(RUN_PLATE);
+    expect(bed!.treeType!.en).toHaveLength(MAX_TREE_TYPE_CHARS);
+    expect(bed!.treeType!.es).toHaveLength(MAX_TREE_TYPE_CHARS);
   });
 });
 

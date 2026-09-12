@@ -291,8 +291,18 @@
   padding: 13px 0;
   border-bottom: 1px solid var(--theme-border);
 }
-.toggle-row .t-lbl { display: block; font-size: 13px; font-weight: 700; }
-.toggle-row .t-sub {
+/* The bed profile's one TYPED fact, the species: the same label, NOT SET mark
+   and sub-line as the three-way rows, then two stacked fields where they put a
+   segmented control. */
+.species-row {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--theme-border);
+}
+.species-row .field-note { font-weight: 400; color: var(--theme-muted); }
+.toggle-row .t-lbl,
+.species-row .t-lbl { display: block; font-size: 13px; font-weight: 700; }
+.toggle-row .t-sub,
+.species-row .t-sub {
   display: block;
   font-size: 11px;
   font-weight: 400;

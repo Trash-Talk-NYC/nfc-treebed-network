@@ -18,7 +18,7 @@ import type {
   SignInToken,
   User,
 } from './types';
-import type { Lang } from './i18n';
+import type { Lang, Phrase } from './i18n';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
@@ -1133,6 +1133,15 @@ export interface BlockSaveInput {
      */
     guard: GuardMaterial | null | undefined;
     /**
+     * The species, as the panel's two text fields carried it — the English
+     * name and the optional Spanish one, resolved by `resolveSpecies` like
+     * the add-bed form's. Undefined is the same keep-as-it-stands every row
+     * below gets, and a blank English name is the way back to NOT YET
+     * RECORDED: the doors then headline the generic tree again, which is
+     * what a bed nobody has walked reads as anyway.
+     */
+    treeType: { en: string; es: string } | undefined;
+    /**
      * The bed profile's three-way facts — what "About this bed" states — all
      * read like `guard`: true, false, null for the NOT RECORDED choice that
      * takes the fact back, and undefined for a form that carried no radio,
@@ -1233,8 +1242,9 @@ function keptNote(submitted: string | undefined, stored: string): string {
 
 /**
  * Save the block admin page: the reference address, and the opened bed's
- * profile (the guard and the three facts as three-way radios, plus the three
- * typed notes), slot switches, added slot and bed-name takedown.
+ * profile (the species, the guard and the three facts as three-way radios,
+ * plus the three typed notes), slot switches, added slot and bed-name
+ * takedown.
  *
  * One transaction for the whole press: the offered count is computed against
  * the adoptions as they stand INSIDE it, so a steward adopting between render
@@ -1285,6 +1295,7 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       slots: pending.slots,
       offeredSlots: pending.offeredSlots,
       bedName: wanted.clearBedName ? null : bed.bedName,
+      treeType: wanted.treeType === undefined ? bed.treeType : resolveSpecies(wanted.treeType),
       guard: wanted.guard === undefined ? bed.guard : wanted.guard,
       treePresent: wanted.treePresent === undefined ? bed.treePresent : wanted.treePresent,
       plantsPresent: wanted.plantsPresent === undefined ? bed.plantsPresent : wanted.plantsPresent,
@@ -1469,6 +1480,39 @@ export async function carryStewardByAdmin(
 }
 
 /**
+ * A typed species as it is STORED, or null for a species nobody has recorded.
+ *
+ * One function, because two screens write a species — "+ ADD A BED" and the
+ * bed panel's species row — and a second copy of these rules is how the two
+ * would come to disagree about what a blank Spanish field means.
+ *
+ * The Spanish name resolves in this order: what the admin typed (the table is
+ * a default, never a lock), then the checked-in species table, then the
+ * generic "árbol" — the same wording `speciesShown` gives a bed with no tree
+ * type at all. Never the English name and never a guess: the word renders
+ * inside a Spanish sentence on the neighbour's own street, where a wrong or
+ * English species name is worse than a generic one (tree-species.ts).
+ *
+ * A blank English name is NO species rather than a blank one: the screens
+ * already read sensibly for a bed nobody has recorded (`Bed.treeType` null),
+ * and storing an empty string would print an empty word inside the door
+ * frame. Whether that is a refusal (adding a bed) or the way back to
+ * not-yet-recorded (the panel) is the caller's call.
+ */
+export function resolveSpecies(typed: { en: string; es: string }): Phrase | null {
+  const en = capped(typed.en, MAX_TREE_TYPE_CHARS);
+  if (en === '') return null;
+  const typedEs = capped(typed.es, MAX_TREE_TYPE_CHARS);
+  // A typed name that is the table's own modulo casing is the table's, so it
+  // is stored the way the door frame needs it; anything else is a name and
+  // keeps every character the admin typed.
+  const es = typedEs
+    ? (tableSpeciesCasingFor(en, typedEs) ?? typedEs)
+    : (spanishSpeciesFor(en) ?? GENERIC_TREE.es);
+  return { en, es };
+}
+
+/**
  * "+ ADD A BED" on the block admin page.
  *
  * The new bed starts the way the six seeded ones did: one slot, nothing
@@ -1482,22 +1526,8 @@ export async function addBedByAdmin(
   store: Store,
   args: { blockId: string; treeType: { en: string; es: string }; now?: Date },
 ): Promise<Bed> {
-  const en = capped(args.treeType.en, MAX_TREE_TYPE_CHARS);
-  // The Spanish name resolves in this order: what the admin typed (the table
-  // is a default, never a lock), then the checked-in species table, then the
-  // generic "árbol" — the same wording `normalizeData` gives a bed with no
-  // tree type at all. Never the English name and never a guess: the word
-  // renders inside a Spanish sentence on the neighbour's own street, where a
-  // wrong or English species name is worse than a generic one
-  // (tree-species.ts).
-  const typedEs = capped(args.treeType.es, MAX_TREE_TYPE_CHARS);
-  // A typed name that is the table's own modulo casing is the table's, so it
-  // is stored the way the door frame needs it; anything else is a name and
-  // keeps every character the admin typed.
-  const es = typedEs
-    ? (tableSpeciesCasingFor(en, typedEs) ?? typedEs)
-    : (spanishSpeciesFor(en) ?? GENERIC_TREE.es);
-  if (en === '') throw new RuleError('invalid-input', 'treeType');
+  const species = resolveSpecies(args.treeType);
+  if (!species) throw new RuleError('invalid-input', 'treeType');
   return store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
     if (!block) throw new RuleError('block-not-found', `No block ${args.blockId}`);
@@ -1509,7 +1539,7 @@ export async function addBedByAdmin(
       plate: await nextPlate(tx, siblings),
       plantingSpaceId: null,
       plantingSpaceGlobalId: null,
-      treeType: { en, es },
+      treeType: species,
       treeId: '',
       bedName: null,
       tagUid: '',

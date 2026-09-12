@@ -38,9 +38,11 @@ const { plate, base } = bound;
 const store = getStore();
 const view = await getBedView(store, plate);
 // A retired bed goes to the door screen like every other sub-page — the calm
-// "not assigned" screen lives there and answers 404 itself. The token in the
-// query string rides along harmlessly: the door ignores unknown params, and
-// an unresolvable tag logs no tap.
+// "not assigned" screen lives there and answers 404 itself. The token does
+// NOT ride along: a GET spends nothing, so what is in this URL is a live
+// credential, and `tag-route.ts` strips it out of the hop rather than putting
+// it in a `location` header, a platform access log, and then the address bar
+// of a screen that sets no `no-store`.
 if (!view) return await refuseMissingBedScreen(Astro.request, base);
 
 const lang = resolveLang(Astro.url, Astro.cookies);

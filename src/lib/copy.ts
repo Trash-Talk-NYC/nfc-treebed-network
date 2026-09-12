@@ -547,6 +547,22 @@ export const ADMIN = {
     en: 'This feeds the public “About this bed” page: a fact left Not set says nothing there, each plants note shows only while its own choice reads yes, and the care note always shows.',
     es: 'Esto alimenta la página pública “Sobre este cantero”: un dato en Sin registrar no dice nada allí, cada nota de plantas aparece solo mientras su propia opción dice que sí, y la nota de cuidado siempre aparece.',
   },
+  /**
+   * The panel's species row. Typed rather than three-way, because a species
+   * is a name and not a yes/no: a bed whose species nobody has recorded (the
+   * 22 named-run beds seed that way — "i will update it to match NYC parks")
+   * shows the NOT SET mark and both doors keep their generic tree until the
+   * captain types it here. Clearing the English field is what takes it back.
+   */
+  speciesHead: { en: 'Tree species', es: 'Especie del árbol' },
+  speciesUnsetSub: {
+    en: 'Not recorded yet — the screens say “this tree” until you name the species and save. Clearing the English name takes it back to not recorded.',
+    es: 'Aún sin registrar: las pantallas dicen “este árbol” hasta que nombres la especie y guardes. Si borras el nombre en inglés, vuelve a quedar sin registrar.',
+  },
+  speciesSub: {
+    en: 'What both doors headline, and what “About this bed” states. Clearing the English name takes it back to not recorded.',
+    es: 'Lo que encabezan ambas puertas y lo que indica “Sobre este cantero”. Si borras el nombre en inglés, vuelve a quedar sin registrar.',
+  },
   treePresentToggle: { en: 'Tree in the bed', es: 'Árbol en el cantero' },
   treePresentSub: {
     en: 'A stump or an empty pit is “No tree”',

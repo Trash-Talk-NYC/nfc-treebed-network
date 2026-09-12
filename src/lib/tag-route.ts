@@ -33,6 +33,36 @@ function bind(tag: string, plate: string): TagRoute {
 }
 
 /**
+ * Query parameters that may never be forwarded by one of our own redirects.
+ *
+ * `token` is the sign-in link's raw, UNBURNED secret (`/t/<tag>/signin`): a
+ * GET spends nothing, so it stays a live credential for its full 15 minutes.
+ * Forwarding it would put it in a `location` header — which is what platform
+ * access logs keep — and then in the address bar of the door screen, which
+ * sets no `no-store` and whose language-toggle links are built from the URL
+ * it arrived on, carrying the secret on again.
+ *
+ * It is stripped HERE rather than at the one route that mints it, because
+ * every hop out of a `/t/<tag>` sub-page goes through this file: an unbound
+ * tag and a retired bed both bounce the signin screen to the door, and a
+ * rule kept at one of the two call sites is a rule the other one breaks.
+ */
+const SECRET_QUERY_PARAMS: readonly string[] = ['token'];
+
+/**
+ * The query string one of our redirects may carry forward.
+ *
+ * Everything else rides along, as the plaque's own canonical redirect does:
+ * it may hold the language a cookie-refusing visitor picked, our post-action
+ * flag, or a decoration (UTM, a link shortener) the tag URL was given.
+ */
+function forwardableSearch(request: Request): string {
+  const url = new URL(request.url);
+  for (const param of SECRET_QUERY_PARAMS) url.searchParams.delete(param);
+  return url.search;
+}
+
+/**
  * Resolve the `[tag]` param for a screen that reads its own body.
  *
  * An unbound tag goes to the plaque rather than answering here: the calm "not
@@ -63,10 +93,9 @@ export async function requireBoundTagForForm(
       ? new Response('Not a tag on this network.', { status: 404 })
       : new Response(null, {
           status: seeOther ? 303 : 302,
-          // The query string rides along, as the plaque's own canonical
-          // redirect does: it may hold the language a cookie-refusing visitor
-          // picked, or our post-action flag.
-          headers: { location: `/t/${resolved.tag}${new URL(request.url).search}` },
+          // The query string rides along minus anything secret
+          // (`forwardableSearch`).
+          headers: { location: `/t/${resolved.tag}${forwardableSearch(request)}` },
         });
   await abandonBody(request);
   return { bound: null, refused };
@@ -146,14 +175,16 @@ export const postOnly: APIRoute = () =>
  * yet" screen and answers 404 itself. Every sub-page goes there rather than
  * inventing a line of unstyled English, for the same reason an unbound tag
  * does in `requireBoundTagForForm`. The query string rides along so the
- * language a visitor picked survives the hop, and a body that arrived with
- * the request is accounted for before the answer is written.
+ * language a visitor picked survives the hop — minus anything secret, which
+ * on this hop is the signin screen's live token (`SECRET_QUERY_PARAMS`) —
+ * and a body that arrived with the request is accounted for before the
+ * answer is written.
  */
 export async function refuseMissingBedScreen(request: Request, base: string): Promise<Response> {
   const seeOther = request.method !== 'GET' && request.method !== 'HEAD';
   await abandonBody(request);
   return new Response(null, {
     status: seeOther ? 303 : 302,
-    headers: { location: `${base}${new URL(request.url).search}` },
+    headers: { location: `${base}${forwardableSearch(request)}` },
   });
 }

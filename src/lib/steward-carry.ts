@@ -2,7 +2,7 @@
 // LEAF module both callers share.
 //
 // Why it exists: the captain's 2026-09-12 named bed ids seed 22 fresh records
-// (store-dataset.ts, `captainRunBeds`), and some of the six earlier W 171st
+// (checked-in-beds.ts, `captainRunBeds`), and some of the six earlier W 171st
 // beds are physically among them — his own real adoption on BED-WH-1711
 // included. His street numbers are loose cluster references, his words, not
 // locators, so nothing can MAP the old records onto the new ids. The day he
@@ -83,13 +83,36 @@ export interface CarryArgs {
 export async function carrySteward(port: CarryPort, args: CarryArgs): Promise<Adoption> {
   const now = args.now ?? new Date();
   if (args.fromPlate === args.toPlate) {
-    throw new CarryRefusal('invalid-input', 'fromPlate and toPlate are the same bed');
+    throw new CarryRefusal(
+      'invalid-input',
+      `--from and --to are the same bed (${args.fromPlate}) — nothing to carry.`,
+    );
   }
   const from = await port.getBed(args.fromPlate);
-  if (!from) throw new CarryRefusal('bed-not-found', `No bed with plate ${args.fromPlate}`);
+  if (!from) {
+    throw new CarryRefusal(
+      'bed-not-found',
+      `No bed with plate ${args.fromPlate}. Plates are exact — the named runs ` +
+        `are spelled like 5SHFW171, the older W 171st beds like BED-WH-1711.`,
+    );
+  }
   const to = await port.getBed(args.toPlate);
-  if (!to || to.retiredAt !== null) {
-    throw new CarryRefusal('bed-not-found', `No active bed with plate ${args.toPlate}`);
+  if (!to) {
+    throw new CarryRefusal(
+      'bed-not-found',
+      `No bed with plate ${args.toPlate}. Plates are exact — the named runs ` +
+        `are spelled like 5SHFW171, the older W 171st beds like BED-WH-1711.`,
+    );
+  }
+  // `?? null`: a raw revision a script has read has not been through
+  // `normalizeData`, so a row written before retirement existed carries
+  // undefined here rather than null — which is a live bed, not a tombstone.
+  if ((to.retiredAt ?? null) !== null) {
+    throw new CarryRefusal(
+      'bed-not-found',
+      `Bed ${args.toPlate} is deleted (retired ${to.retiredAt}). Restore it on ` +
+        `the block admin page first — a steward is never carried onto a deleted bed.`,
+    );
   }
 
   const carried = (await port.getActiveAdoptions(args.fromPlate)).find(
@@ -98,15 +121,23 @@ export async function carrySteward(port: CarryPort, args: CarryArgs): Promise<Ad
   if (!carried) {
     throw new CarryRefusal(
       'invalid-input',
-      `${args.userId} holds no active adoption on ${args.fromPlate}`,
+      `${args.userId} holds no active adoption on ${args.fromPlate} — check ` +
+        `which bed the steward is actually on before carrying them off it.`,
     );
   }
   const atTarget = await port.getActiveAdoptions(args.toPlate);
   if (atTarget.some((a) => a.userId === args.userId)) {
-    throw new CarryRefusal('invalid-input', `${args.userId} already stewards ${args.toPlate}`);
+    throw new CarryRefusal(
+      'invalid-input',
+      `${args.userId} already stewards ${args.toPlate} — there is nothing to carry.`,
+    );
   }
   if (atTarget.length >= to.slots) {
-    throw new CarryRefusal('slots-full', `${args.toPlate} already has ${to.slots} stewards`);
+    throw new CarryRefusal(
+      'slots-full',
+      `${args.toPlate} already has all ${to.slots} of its slots filled — add a ` +
+        `slot to that bed on the block admin page, or release a steward from it.`,
+    );
   }
 
   await port.updateAdoption({ ...carried, releasedAt: now.toISOString() });
