@@ -409,15 +409,19 @@ describe('the captain-facts remediation', () => {
   // scripts/seed-captain-facts.mjs → captain-facts-apply.mjs, against the
   // same wire protocol the pilot store speaks: the captain's "with 8 and 9N
   // say no plants and don't recommend planting" reaching the two LIVE rows
-  // his named ids landed on (BED-WH-1712 / BED-WH-1713), which the
-  // insert-only seed can never touch.
+  // his named ids landed on (BED-WH-1712 / BED-WH-1713), and "say 2S has
+  // plants say 5S doesn't and that we don't recommend planting" reaching the
+  // two run rows a live store persisted blank before the facts landed in the
+  // seed — neither of which the insert-only seed can ever touch.
   const RENAMED = ['BED-WH-1712', 'BED-WH-1713'] as const;
+  const RUN_ROWS = ['2SHFW171', '5SHFW171'] as const;
+  const BLANK_PLATES = [...RENAMED, ...RUN_ROWS] as const;
 
   /** The live store's shape: the rows persisted BEFORE the facts were stated. */
   async function storeWithUnrecordedFacts(): Promise<void> {
     const store = instance();
     await store.transaction(async (tx) => {
-      for (const plate of RENAMED) {
+      for (const plate of BLANK_PLATES) {
         const bed = await tx.getBed(plate);
         await tx.updateBed({ ...bed!, plantsPresent: null, plantingRecommended: null });
       }
@@ -428,10 +432,12 @@ describe('the captain-facts remediation', () => {
     await storeWithUnrecordedFacts();
     const before = await revisionKeys();
 
-    const { changes, committed } = await fillStoredCaptainFacts(client(), { commit: true });
+    const { changes, kept, committed } = await fillStoredCaptainFacts(client(), { commit: true });
 
     expect(committed).not.toBeNull();
-    expect(changes).toHaveLength(4);
+    // Seven fields, not eight: the captain stated no planting recommendation
+    // for 2S, so that one field stays NOT RECORDED.
+    expect(changes).toHaveLength(7);
     const after = await revisionKeys();
     for (const key of before) expect(after).toContain(key);
     for (const plate of RENAMED) {
@@ -439,6 +445,15 @@ describe('the captain-facts remediation', () => {
       expect(bed!.plantsPresent, plate).toBe(false);
       expect(bed!.plantingRecommended, plate).toBe(false);
     }
+    const twoS = await instance().getBed('2SHFW171');
+    expect(twoS!.plantsPresent).toBe(true);
+    expect(twoS!.plantingRecommended).toBeNull();
+    expect(
+      kept.some(({ plate, field }) => plate === '2SHFW171' && field === 'plantingRecommended'),
+    ).toBe(true);
+    const fiveS = await instance().getBed('5SHFW171');
+    expect(fiveS!.plantsPresent).toBe(false);
+    expect(fiveS!.plantingRecommended).toBe(false);
   });
 
   it('never overwrites a value somebody has set, and a dry run writes nothing', async () => {

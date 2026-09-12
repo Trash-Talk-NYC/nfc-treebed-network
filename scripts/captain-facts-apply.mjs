@@ -1,11 +1,13 @@
 // The store side of `seed-captain-facts.mjs`: put the captain's stated plant
-// facts onto the two LIVE rows his named ids landed on. Read the entry
-// script first — it carries the rationale.
+// facts onto the four LIVE rows that hold them blank. Read the entry script
+// first — it carries the rationale.
 //
 // Why a script at all: the captain said (2026-09-12) "with 8 and 9N say no
-// plants and don't recommend planting", and those two ids name beds the live
-// store already holds (BED-WH-1712 / BED-WH-1713). The checked-in seed now
-// carries the facts, but `ensureCheckedInRecords` is insert-only and
+// plants and don't recommend planting" — two ids naming beds the live store
+// already holds (BED-WH-1712 / BED-WH-1713) — and "say 2S has plants say 5S
+// doesn't and that we don't recommend planting", two run beds a live store
+// persisted blank before those facts reached the seed. The checked-in seed
+// now carries all four, but `ensureCheckedInRecords` is insert-only and
 // `normalizeData` is additive by decision, so nothing on the read path will
 // ever set a field on a stored row — and an automatic backfill was rejected
 // because it would resurrect the value every time the captain took the fact
@@ -17,8 +19,11 @@
 // Safety: a field is written ONLY while the stored row still reads NOT YET
 // RECORDED (null, or undefined on a pre-normalization row). A value anybody
 // has since set — the captain included — is left byte-for-byte, and the
-// facts themselves are read from the checked-in seed (`w171Beds`), so this
-// script cannot drift from what the repo says the captain said.
+// facts themselves are read from the checked-in seed, both halves of it
+// (`w171Beds` for the renamed beds, `captainRunBeds` for the run rows), so
+// this script cannot drift from what the repo says the captain said. Where
+// the seed states no fact — 2S's planting recommendation, which he never
+// gave — nothing is written.
 
 import { captainRunBeds, w171Beds } from '../src/lib/checked-in-beds.ts';
 import { commitForwardRevision } from './forward-revision.mjs';

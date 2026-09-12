@@ -127,7 +127,8 @@ NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/seed-captain-facts.mjs  
 NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/retire-orphan-run-beds.mjs   # add --commit to write
 ```
 
-`scripts/seed-captain-facts.mjs` puts the captain's stated plant facts on the existing `BED-WH-1712`/`BED-WH-1713` rows the named ids `8NHFW171`/`9NHFW171` now open — it fills only fields still reading NOT RECORDED, so the admin's own unrecord radio keeps sticking, and a field the seed itself does not assert is left alone.
+`scripts/seed-captain-facts.mjs` puts the captain's stated plant facts on the four live rows the insert-only seed cannot reach: the existing `BED-WH-1712`/`BED-WH-1713` rows the named ids `8NHFW171`/`9NHFW171` now open, plus `2SHFW171`/`5SHFW171`, whose rows a live store persisted blank before those facts landed in the seed.
+It fills only fields still reading NOT RECORDED, so the admin's own unrecord radio keeps sticking, and a field the seed itself does not assert is left alone — which is why `2SHFW171` keeps an unrecorded planting recommendation: the captain stated only that it has plants.
 `scripts/retire-orphan-run-beds.mjs` retires the two blank rows PR #29 seeded under those plates before the rename, which no tag reaches now.
 It refuses a row still holding an ACTIVE adoption and says so: run `scripts/carry-steward.mjs` on that row first, then re-run this one — the carry's leftover released adoption does not refuse, and the retire's report line names everything the tombstone still holds.
 
