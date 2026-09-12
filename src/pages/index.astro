@@ -62,12 +62,10 @@ const presentation = defaultPresentation();
   presentation={presentation}
   url={Astro.url}
 >
-  <div class="screen">
-    <div class="kicker">{presentation.copy.wordmark}</div>
-    <div class="card">
-      <div class="title" {...bi(ROOT.title, lang)}>{ROOT.title[lang]}</div>
-    </div>
-    <div class="body-copy" {...bi(ROOT.body, lang)}>{ROOT.body[lang]}</div>
-    <div class="spacer"></div>
+  <div class="kicker">{presentation.copy.wordmark}</div>
+  <div class="card">
+    <div class="title" {...bi(ROOT.title, lang)}>{ROOT.title[lang]}</div>
   </div>
+  <div class="body-copy" {...bi(ROOT.body, lang)}>{ROOT.body[lang]}</div>
+  <div class="spacer"></div>
 </Screen>
