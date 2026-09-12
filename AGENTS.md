@@ -125,8 +125,8 @@ Washington Heights is heavily Spanish-speaking.
   a body the app never touches is one Node dumps to its end for us, so refusing without reading is the expensive answer rather than the free one.
   `requireBoundTagForPost` / `requireBoundTagForForm` / `requireBoundTagForView` (`src/lib/tag-route.ts`) are what every route behind `/t/<tag>` resolves through, which is where that ordering is kept.
   The three POST endpoints (`requireBoundTagForPost` — `report`, `applause`, `clear`) answer 404 in plain text — nothing is submitting a form there.
-  The screens (`requireBoundTagForForm` / `requireBoundTagForView`) send the visitor to the door screen instead, which answers 404 itself, so the calm screen lives in exactly one place: 302 for a GET, 303 for a POST at `adopt` or `auth`.
-  A bound tag whose BED has gone away — retired on the admin page — goes the same way, through `refuseMissingBedScreen`: every `/t/<tag>` screen hands the visitor to the door screen rather than a line of unstyled English, while the four POST endpoints keep their plain-text 404.
+  The screens (`requireBoundTagForForm` / `requireBoundTagForView`) send the visitor to the door screen instead, which answers 404 itself, so the calm screen lives in exactly one place: 302 for a GET, 303 for a POST at `adopt`, `auth` or `signin`.
+  A bound tag whose BED has gone away — retired on the admin page — goes the same way, through `refuseMissingBedScreen`: every `/t/<tag>` screen hands the visitor to the door screen rather than a line of unstyled English, while the three POST endpoints keep their plain-text 404.
   An invalid ID — one no normalization can resolve — is 404 plain text everywhere, screens included: it is not on this network at all.
 
 ## Architecture invariants
@@ -139,6 +139,7 @@ Washington Heights is heavily Spanish-speaking.
   `TREEBED_STORE` is asserted rather than defaulted-through: an unrecognized value is refused instead of being read as `local`, and on the netlify target the disk store is refused outright (a function instance has no disk that outlives the request, so it would 500 on EROFS or, worse, keep a per-instance dataset that forgets between invocations).
   Which target a bundle was built for is `BUILD_TARGET` in `src/lib/build-target.ts`, defined by `astro.config.mjs` beside the adapter it picks — the deploy-critical facts are then held by the build rather than by a platform variable that could be renamed.
   `scripts/preflight.mjs` never runs for a function, so this assertion is what a misconfigured deploy hits, on its first request.
+  The scheduled digest function is the one caller that `BUILD_TARGET` cannot protect: Netlify bundles it with its own esbuild, so the Vite define is absent and `build-target.ts` answers `'node'` there, which disarms `getStore()`'s netlify guard. `netlify/functions/digest.mts` therefore asserts `TREEBED_STORE === 'blobs'` itself — without it the digest would build a `LocalStore` on an ephemeral filesystem and read an empty dataset rather than refusing.
 - **`BlobsStore` commits by atomically creating revision keys (`rev/<n>`), never by overwriting one.**
   Function instances scale horizontally, so its `transaction` is optimistic: read the newest revision, run the callback on a private copy, commit by creating `rev/<n+1>` with `onlyIfNew`, and re-run the whole callback on loss — a rule check made against a dataset another commit replaced never reaches the store.
   ETag compare-and-swap (`onlyIfMatch`) was rejected because the emulated Blobs server (`@netlify/blobs/server`, which `tests/store-blobs.test.ts` runs the real wire protocol against) does not produce ETags on reads, so that path would be untestable.
@@ -165,6 +166,8 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   `tx` is a distinct object precisely so a call arriving from another request while the transaction waits on its disk write is still recognized as somebody else's and queued.
   Any new `Store` implementation must make the callback exclusive and commit or roll back its writes as a unit.
   Every mutation goes this way, including the per-tap event — a write outside the committed path can be discarded by an unrelated rollback.
+  **A transaction whose callback writes nothing still commits a revision on Blobs** — the whole dataset is re-uploaded either way — so a press that will usually match nothing decides that on a plain read FIRST and opens the transaction only when it has something to write.
+  The unsubscribe POST, the admin's resume-digest POST (`steward-digest.ts`) and the digest's no-adoption skip all have that shape; the transaction still re-decides every check, so the read is an optimization and never the gate.
 - **Store reads return detached copies.** Mutating what a read handed you changes nothing; the only way to persist is an explicit write.
   This is what keeps the service layer honest against a backend that can't hand out live references.
 - **`events` is append-only.** The store deliberately has no update/delete for events.
@@ -203,7 +206,12 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   "Production" is detected without `import.meta` (`NODE_ENV`, or `TREEBED_STORE=blobs`) because the scheduled digest function is bundled outside the Vite build.
   `TREEBED_PUBLIC_ORIGIN` is the only origin emailed links may claim in production — a Host-derived origin would let a caller point somebody else's sign-in link at a host of their choosing; unset in production, mail is unavailable rather than guessed.
   Never send real mail from a test or a local run: no test sets `BREVO_API_KEY`, everything goes through the outbox — the captain's explicit "do not send anything".
+  That is structural rather than incidental: an e2e server is spawned through `serverEnv` (`tests/helpers/server-env.ts`), which STRIPS `BREVO_API_KEY`, `TREEBED_MAIL_FROM` and `TREEBED_PUBLIC_ORIGIN` out of the inherited environment, so a developer whose shell exports the org's real key still drives the outbox. Spawn a server any other way and that guarantee is gone.
 - `TREEBED_SESSION_SECRET` is required in production; the app refuses to sign cookies with a generated one. The `.data/session-secret` fallback is dev-only.
+  It is no longer only the cookie key: the unsubscribe link's signature (`unsubscribe-link.ts`) and the sign-in ledger's email HMAC (`hashSignInEmail`, `service.ts`) are keyed by the same value, so a rotation invalidates every live unsubscribe link and re-keys the ledger — the sign-in rate limits start from empty, which is the safe direction.
+  **`src/lib/signing-secret.ts` is where it is resolved, and it owns the dev fallback file.**
+  It reads the environment variable with no `import.meta`, because the scheduled digest function is bundled by Netlify's own esbuild and a Vite define is absent there — the function has to key MACs the app can verify.
+  `session.ts` keeps its own `import.meta.env.PROD` production predicate but takes the dev fallback from `devFallbackSecret()` rather than generating its own, because two generators racing the same file would end up disagreeing about the key.
   The requirement is checked twice so a misconfigured deploy can't reach traffic: `scripts/preflight.mjs` runs as npm's `prestart` and `prepreview` and refuses to boot, and `src/middleware.ts` asserts at module load so a server started any other way fails on its first request of any route rather than on the first one that touches a cookie.
 - **Every public POST reads its body through `src/lib/request-body.ts`, never `request.formData()` directly** — the adapter's own default limit is 1GB of buffered memory.
   The comment block at the top of that file is the whole-surface sweep — size, time, concurrency, peak heap, and what the caller sees for every publicly reachable route — and a new route belongs in it.
@@ -325,7 +333,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - Supabase/Postgres/PostGIS, R2, any hosted service — the store swap is designed for this.
 - Photo storage (the care sheet's attach affordance records only `photoAttached`), points/streak earning rules, the 1-day grace period, 311 handoff, NFC tag cryptographic verification, provisioning flow.
 - **Group theming.** `presentation.ts` is shaped for it and must not grow it — `Block` (types.ts) is an admin grouping, deliberately NOT the theming seam.
-- **Pen-and-paper steward outreach.** `User.recordHeldOnBehalf` marks who to reach when a contact route exists; nothing contacts anyone, and a missing email is never consent to be contacted.
+- **Pen-and-paper steward outreach — reaching a steward we hold NO email for.** `User.recordHeldOnBehalf` marks who to reach when a contact route exists; the mail plane is not that route, because the digest and the sign-in link both reach an address the steward gave us, and a missing email is never consent to be contacted by some other means.
 - The block-over-time view, deliberately pulled from the visitor flow and kept admin-only.
 - The NYC Open Data sync itself.
   `Bed.nycSyncedAt` / `nycMissingSince` are the fields it will write.

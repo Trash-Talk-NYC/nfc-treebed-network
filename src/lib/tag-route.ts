@@ -4,7 +4,7 @@
 // have one answer each and the answers are not interchangeable: an invalid ID
 // is not on this network at all, an unbound one is a normal state that belongs
 // on the calm plaque screen, and only a bound one has a site to key reads by.
-// Nine routes repeating that by hand is nine chances for one of them to drift —
+// A dozen routes repeating that by hand is a dozen chances for one to drift —
 // on the wording, on the canonical base it builds links from, or on the part
 // that is load-bearing rather than cosmetic: a POST that answers before it has
 // touched its body leaves the body to Node, which reads it to the end
@@ -42,11 +42,11 @@ function bind(tag: string, plate: string): TagRoute {
  * their pressing a button, lands on that instead of a line of unstyled text.
  * The plaque answers 404 for it, so the status a crawler sees is unchanged.
  *
- * The request comes in because two of these screens (`adopt`, `auth`) also
- * take a POST, and a refusal that has not touched its body is the expensive
- * kind: Node dumps an unconsumed body to its end. Refusing goes through
- * `abandonBody` for that reason, which is a no-op for the GET that has no body
- * at all — so the ordering is kept here rather than in nine callers.
+ * The request comes in because three of these screens (`adopt`, `auth`,
+ * `signin`) also take a POST, and a refusal that has not touched its body is
+ * the expensive kind: Node dumps an unconsumed body to its end. Refusing goes
+ * through `abandonBody` for that reason, which is a no-op for the GET that has
+ * no body at all — so the ordering is kept here rather than in every caller.
  */
 export async function requireBoundTagForForm(
   rawTag: string | undefined,
