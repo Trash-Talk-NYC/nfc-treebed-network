@@ -56,7 +56,7 @@ export class CarryRefusal extends Error {
 /**
  * What the rule needs from whoever holds the records. `TransactionStore`
  * satisfies it structurally (the service path); the script satisfies it with
- * a few lines over the raw dataset (`carryStewardInData`).
+ * a few lines over the raw dataset (`dataCarryPort`, below).
  */
 export interface CarryPort {
   getBed(plate: string): Promise<Bed | null>;

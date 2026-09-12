@@ -1,12 +1,12 @@
 // The forward-revision procedure every live-store remediation script runs, in
 // one place. AGENTS.md's rule for changing a stored value is: append a
 // revision copying the newest one with the value replaced — nothing wiped, no
-// key deleted, and a lost race re-reads rather than overwrites. Three scripts
+// key deleted, and a lost race re-reads rather than overwrites. Four scripts
 // need exactly that (`rewrite-species-casing`, `seed-captain-facts`,
-// `carry-steward`), and the store-walk semantics they depend on — the head
-// pointer as a LOWER BOUND, forward `get`s deciding where the chain actually
-// ends, `onlyIfNew` deciding who won — are the ones AGENTS.md warns must not
-// drift between readers. Defined once, they cannot.
+// `carry-steward`, `retire-orphan-run-beds`), and the store-walk semantics
+// they depend on — the head pointer as a LOWER BOUND, forward `get`s deciding
+// where the chain actually ends, `onlyIfNew` deciding who won — are the ones
+// AGENTS.md warns must not drift between readers. Defined once, they cannot.
 //
 // Extension-named imports only: these scripts are loaded by bare node.
 

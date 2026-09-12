@@ -7,9 +7,11 @@
  * imports the middleware and every route chunk lazily (see src/middleware.ts),
  * so nothing here is read until traffic arrives.
  *
- * Lives on its own because both things that bound a public request read it —
- * the transport bounds in `request-body.ts` and the CPU bound in `service.ts`
- * — and one parser is one place for "a bound must be a non-negative number".
+ * Lives on its own so that "a bound must be a non-negative number" is decided
+ * in one place for every bound on a public request, whichever module holds it.
+ * Today that is only the transport bounds in `request-body.ts` — the CPU bound
+ * that shared it left with the PIN path — and it stays a module of its own
+ * because the next such bound belongs here rather than beside its one caller.
  */
 export function boundFromEnv(name: string, fallback: number): number {
   const raw = process.env[name];

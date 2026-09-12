@@ -119,15 +119,18 @@ NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/carry-steward.mjs \
   --user marisol_r --from BED-WH-1711 --to 5SHFW171        # add --commit to write
 ```
 
-Two of these passes are owed by THIS branch's deploy, because seeding is insert-only and the captain's rename arrived after PR #29 had already written to the live store.
-Run them in this order, dry first:
+These passes have all RUN against the live pilot store, on 2026-09-12, dry run first and then `--commit`, each landing as a forward revision: `rev/224` (`seed-captain-facts.mjs` — 7 fields across the four plates, `2SHFW171`'s planting recommendation left alone), `rev/225` (`retire-orphan-run-beds.mjs` — the two blank PR #29 rows, their tap events kept on the tombstones, no adoption found on either) and `rev/226` (`rewrite-species-casing.mjs` — 12 fields across the six W 171st beds, the demo bed left as typed).
+Nothing here is owed.
+Every one of them is idempotent — fill-only-where-null, already-conforming rows kept, and a change that comes out a no-op skips the commit — so re-running any of them is safe.
+Should either of the two below have to be run again, that is still the order, dry first:
 
 ```sh
 NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/seed-captain-facts.mjs       # add --commit to write
 NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/retire-orphan-run-beds.mjs   # add --commit to write
 ```
 
-`scripts/seed-captain-facts.mjs` puts the captain's stated plant facts on the existing `BED-WH-1712`/`BED-WH-1713` rows the named ids `8NHFW171`/`9NHFW171` now open — it fills only fields still reading NOT RECORDED, so the admin's own unrecord radio keeps sticking, and a field the seed itself does not assert is left alone.
+`scripts/seed-captain-facts.mjs` puts the captain's stated plant facts on the four live rows the insert-only seed cannot reach: the existing `BED-WH-1712`/`BED-WH-1713` rows the named ids `8NHFW171`/`9NHFW171` now open, plus `2SHFW171`/`5SHFW171`, whose rows a live store persisted blank before those facts landed in the seed.
+It fills only fields still reading NOT RECORDED, so the admin's own unrecord radio keeps sticking, and a field the seed itself does not assert is left alone — which is why `2SHFW171` keeps an unrecorded planting recommendation: the captain stated only that it has plants.
 `scripts/retire-orphan-run-beds.mjs` retires the two blank rows PR #29 seeded under those plates before the rename, which no tag reaches now.
 It refuses a row still holding an ACTIVE adoption and says so: run `scripts/carry-steward.mjs` on that row first, then re-run this one — the carry's leftover released adoption does not refuse, and the retire's report line names everything the tombstone still holds.
 

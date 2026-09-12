@@ -12,12 +12,12 @@
 // record already has. A human runs this instead, deliberately, against a
 // store that needs it.
 //
-// It follows the pinHash rotation's shape (AGENTS.md, seed data): append a
-// forward revision copying the newest one with only the target field
-// changed. Nothing is wiped, no key is deleted, and no revision is pruned.
-// It goes past `BlobsStore` rather than through it for the same reason: a
-// transaction would write back a normalized dataset, and this may change
-// exactly one field of exactly one record type.
+// It follows the forward-revision procedure (AGENTS.md, seed data), shared
+// in `forward-revision.mjs`: append a revision copying the newest one with
+// only the target field changed. Nothing is wiped, no key is deleted, and no
+// revision is pruned. It goes past `BlobsStore` rather than through it for
+// the same reason: a transaction would write back a normalized dataset, and
+// this may change exactly one field of exactly one record type.
 //
 // Safety, in the rewrite rule itself: a field is replaced only when the
 // species table knows the bed's English name AND the stored value is that

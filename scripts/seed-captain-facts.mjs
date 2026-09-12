@@ -1,22 +1,27 @@
-// One-off remediation: put the captain's stated plant facts onto the two
-// LIVE beds his named ids landed on (2026-09-12).
+// One-off remediation: put the captain's stated plant facts onto the four
+// LIVE beds that hold them blank (2026-09-12).
 //
 // His words: "with 8 and 9N say no plants and don't recommend planting" —
 // and 8NHFW171 / 9NHFW171 are the EXISTING beds BED-WH-1713 / BED-WH-1712
 // ("Can you change …/t/1hc0t9cj for the end to be 9NHFW171 and then
-// …/t/729v19w4 change to 8NHFW171"). The checked-in seed now carries those
-// facts, but seeding is insert-only and `normalizeData` is additive by
-// decision, so nothing on the read path will ever set a field a stored row
-// already lacks a value for. A human runs this once instead — the same
+// …/t/729v19w4 change to 8NHFW171") — plus "say 2S has plants say 5S doesn't
+// and that we don't recommend planting", whose rows (2SHFW171 / 5SHFW171)
+// the live store persisted blank in the window between the deploy that
+// seeded them and the facts landing in the seed. The checked-in seed now
+// carries all four, but seeding is insert-only and `normalizeData` is
+// additive by decision, so nothing on the read path will ever set a field a
+// stored row already lacks a value for. A human runs this once instead — the same
 // forward-revision shape as rewrite-species-casing.mjs, and the same reason
 // it is not an automatic backfill: an automatic one would resurrect the
 // value every time the captain took the fact back to NOT RECORDED with the
 // admin's own radio.
 //
-// A field is written ONLY while the stored row still reads NOT YET RECORDED;
-// anything anybody has since set is reported and left byte-for-byte. The
-// store side lives in captain-facts-apply.mjs, where the tests drive it
-// against the emulated Blobs server.
+// A field is written ONLY while the stored row still reads NOT YET RECORDED,
+// and only where the seed states a fact — 2S's planting recommendation, which
+// the captain never gave, is left unrecorded; anything anybody has since set
+// is reported and left byte-for-byte. The store side lives in
+// captain-facts-apply.mjs, where the tests drive it against the emulated
+// Blobs server.
 //
 // Requires Node >= 22.18: the apply module imports `.ts` modules directly,
 // which only resolves where type stripping is on without a flag.

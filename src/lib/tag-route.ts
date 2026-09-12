@@ -161,8 +161,8 @@ export async function requireBoundTagForPost(
  *
  * Astro's own fallback is a bare 404 plus a `logger.warn` line per request,
  * which hands an anonymous caller the same control over stderr volume that
- * `noteShedPinHash` and the silent `busy` refusal exist to deny it. 405 with
- * `allow` is the truthful answer anyway — the path exists, the verb doesn't —
+ * the silent `busy` refusal exists to deny it. 405 with `allow` is the
+ * truthful answer anyway — the path exists, the verb doesn't —
  * and the body that came with it is drained by `src/middleware.ts`, which
  * accounts for every method on every route in one place.
  */
