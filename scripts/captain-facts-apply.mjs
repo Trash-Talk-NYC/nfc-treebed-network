@@ -20,11 +20,19 @@
 // facts themselves are read from the checked-in seed (`w171Beds`), so this
 // script cannot drift from what the repo says the captain said.
 
-import { w171Beds } from '../src/lib/checked-in-beds.ts';
+import { captainRunBeds, w171Beds } from '../src/lib/checked-in-beds.ts';
 import { commitForwardRevision } from './forward-revision.mjs';
 
-/** The plates whose facts the captain stated, and the fields he stated. */
-const CAPTAIN_FACT_PLATES = ['BED-WH-1712', 'BED-WH-1713'];
+/**
+ * The plates whose facts the captain stated, and the fields he stated. The
+ * two renamed beds (his "with 8 and 9N say no plants and don't recommend
+ * planting") AND the two fresh run beds he spoke for in the same breath
+ * ("say 2S has plants say 5S doesn't and that we don't recommend planting"):
+ * 2SHFW171/5SHFW171 seed with the facts, but a live store that persisted
+ * their rows in the window BEFORE the facts landed holds them blank, and the
+ * insert-only seed can never reach a row that already exists.
+ */
+const CAPTAIN_FACT_PLATES = ['BED-WH-1712', 'BED-WH-1713', '2SHFW171', '5SHFW171'];
 const CAPTAIN_FACT_FIELDS = ['plantsPresent', 'plantingRecommended'];
 
 /**
@@ -36,7 +44,9 @@ export function fillCaptainFacts(data) {
   const next = structuredClone(data);
   const changes = [];
   const kept = [];
-  const seedByPlate = new Map(w171Beds().map((bed) => [bed.plate, bed]));
+  const seedByPlate = new Map(
+    [...w171Beds(), ...captainRunBeds()].map((bed) => [bed.plate, bed]),
+  );
   for (const plate of CAPTAIN_FACT_PLATES) {
     const stored = next.beds?.[plate];
     const seed = seedByPlate.get(plate);
