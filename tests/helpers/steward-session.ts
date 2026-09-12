@@ -24,8 +24,18 @@ export async function signInByLink(origin: string, dataDir: string, tag: string)
   const mail = JSON.parse(await readFile(path.join(outbox, newest), 'utf8')) as { text: string };
   const link = /https?:\/\/\S+\/signin\?\S+/.exec(mail.text)?.[0];
   if (!link) throw new Error('the sign-in mail carries no link');
+  // The link's GET is an interstitial that spends nothing (mail scanners
+  // prefetch links); the one-button POST behind it is what signs in.
   const opened = await fetch(link, { redirect: 'manual' });
-  const set = opened.headers.getSetCookie().find((cookie) => cookie.startsWith('tg_session='));
-  if (!set) throw new Error(`sign-in link handed out no session cookie (${opened.status})`);
+  if (opened.status !== 200) throw new Error(`the sign-in interstitial answered ${opened.status}`);
+  const token = new URL(link).searchParams.get('token') ?? '';
+  const pressed = await fetch(`${origin}/t/${tag}/signin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+    body: new URLSearchParams({ token }).toString(),
+    redirect: 'manual',
+  });
+  const set = pressed.headers.getSetCookie().find((cookie) => cookie.startsWith('tg_session='));
+  if (!set) throw new Error(`sign-in press handed out no session cookie (${pressed.status})`);
   return set.split(';')[0]!;
 }

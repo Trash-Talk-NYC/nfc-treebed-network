@@ -8,18 +8,10 @@
 // the stored profile language, which the digest uses.
 
 import { SIGNIN_MAIL } from './copy';
+import { escapeHtml } from './format';
 import type { Lang } from './i18n';
 import { defaultPresentation } from './presentation';
 import type { MailMessage } from './mail';
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 /**
  * One steward's sign-in mail. `link` is the absolute signin URL with the

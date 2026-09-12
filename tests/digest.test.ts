@@ -168,10 +168,16 @@ describe('what the mail says', () => {
     expect(mail.text.toLowerCase()).toContain('roble sauce');
     expect(mail.text).toContain('Basura');
     expect(mail.text).toContain('Aplausos desde tu último resumen: 1');
+    // The species prints standalone here, so it takes the render-site
+    // capitalization ("Roble sauce", not the stored mid-sentence lowercase).
+    expect(mail.text).toContain('Roble sauce');
     // The demo tag is bound to this bed, so the mail links the steward's view.
     expect(mail.text).toContain('https://example.org/t/2mq2amhv/mine?lang=es');
-    // And the one-click unsubscribe, signed.
+    // And the unsubscribe link, signed — in the body and in the RFC 8058
+    // headers, so mail clients surface their own control.
     expect(mail.text).toMatch(/\/digest\/unsubscribe\?u=user-marisol&s=[A-Za-z0-9_-]+/);
+    expect(mail.headers?.['List-Unsubscribe']).toMatch(/^<https:\/\/example\.org\/digest\/unsubscribe\?u=user-marisol&s=[A-Za-z0-9_-]+&lang=es>$/);
+    expect(mail.headers?.['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
   });
 
   it('escapes the visitor-typed bed name in the HTML half', async () => {

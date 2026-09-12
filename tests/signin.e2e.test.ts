@@ -105,6 +105,16 @@ function linkFrom(mail: { text: string }): string {
   return link;
 }
 
+/** The interstitial's one press, as the rendered form makes it. */
+async function pressSignIn(tag: string, token: string): Promise<Response> {
+  return fetch(`${origin}/t/${tag}/signin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+    body: new URLSearchParams({ token }).toString(),
+    redirect: 'manual',
+  });
+}
+
 describe('signing in by emailed link', () => {
   let link = '';
   let token = '';
@@ -134,18 +144,32 @@ describe('signing in by emailed link', () => {
     expect((await outboxFiles()).length).toBe(before);
   });
 
-  it('refuses the link at a different bed without burning it', async () => {
-    const wrongDoor = link.replace(`/t/${TAG}/`, `/t/${OTHER_TAG}/`);
-    const opened = await fetch(wrongDoor, { redirect: 'manual' });
-    expect(opened.status).toBe(410);
-    expect(opened.headers.getSetCookie().some((c) => c.startsWith('tg_session='))).toBe(false);
+  it('spends nothing on the GET — a scanner can prefetch the link all day', async () => {
+    // Twice, the way a gateway and then the person would: both renders are
+    // the interstitial, neither sets a session, and the token survives.
+    for (let i = 0; i < 2; i += 1) {
+      const opened = await fetch(link, { redirect: 'manual' });
+      expect(opened.status).toBe(200);
+      expect(opened.headers.getSetCookie().some((c) => c.startsWith('tg_session='))).toBe(false);
+      const html = await opened.text();
+      // The one button, with the token in its form — and both languages in
+      // the markup, script or no script.
+      expect(html).toContain(`value="${token}"`);
+      expect(html).toContain('data-es="ENTRAR"');
+    }
   });
 
-  it('signs the steward in once, landing on their own view', async () => {
-    const opened = await fetch(link, { redirect: 'manual' });
-    expect(opened.status).toBe(303);
-    expect(opened.headers.get('location')).toBe(`/t/${TAG}/mine`);
-    const session = opened.headers
+  it('refuses the press at a different bed without burning the token', async () => {
+    const pressed = await pressSignIn(OTHER_TAG, token);
+    expect(pressed.status).toBe(410);
+    expect(pressed.headers.getSetCookie().some((c) => c.startsWith('tg_session='))).toBe(false);
+  });
+
+  it('signs the steward in on the press, landing on their own view', async () => {
+    const pressed = await pressSignIn(TAG, token);
+    expect(pressed.status).toBe(303);
+    expect(pressed.headers.get('location')).toBe(`/t/${TAG}/mine`);
+    const session = pressed.headers
       .getSetCookie()
       .find((cookie) => cookie.startsWith('tg_session='));
     expect(session).toBeDefined();
@@ -157,11 +181,11 @@ describe('signing in by emailed link', () => {
     expect(await mine.text()).toContain('@marisol_r');
   });
 
-  it('finds the link spent on a second open — single use, one calm answer', async () => {
-    const reopened = await fetch(link, { redirect: 'manual' });
-    expect(reopened.status).toBe(410);
-    expect(reopened.headers.getSetCookie().some((c) => c.startsWith('tg_session='))).toBe(false);
-    const html = await reopened.text();
+  it('finds the token spent on a second press — single use, one calm answer', async () => {
+    const pressed = await pressSignIn(TAG, token);
+    expect(pressed.status).toBe(410);
+    expect(pressed.headers.getSetCookie().some((c) => c.startsWith('tg_session='))).toBe(false);
+    const html = await pressed.text();
     expect(html).toContain('doesn’t work any more');
     // The remedy is offered in place: ask for a fresh link.
     expect(html).toContain(`/t/${TAG}/auth`);
@@ -175,8 +199,15 @@ describe('signing in by emailed link', () => {
   });
 });
 
-describe('the one-click unsubscribe', () => {
-  it('flips the steward’s digest off and says so in both languages', async () => {
+describe('the unsubscribe link', () => {
+  async function storedOptOut(): Promise<boolean> {
+    const store = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+      users: Record<string, { digestOptedOut: boolean }>;
+    };
+    return store.users['user-marisol']!.digestOptedOut;
+  }
+
+  it('confirms on the GET without flipping anything — scanner-proof like the sign-in link', async () => {
     // Signed with the same secret the server holds, exactly as the digest
     // builder signs it.
     process.env.TREEBED_SESSION_SECRET = SECRET;
@@ -184,12 +215,27 @@ describe('the one-click unsubscribe', () => {
     const opened = await fetch(`${origin}${linkPath}`, { redirect: 'manual' });
     expect(opened.status).toBe(200);
     const html = await opened.text();
+    expect(html).toContain('Stop the digest emails?');
+    expect(html).toContain('data-es=');
+    expect(await storedOptOut()).toBe(false);
+  });
+
+  it('flips the digest off on the confirm press and says so in both languages', async () => {
+    process.env.TREEBED_SESSION_SECRET = SECRET;
+    const linkPath = unsubscribePath(seedData().users['user-marisol']!);
+    const pressed = await fetch(`${origin}${linkPath}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      // The RFC 8058 one-click body shape; our own form sends nothing, and
+      // the route reads neither — everything decided rides the signed query.
+      body: 'List-Unsubscribe=One-Click',
+      redirect: 'manual',
+    });
+    expect(pressed.status).toBe(200);
+    const html = await pressed.text();
     expect(html).toContain('unsubscribed');
     expect(html).toContain('data-es=');
-    const store = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
-      users: Record<string, { digestOptedOut: boolean }>;
-    };
-    expect(store.users['user-marisol']!.digestOptedOut).toBe(true);
+    expect(await storedOptOut()).toBe(true);
   });
 
   it('refuses a tampered link in plain text, touching nothing', async () => {

@@ -780,7 +780,9 @@ export async function consumeSignInToken(
       throw new RuleError('invalid-token', 'Sign-in link opened at a different bed');
     }
     if (record.expiresAt <= now.toISOString()) {
-      await tx.deleteSignInToken(tokenHash);
+      // No delete here on purpose: the transaction rolls back on this throw,
+      // so a delete would never persist anyway. The expired row is reclaimed
+      // by `deleteSignInTokensExpiredBy` on the next mint.
       throw new RuleError('invalid-token', 'Sign-in link expired');
     }
     await tx.deleteSignInToken(tokenHash);

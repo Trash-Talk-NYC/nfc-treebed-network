@@ -1,30 +1,38 @@
 ---
-// Where the emailed sign-in link lands: verify the token, burn it, set the
-// year-long session cookie, and hand the steward their own view.
+// Where the emailed sign-in link lands.
 //
-// A GET, because an email link is a GET — which puts the token in a URL.
-// Accepted residual, stated rather than buried: this server writes no access
-// log and nothing here logs the URL or the token, the token is single-use
-// and expires in minutes, and burning it on first use means a URL recovered
-// later from somewhere opens nothing. The alternatives (a code to type) are
-// the relay-phishable shape the captain decided against.
+// Opening the link spends NOTHING — the captain's call after review: mail
+// gateways (Outlook Safe Links, corporate proxies, antivirus) fetch URLs in
+// incoming mail before the recipient ever sees them, and a token burned by
+// that fetch would cost the steward the very link they were sent. So the
+// GET renders a small interstitial with one button, and the plain-form POST
+// behind it is what verifies the token, burns it (single use), sets the
+// year-long session cookie, and lands on the steward's view. One tap in the
+// mail, one tap here — still the tap-to-sign-in shape, still no script
+// required.
 //
-// Every failure — expired, spent, wrong bed, never ours — lands on one calm
-// screen with one message: distinguishing them would make this URL an oracle
-// for which tokens were real. The screen offers the auth form for a fresh
-// link, which is the remedy for all of them.
+// The GET deliberately consults the store about the token not at all: an
+// interstitial that said "this link is valid" would hand any URL-holder an
+// oracle, and a scanner's fetch should cost the server a render and nothing
+// else. Whether the token is real is answered only by the POST.
+//
+// Every POST failure — expired, spent, wrong bed, never ours — lands on one
+// calm screen with one message: distinguishing them would make this URL an
+// oracle for which tokens were real. The screen offers the auth form for a
+// fresh link, which is the remedy for all of them.
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { RuleError, consumeSignInToken, getBedView } from '../../../lib/service';
 import { setSessionUser } from '../../../lib/session';
+import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
 import { AUTH, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
-import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
+import { refuseWithBody, requireBoundTagForForm } from '../../../lib/tag-route';
 
-const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
+const { bound, refused: notBound } = await requireBoundTagForForm(Astro.params.tag, Astro.request);
 if (notBound) return notBound;
 const { plate, base } = bound;
 const store = getStore();
@@ -36,13 +44,26 @@ if (!view) {
 const lang = resolveLang(Astro.url, Astro.cookies);
 const presentation = presentationFor(view.bed);
 
-// Only a real link-open signs in: a hand-built POST at this URL is answered
-// by the same screen with no verification spent on it.
+// Which of the three states this render is:
+//  - the interstitial (a GET carrying a token — the emailed link, opened),
+//  - the calm failure screen (everything else, at 410),
+//  - or a redirect out (the POST that verified).
+let interstitial = false;
+let token = '';
+
 if (Astro.request.method === 'GET') {
-  const token = Astro.url.searchParams.get('token') ?? '';
-  if (token !== '') {
+  token = Astro.url.searchParams.get('token') ?? '';
+  interstitial = token !== '';
+} else if (Astro.request.method === 'POST') {
+  // The one press that spends the token. Same bounds as every short public
+  // form; the token rides a hidden field, so it also stays out of this
+  // request's URL.
+  const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'sign-in');
+  if (refused) return refused;
+  const pressed = String(form.get('token') ?? '');
+  if (pressed !== '') {
     try {
-      const user = await consumeSignInToken(store, { plate, token });
+      const user = await consumeSignInToken(store, { plate, token: pressed });
       setSessionUser(Astro.cookies, user.id);
       return Astro.redirect(langLink(`${base}/mine`, lang), 303);
     } catch (err) {
@@ -51,7 +72,7 @@ if (Astro.request.method === 'GET') {
     }
   }
 }
-Astro.response.status = 410;
+if (!interstitial) Astro.response.status = 410;
 ---
 
 <Screen
@@ -64,14 +85,32 @@ Astro.response.status = 410;
     <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
       >{COMMON.backToBed[lang]}</a
     >
-    <h1 class="title" {...bi(AUTH.linkInvalidTitle, lang)}>{AUTH.linkInvalidTitle[lang]}</h1>
-    <p class="body-copy" {...bi(AUTH.linkInvalidBody, lang)}>{AUTH.linkInvalidBody[lang]}</p>
-    <div class="spacer" />
-    <a
-      class="btn btn-tall btn-action"
-      href={langLink(`${base}/auth`, lang)}
-      {...bi(AUTH.requestNew, lang)}
-      >{AUTH.requestNew[lang]}</a
-    >
+    {
+      interstitial ? (
+        <>
+          <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
+          <p class="body-copy" {...bi(AUTH.openBody, lang)}>{AUTH.openBody[lang]}</p>
+          <div class="spacer" />
+          <form method="POST" action={langLink(`${base}/signin`, lang)}>
+            <input type="hidden" name="token" value={token} />
+            <button class="btn btn-tall btn-action" type="submit" {...bi(AUTH.openSubmit, lang)}>
+              {AUTH.openSubmit[lang]}
+            </button>
+          </form>
+        </>
+      ) : (
+        <>
+          <h1 class="title" {...bi(AUTH.linkInvalidTitle, lang)}>{AUTH.linkInvalidTitle[lang]}</h1>
+          <p class="body-copy" {...bi(AUTH.linkInvalidBody, lang)}>{AUTH.linkInvalidBody[lang]}</p>
+          <div class="spacer" />
+          <a
+            class="btn btn-tall btn-action"
+            href={langLink(`${base}/auth`, lang)}
+            {...bi(AUTH.requestNew, lang)}
+            >{AUTH.requestNew[lang]}</a
+          >
+        </>
+      )
+    }
   </div>
 </Screen>

@@ -25,11 +25,24 @@
 //        signin, thanks, adopted,
 //        too-large, about
 //   GET  .../mine                      Same, behind a session check.
+//   POST .../signin                    The interstitial's one press — the
+//                                      token in one hidden field. Size:
+//                                      MAX_FORM_BYTES buffered, FORM_READ_*
+//                                      clocks, the same 2× + chunk
+//                                      reservation as every text form.
+//                                      Refused → a plain short answer.
 //   GET  /digest/unsubscribe           No body, no buffer. The signature is
 //                                      checked before any store read, and a
-//                                      request that fails it — or any non-GET
-//                                      — is answered 404 with the body
-//                                      `abandonBody`'d on the way out.
+//                                      request that fails it — or any method
+//                                      but GET and POST — is answered 404
+//                                      with the body `abandonBody`'d on the
+//                                      way out.
+//   POST /digest/unsubscribe           The confirm press, and RFC 8058's
+//                                      one-click shape. Everything decided
+//                                      rides the (signed) query string, so
+//                                      the body is `discardBody`'d under
+//                                      MAX_FORM_BYTES and the short clocks.
+//                                      Refused → a plain short answer.
 //   Any method at those screens        Astro renders a page for a POST as
 //                                      readily as for a tap, and none of these
 //                                      has a form behind it — so the body is
@@ -127,7 +140,8 @@
 //                                      queue behind it. Refused → a plain
 //                                      short answer.
 //   POST /admin/blocks/… (save,        The same bounds, behind the admin
-//        add-steward, add-bed),        session — which is checked, and a
+//        add-steward, add-bed,         session — which is checked, and a
+//        steward-digest),
 //        /admin/digest
 //                                      session-less body abandoned, before
 //                                      the read: a cookie is not a licence

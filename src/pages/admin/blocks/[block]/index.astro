@@ -567,6 +567,30 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   {ADMIN.noEmailNote[lang]}
                 </p>
               )}
+              {/* The recovery path for a digest opt-out (the emailed
+                  unsubscribe link is the only other writer of the flag,
+                  and a mail scanner can trip it without the steward
+                  knowing). A form of its own rather than a SAVE CHANGES
+                  row: it belongs to the steward, not to the opened bed. */}
+              {steward.user.digestOptedOut && (
+                <form
+                  method="POST"
+                  action={langLink(`${base}/steward-digest`, lang)}
+                  class="digest-resume"
+                >
+                  <p class="pii" {...bi(ADMIN.digestOptedOutNote, lang)}>
+                    {ADMIN.digestOptedOutNote[lang]}
+                  </p>
+                  <p class="pii" {...bi(ADMIN.digestResumeSub, lang)}>
+                    {ADMIN.digestResumeSub[lang]}
+                  </p>
+                  <input type="hidden" name="bed" value={selected.bed.plate} />
+                  <input type="hidden" name="steward" value={steward.user.id} />
+                  <button class="btn btn-outline" type="submit" {...bi(ADMIN.digestResume, lang)}>
+                    {ADMIN.digestResume[lang]}
+                  </button>
+                </form>
+              )}
             </>
           ) : selected ? (
             <>

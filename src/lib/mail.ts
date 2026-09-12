@@ -53,13 +53,25 @@ export interface MailMessage {
   html: string;
   /** Plain-text alternative; always sent so no client renders raw HTML. */
   text: string;
+  /**
+   * Extra SMTP headers, passed through Brevo's own `headers` field — the
+   * digest's `List-Unsubscribe` / `List-Unsubscribe-Post` pair. The outbox
+   * transport records them too, so a test can hold the mail to them.
+   */
+  headers?: Record<string, string>;
 }
 
 export type MailResult =
   | { ok: true; transport: 'brevo' | 'outbox' }
   | { ok: false; detail: string };
 
-function isProductionLike(): boolean {
+/**
+ * Whether this process is serving the real network — exported because the
+ * unsubscribe-link module needs the same answer for its secret resolution,
+ * and both run in bundles (the scheduled function's) where session.ts's
+ * Vite-replaced `import.meta.env.PROD` does not exist.
+ */
+export function isProductionLike(): boolean {
   return process.env.NODE_ENV === 'production' || process.env.TREEBED_STORE === 'blobs';
 }
 
@@ -167,6 +179,7 @@ async function sendViaBrevo(apiKey: string, message: MailMessage): Promise<MailR
         subject: message.subject,
         htmlContent: message.html,
         textContent: message.text,
+        ...(message.headers ? { headers: message.headers } : {}),
       }),
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
@@ -196,7 +209,13 @@ function sendToOutbox(message: MailMessage): MailResult {
     writeFileSync(
       file,
       JSON.stringify(
-        { to: message.to, subject: message.subject, html: message.html, text: message.text },
+        {
+          to: message.to,
+          subject: message.subject,
+          html: message.html,
+          text: message.text,
+          ...(message.headers ? { headers: message.headers } : {}),
+        },
         null,
         2,
       ),

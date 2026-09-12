@@ -167,3 +167,18 @@ export function capitalizeFirst(text: string): string {
   const [first, ...rest] = [...text];
   return first === undefined ? text : first.toUpperCase() + rest.join('');
 }
+
+/**
+ * Escape a value for interpolation into mail HTML. The screens never need
+ * this — Astro escapes its own templates — so its callers are the two mail
+ * builders (digest.ts, signin-mail.ts), which assemble HTML by hand and
+ * carry visitor-typed values like a bed's given name.
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

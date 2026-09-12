@@ -370,6 +370,16 @@ export const AUTH = {
     en: 'Email sign-in isn’t ready on this network yet. The phone you adopted with still remembers you.',
     es: 'Entrar por correo todavía no está listo en esta red. El teléfono con el que adoptaste aún te recuerda.',
   },
+  /**
+   * The interstitial the emailed link lands on. Opening the link spends
+   * nothing — mail gateways prefetch URLs — so the page asks for the one
+   * tap that does, and says why it is safe to take.
+   */
+  openBody: {
+    en: 'You followed your sign-in link. One tap finishes it — this phone stays signed in for a year.',
+    es: 'Seguiste tu enlace para entrar. Un toque lo completa: este teléfono queda con la sesión abierta durante un año.',
+  },
+  openSubmit: { en: 'SIGN IN', es: 'ENTRAR' },
   /** The landing for a link that is expired, spent, or not ours. One answer for all three. */
   linkInvalidTitle: {
     en: 'That sign-in link doesn’t work any more.',
@@ -414,8 +424,18 @@ export const DIGEST_MAIL = {
   unsubscribe: { en: 'Stop these emails', es: 'Dejar de recibir estos correos' },
 } satisfies Record<string, Phrase>;
 
-/** The one-click unsubscribe landing (/digest/unsubscribe). */
+/**
+ * The unsubscribe landing (/digest/unsubscribe): a one-button confirm on
+ * GET — mail gateways prefetch links, so opening one changes nothing — and
+ * the done screen after the POST that does.
+ */
 export const UNSUB = {
+  confirmTitle: { en: 'Stop the digest emails?', es: '¿Dejar de recibir los resúmenes?' },
+  confirmBody: {
+    en: 'One tap and no more digests reach this address. Your adoption is untouched — the bed stays yours.',
+    es: 'Un toque y no llegarán más resúmenes a este correo. Tu adopción sigue igual: el cantero sigue siendo tuyo.',
+  },
+  confirmSubmit: { en: 'STOP THE EMAILS', es: 'DETENER LOS CORREOS' },
   title: { en: 'You’re unsubscribed.', es: 'Cancelaste los correos.' },
   body: {
     en: 'No more digest emails will reach this address. Your adoption is untouched — the bed is still yours.',
@@ -595,6 +615,20 @@ export const ADMIN = {
   cadenceBiweekly: { en: 'Every two weeks', es: 'Cada dos semanas' },
   cadenceMonthly: { en: 'Monthly', es: 'Mensual' },
   saveCadence: { en: 'SAVE CADENCE', es: 'GUARDAR FRECUENCIA' },
+  /**
+   * The steward detail's digest row: the recovery path for an unsubscribe a
+   * mail scanner tripped without the person knowing (the emailed link is the
+   * only other writer of the flag).
+   */
+  digestOptedOutNote: {
+    en: 'Unsubscribed from the digest by email link.',
+    es: 'Canceló los resúmenes desde el enlace del correo.',
+  },
+  digestResume: { en: 'RESUME THEIR DIGEST', es: 'REANUDAR SU RESUMEN' },
+  digestResumeSub: {
+    en: 'Only with their say-so — a mail scanner can trip the link without them knowing.',
+    es: 'Solo si la persona lo pide: un escáner de correo puede activar el enlace sin que lo sepa.',
+  },
   noUnsaved: { en: 'No unsaved changes', es: 'No hay cambios sin guardar' },
   unsaved: { en: 'Unsaved changes', es: 'Hay cambios sin guardar' },
   saved: { en: 'Changes saved', es: 'Cambios guardados' },

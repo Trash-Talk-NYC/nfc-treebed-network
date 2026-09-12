@@ -2,9 +2,10 @@
 //
 // The captain asked for "an intermediary email that is able to send users
 // messages on x frequency, i havent decided yet" — so the frequency is a
-// stored network setting with a default (`NetworkSettings.digestCadence`,
-// default weekly), edited on the admin index, and everything here reads it
-// rather than assuming one.
+// stored network setting (`NetworkSettings.digestCadence`), edited on the
+// admin index, and everything here reads it rather than assuming one. It
+// DEFAULTS TO OFF, by his explicit "do not send anything": nothing mails
+// anybody until he picks a cadence there.
 //
 // Runs from the scheduled Netlify function (netlify/functions/digest.mts),
 // daily; each run sends only to stewards whose cadence has elapsed, so the
@@ -30,7 +31,8 @@ import type { Bed, DigestCadence, Report, User } from './types';
 import type { Lang } from './i18n';
 import { langLink } from './i18n';
 import { DIGEST_MAIL } from './copy';
-import { activeBinding, TAG_BINDINGS, type TagBinding } from './tag-bindings';
+import { capitalizeFirst, escapeHtml } from './format';
+import { TAG_BINDINGS, type TagBinding } from './tag-bindings';
 import { defaultPresentation } from './presentation';
 import { problemFor } from './problem';
 import { sendMail, type MailMessage, type MailResult } from './mail';
@@ -90,24 +92,15 @@ export interface DigestContent {
   beds: DigestBed[];
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 /**
  * The steward's-view path for a bed, through the tag registry: beds are
  * reached by tag, and a bed whose guard (and tag) is not in yet simply has
- * no URL to offer. Reads the checked-in registry the routes read.
+ * no URL to offer. One find is the whole lookup — an active row for this
+ * plate, which is exactly what a tag bound to the bed means.
  */
 function mineLink(plate: string, lang: Lang, bindings: readonly TagBinding[]): string | null {
   const bound = bindings.find((b) => b.sitePlate === plate && b.retiredAt === null);
-  const active = bound ? activeBinding(bindings, bound.tagId) : null;
-  return active ? langLink(`/t/${active.tagId}/mine`, lang) : null;
+  return bound ? langLink(`/t/${bound.tagId}/mine`, lang) : null;
 }
 
 /** Gather what one steward's digest says, reading through `tx`. */
@@ -154,7 +147,14 @@ export function buildDigestMail(content: DigestContent, origin: string): MailMes
   const textLines: string[] = [`${t(DIGEST_MAIL.greeting)} ${user.firstName},`, ''];
   const htmlBeds: string[] = [];
   for (const { bed, openReport, applause, minePath } of beds) {
-    const bedTitle = [bed.bedName, bed.treeType[lang], bed.plantingSpaceId ? `#${bed.plantingSpaceId}` : null]
+    // The species prints standalone here, so it takes the render-site
+    // capitalization the steward view and the admin labels use — the stored
+    // Spanish value is lowercase for the door frame's mid-sentence use.
+    const bedTitle = [
+      bed.bedName,
+      capitalizeFirst(bed.treeType[lang]),
+      bed.plantingSpaceId ? `#${bed.plantingSpaceId}` : null,
+    ]
       .filter((part): part is string => part !== null && part !== '')
       .join(' · ');
     const lines: string[] = [];
@@ -195,6 +195,15 @@ export function buildDigestMail(content: DigestContent, origin: string): MailMes
     subject: t(DIGEST_MAIL.subject),
     html,
     text: textLines.join('\n'),
+    // RFC 8058: mail clients surface their own unsubscribe control from
+    // these, which is the control a recipient trusts most. The URL half
+    // always works (it opens the confirm page); the One-Click POST half is
+    // advertised for the clients that honour it — see the route's header
+    // comment for the origin-guard residual it carries.
+    headers: {
+      'List-Unsubscribe': `<${unsubscribe}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    },
   };
 }
 
@@ -212,6 +221,12 @@ export interface DigestRunResult {
  * One scheduled run. `send` is injectable so the suite can watch what would
  * go out without a transport; the scheduled function passes nothing and gets
  * the real mail plane.
+ *
+ * One transaction per due steward, DELIBERATELY — the captain's call: on the
+ * Blobs backend that is one revision per steward per run, but a crash
+ * mid-run then forfeits one steward's period rather than every claimed
+ * steward's, and at pilot scale the revision churn is the cheaper side of
+ * that trade.
  */
 export async function runDigest(
   store: Store,

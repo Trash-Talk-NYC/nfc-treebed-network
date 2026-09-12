@@ -23,11 +23,22 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { langLink } from './i18n';
+import { isProductionLike } from './mail';
 import type { User } from './types';
 
 function unsubscribeSecret(): string {
   const configured = process.env.TREEBED_SESSION_SECRET;
   if (configured) return configured;
+  // The same refusal session.ts makes, because the failure mode here is
+  // worse than a crash: on a function instance a generated fallback would be
+  // a per-instance secret, and every unsubscribe link in a sent digest would
+  // verify nowhere — dead links on the one control a recipient must be able
+  // to trust. The dev fallback below is for local runs only.
+  if (isProductionLike()) {
+    throw new Error(
+      'TREEBED_SESSION_SECRET must be set in production — refusing to sign unsubscribe links with a generated secret.',
+    );
+  }
   const dir = process.env.TREEBED_DATA_DIR ?? path.resolve('.data');
   const file = path.join(dir, 'session-secret');
   try {
