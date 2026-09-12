@@ -18,7 +18,14 @@ import AdminScreen from '../../../../layouts/AdminScreen.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
 import { ADMIN, ADOPT, AUTH, COMMON } from '../../../../lib/copy';
-import { capitalizeFirst, confirmationsLabel, openedLabel, sinceLabel, slotsFilledLabel } from '../../../../lib/format';
+import {
+  bedHeadingName,
+  bedRowName,
+  confirmationsLabel,
+  openedLabel,
+  sinceLabel,
+  slotsFilledLabel,
+} from '../../../../lib/format';
 import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../../lib/presentation';
 import { MAX_NOTE_CHARS, problemFor } from '../../../../lib/problem';
@@ -262,18 +269,6 @@ const presentation = selected
 const base = `/admin/blocks/${blockId}`;
 const bedLink = (plate: string): string => langLink(`${base}?bed=${plate}`, lang);
 
-/** "Willow oak · #2" — the bed list row, live or deleted. */
-const bedName = (b: Bed): Phrase => ({
-  en: `${capitalizeFirst(b.treeType.en)} · #${b.blockPosition ?? ''}`,
-  es: `${capitalizeFirst(b.treeType.es)} · #${b.blockPosition ?? ''}`,
-});
-
-/** "Willow oak · bed #2" — the opened panel's heading. */
-const bedHeading = (b: AdminBedView): Phrase => ({
-  en: `${capitalizeFirst(b.bed.treeType.en)} · bed #${b.bed.blockPosition ?? ''}`,
-  es: `${capitalizeFirst(b.bed.treeType.es)} · cantero #${b.bed.blockPosition ?? ''}`,
-});
-
 /** The bed list's small line, and the panel's three radio segments. */
 const GUARD_LABEL: Record<GuardMaterial, Phrase> = {
   none: ADMIN.guardNone,
@@ -425,7 +420,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
           {
             beds.map((b) => {
               const state = bedState(b);
-              const name = bedName(b.bed);
+              const name = bedRowName(b.bed);
               const guard = guardLabel(b.bed.guard);
               return (
                 <a class:list={['tree', { sel: b.bed.plate === selected?.bed.plate }]} href={bedLink(b.bed.plate)}>
@@ -482,7 +477,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               </p>
               <div class="retired-list">
                 {retired.map((b) => {
-                  const name = bedName(b);
+                  const name = bedRowName(b);
                   return (
                     <div class="tree retired-row">
                       <span class="dot dot-closed" />
@@ -511,7 +506,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
           selected && steward ? (
             <>
               <a class="admin-backlink admin-backlink--always" href={bedLink(selected.bed.plate)}>
-                ← <span {...bi(bedHeading(selected), lang)}>{bedHeading(selected)[lang]}</span>
+                ← <span {...bi(bedHeadingName(selected.bed), lang)}>{bedHeadingName(selected.bed)[lang]}</span>
               </a>
               <div class="who">
                 {publicHandle(steward.user)}
@@ -578,8 +573,8 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               <a class="admin-backlink" href={langLink(base, lang)}>
                 ← {block.referenceAddress}
               </a>
-              <div class="panel-title" {...bi(bedHeading(selected), lang)}>
-                {bedHeading(selected)[lang]}
+              <div class="panel-title" {...bi(bedHeadingName(selected.bed), lang)}>
+                {bedHeadingName(selected.bed)[lang]}
               </div>
               <div class="idline">
                 {selected.bed.plantingSpaceId === null ? (

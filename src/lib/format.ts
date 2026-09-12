@@ -9,6 +9,7 @@
 
 import type { Phrase } from './i18n';
 import { LANGUAGES } from './i18n';
+import type { Bed } from './types';
 
 const NY = 'America/New_York';
 
@@ -46,6 +47,26 @@ export function bedCountLabel(count: number): Phrase {
   return {
     en: `${count} ${count === 1 ? 'tree bed' : 'tree beds'}`,
     es: `${count} ${count === 1 ? 'cantero' : 'canteros'}`,
+  };
+}
+
+/** "Willow oak · #2" — the admin bed list row, live or deleted. */
+export function bedRowName(bed: Bed): Phrase {
+  return {
+    en: `${capitalizeFirst(bed.treeType.en)} · #${bed.blockPosition ?? ''}`,
+    es: `${capitalizeFirst(bed.treeType.es)} · #${bed.blockPosition ?? ''}`,
+  };
+}
+
+/**
+ * "Willow oak · bed #2" — the heading of a page or panel about one bed. Shared
+ * rather than rebuilt per screen: three admin surfaces print it, and the two
+ * languages diverge here ("bed" / "cantero") where the row above them does not.
+ */
+export function bedHeadingName(bed: Bed): Phrase {
+  return {
+    en: `${capitalizeFirst(bed.treeType.en)} · bed #${bed.blockPosition ?? ''}`,
+    es: `${capitalizeFirst(bed.treeType.es)} · cantero #${bed.blockPosition ?? ''}`,
   };
 }
 

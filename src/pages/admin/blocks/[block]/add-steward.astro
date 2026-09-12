@@ -11,7 +11,7 @@ import AdminScreen from '../../../../layouts/AdminScreen.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
 import { bi, biAttr } from '../../../../lib/bilingual';
 import { ADMIN, ADOPT, ADOPT_ERRORS, AUTH, COMMON } from '../../../../lib/copy';
-import { capitalizeFirst } from '../../../../lib/format';
+import { bedHeadingName } from '../../../../lib/format';
 import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
 import { presentationFor } from '../../../../lib/presentation';
 import { MAX_FORM_BYTES, abandonBody, readFormOrRefuse } from '../../../../lib/request-body';
@@ -96,10 +96,7 @@ if (Astro.request.method === 'POST') {
 }
 
 const presentation = presentationFor(bed);
-const heading: Phrase = {
-  en: `${capitalizeFirst(bed.treeType.en)} · bed #${bed.blockPosition ?? ''}`,
-  es: `${capitalizeFirst(bed.treeType.es)} · cantero #${bed.blockPosition ?? ''}`,
-};
+const heading = bedHeadingName(bed);
 ---
 
 <AdminScreen

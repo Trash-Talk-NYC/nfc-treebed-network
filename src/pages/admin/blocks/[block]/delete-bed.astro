@@ -16,7 +16,8 @@ import AdminScreen from '../../../../layouts/AdminScreen.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
 import { ADMIN } from '../../../../lib/copy';
-import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
+import { bedHeadingName } from '../../../../lib/format';
+import { langLink, resolveLang, type Lang } from '../../../../lib/i18n';
 import { presentationFor } from '../../../../lib/presentation';
 import { abandonBody } from '../../../../lib/request-body';
 import { RuleError, getBedView, retireBedByAdmin } from '../../../../lib/service';
@@ -68,10 +69,7 @@ const stewards = view?.stewards ?? [];
 const openReport = view?.openReport ?? null;
 
 const presentation = presentationFor(bed);
-const heading: Phrase = {
-  en: `${bed.treeType.en} · bed #${bed.blockPosition ?? ''}`,
-  es: `${bed.treeType.es} · cantero #${bed.blockPosition ?? ''}`,
-};
+const heading = bedHeadingName(bed);
 const bedLink = langLink(`${base}?bed=${plate}`, lang);
 ---
 
