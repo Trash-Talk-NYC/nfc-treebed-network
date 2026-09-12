@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -13,7 +13,9 @@ import {
   engravedStewards,
   escalateReport,
   getBedView,
-  deriveUsername,
+  GENERATED_USERNAME_RE,
+  MAX_GENERATED_HANDLE_NUMBER,
+  generateUsername,
   logTap,
   reportProblem,
   sendApplause,
@@ -178,34 +180,84 @@ describe('the first steward names the bed', () => {
   });
 });
 
-describe('the handle, derived rather than typed', () => {
-  it('takes the first name and the last initial, the way the seed does', async () => {
-    // Marisol Rivera → @marisol_r, printed above M. R. — the shape the captain
-    // has been looking at across the whole review.
-    expect(deriveUsername('Marisol', 'Rivera', () => false)).toBe('marisol_r');
-    expect(deriveUsername('Rita', 'Okafor', () => false)).toBe('rita_o');
+describe('the handle, generated rather than derived or typed', () => {
+  it('always has the shape <Word>Steward<number>', () => {
+    // Fifty rolls with the real rng: every one must be a curated word plus
+    // Steward plus a number -- the shape the captain asked for (@MapleSteward42).
+    for (let i = 0; i < 50; i += 1) {
+      expect(generateUsername(() => false)).toMatch(GENERATED_USERNAME_RE);
+    }
   });
 
-  it('folds accents rather than dropping the letters under them', () => {
-    // A third of the names on this block carry one, and `jos_g` would be a
-    // worse handle than `jose_g` for the same person.
-    expect(deriveUsername('José', 'Güell', () => false)).toBe('jose_g');
-    expect(deriveUsername('Ñico', 'Peña', () => false)).toBe('nico_p');
+  it('is a roll of the injected rng, not a function of any name', () => {
+    // rng 0 picks the first word and the lowest number, deterministically.
+    expect(generateUsername(() => false, () => 0)).toBe('MapleSteward10');
   });
 
-  it('still produces a handle for a name with nothing in the alphabet', () => {
-    expect(deriveUsername('王', '小', () => false)).toBe('steward');
+  it('clamps a pathological rng rather than writing its output into a handle', () => {
+    // Out of range either way, and NaN — which slips through a bare min/max
+    // and would put `undefined` or `NaN` into a handle that gets written.
+    for (const value of [1, 1.5, -1, Number.NaN]) {
+      expect(generateUsername(() => false, () => value)).toMatch(GENERATED_USERNAME_RE);
+    }
   });
 
-  it('walks past a handle somebody already holds', () => {
-    const taken = new Set(['marisol_r', 'marisol_r2']);
-    expect(deriveUsername('Marisol', 'Rivera', (c) => taken.has(c))).toBe('marisol_r3');
+  it('retries past a candidate somebody already holds', () => {
+    const first = generateUsername(() => false, () => 0);
+    const second = generateUsername((c) => c === first, () => 0);
+    // The rng keeps rolling the taken candidate, so the deterministic sweep
+    // must hand out the next free one rather than loop or mutate the handle.
+    expect(second).toBe('OakSteward10');
+    expect(second).toMatch(GENERATED_USERNAME_RE);
   });
 
-  it('hands two neighbours with the same name different handles', async () => {
-    const first = await adoptBed(store, { plate: PLATE, input: adoptInput({ firstName: 'Marisol', lastName: 'Rivera' }) });
-    // marisol_r is the seeded steward, so the new one cannot have it.
-    expect(first.username).toBe('marisol_r2');
+  it('matches the exported shape all the way to the sweep ceiling', () => {
+    // The sweep can hand out numbers past 999 once the 2-3 digit ones are
+    // gone, and the exported regex is what the e2e suite recognises a
+    // generated steward by, so the two must agree on the widest handle.
+    const number = (c: string) => Number(c.replace(/^[A-Za-z]+Steward/, ''));
+    const sweptWide = generateUsername((c) => number(c) < 1000, () => 0);
+    expect(sweptWide).toBe('MapleSteward1000');
+    expect(sweptWide).toMatch(GENERATED_USERNAME_RE);
+    expect(`MapleSteward${MAX_GENERATED_HANDLE_NUMBER}`).toMatch(GENERATED_USERNAME_RE);
+    expect(`MapleSteward${MAX_GENERATED_HANDLE_NUMBER + 1}`).not.toMatch(GENERATED_USERNAME_RE);
+  });
+
+  it('refuses rather than spins when every candidate is taken', () => {
+    // The sweep's termination is a guarantee, not a property of today's
+    // callers: a `taken` that answers true for everything hits the ceiling
+    // and throws instead of walking numbers forever.
+    expect(() => generateUsername(() => true, () => 0)).toThrow(/every .*handle .* is taken/);
+  });
+
+  it('hands a new steward a generated handle with none of their name in it', async () => {
+    const first = await adoptBed(store, {
+      plate: PLATE,
+      input: adoptInput({ firstName: 'Marisol', lastName: 'Rivera' }),
+    });
+    expect(first.username).toMatch(GENERATED_USERNAME_RE);
+    expect(first.username.toLowerCase()).not.toContain('marisol');
+  });
+
+  it('walks past a handle the store already holds, inside the transaction', async () => {
+    // Pin the rng so every random roll is the same candidate: the first
+    // adoption takes it, and the second MUST come out different -- proof the
+    // in-transaction store walk retries rather than committing a duplicate.
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const first = await adoptBed(store, { plate: PLATE, input: adoptInput() });
+      expect(first.username).toBe('MapleSteward10');
+      const plate = 'BED-WH-1711';
+      const bed = (await store.getBed(plate))!;
+      await store.updateBed({ ...bed, offeredSlots: 1 });
+      const second = await adoptBed(store, {
+        plate,
+        input: adoptInput({ firstName: 'Luz', lastName: 'Vega', email: 'luz@example.com' }),
+      });
+      expect(second.username).toBe('OakSteward10');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

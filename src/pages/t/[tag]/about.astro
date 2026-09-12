@@ -79,7 +79,7 @@ const back = langLink(ourPlaqueLink(base), lang);
   presentation={presentation}
   url={Astro.url}
 >
-  <div class="screen">
+  <Fragment>
     <div>
       <div class="top-row">
         <a class="back-link" href={back} {...bi(COMMON.backToBed, lang)}>{COMMON.backToBed[lang]}</a>
@@ -202,7 +202,7 @@ const back = langLink(ourPlaqueLink(base), lang);
 
     <div class="spacer"></div>
     <a class="btn-ghost" href={back} {...bi(COMMON.backToBed, lang)}>{COMMON.backToBed[lang]}</a>
-  </div>
+  </Fragment>
 </Screen>
 
 <style>
@@ -222,11 +222,11 @@ const back = langLink(ourPlaqueLink(base), lang);
     gap: 2px;
     padding: 12px 0;
   }
-  .fact + .fact { border-top: 1px solid var(--theme-border); }
+  .fact + .fact { border-top: 1px solid var(--ink-edge); }
   .fact-label {
     font-size: 12px;
     font-weight: 600;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
   .fact-value { font-size: 15px; font-weight: 600; }
   /* The admin's typed note, as typed: readable weight, never a quote. */
@@ -247,7 +247,7 @@ const back = langLink(ourPlaqueLink(base), lang);
   .resources a {
     font-size: 14px;
     font-weight: 600;
-    color: var(--theme-ink);
+    color: var(--ink-strong);
     text-decoration: underline;
     text-underline-offset: 3px;
   }

@@ -1,19 +1,28 @@
 ---
-// The full-screen purple "Adopted!", straight after signing up.
+// The full-screen "Adopted!", straight after signing up.
 //
-// A takeover on the action ground — Deep Purple is the positive ownership
-// colour, and this is the moment it exists for. Same seam for the animation
-// that is to follow as the thank-you screen: `.takeover-mark`, and nothing
-// moving today.
+// A takeover on the green — since the captain's 2026-09-11 reversal every
+// tap-flow screen stands on solid Post No Bills Green with Poster Beige as
+// the secondary, this one included. Same seam for the animation that is to
+// follow as the thank-you screen: `.takeover-mark`, and nothing moving today.
+//
+// It also carries the bookmark cue: the bed's own /t/<tag> URL, so the brand
+// new steward can come back without tapping the tag. This screen is the one
+// place every new steward is guaranteed to stand, so the cue lives here even
+// though the door screen repeats it for a signed-in steward.
 //
 // Reached only by the redirect `adopt.astro` makes after a successful
 // adoption, but it is a plain GET screen: somebody who bookmarks it or presses
-// back gets the same words, which are true for as long as they are a steward.
+// back gets the same words. The cue is therefore gated exactly as door 2 gates
+// it — on being this bed's own signed-in steward, which adoption's session
+// cookie makes true before the redirect — so a stranger who reaches this URL
+// is not asked to bookmark a bed that is not theirs.
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { getBedView } from '../../../lib/service';
 import { bi } from '../../../lib/bilingual';
-import { ADOPTED_TAKEOVER } from '../../../lib/copy';
+import { ADOPTED_TAKEOVER, BOOKMARK } from '../../../lib/copy';
+import { getSessionUserId } from '../../../lib/session';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
 import { refuseMissingBedScreen, requireBoundTagForView } from '../../../lib/tag-route';
@@ -32,6 +41,9 @@ if (!view) return await refuseMissingBedScreen(Astro.request, base);
 const lang = resolveLang(Astro.url, Astro.cookies);
 const presentation = presentationFor(view.bed);
 const bed = view.bed;
+const sessionUserId = getSessionUserId(Astro.cookies);
+const isOwnSteward =
+  sessionUserId !== null && view.stewards.some((s) => s.user.id === sessionUserId);
 ---
 
 <Screen
@@ -39,27 +51,37 @@ const bed = view.bed;
   lang={lang}
   presentation={presentation}
   url={Astro.url}
-  ground="action"
+  takeover
 >
-  <div class="screen screen-action takeover">
-    <div class="takeover-mark">
-      <div class="big" {...bi(ADOPTED_TAKEOVER.big, lang)}>{ADOPTED_TAKEOVER.big[lang]}</div>
-      {/* Split around the tree type, which is itself bilingual: a swap sets
-          textContent, so no bilingual node may have children. */}
-      <p class="sub takeover-sub">
-        <span {...bi(ADOPTED_TAKEOVER.subBefore, lang)}>{ADOPTED_TAKEOVER.subBefore[lang]}</span>
-        <span {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
-        <span {...bi(ADOPTED_TAKEOVER.subAfter, lang)}>{ADOPTED_TAKEOVER.subAfter[lang]}</span>
+  <div class="takeover-mark">
+    <div class="big" {...bi(ADOPTED_TAKEOVER.big, lang)}>{ADOPTED_TAKEOVER.big[lang]}</div>
+    {/* Split around the tree type, which is itself bilingual: a swap sets
+        textContent, so no bilingual node may have children. */}
+    <p class="sub takeover-sub">
+      <span {...bi(ADOPTED_TAKEOVER.subBefore, lang)}>{ADOPTED_TAKEOVER.subBefore[lang]}</span>
+      <span {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+      <span {...bi(ADOPTED_TAKEOVER.subAfter, lang)}>{ADOPTED_TAKEOVER.subAfter[lang]}</span>
+    </p>
+  </div>
+  <div class="takeover-actions">
+    {/* The URL is its own leaf — an address is not translated — and the
+        href is the bare bed URL, the same address the text prints, so a
+        browser bookmark saves what we showed them; a steward's return logs
+        no tap because the door screen reads their identity, not a flag on
+        the link. The sentence points at that address rather than at "this
+        page", which here would be the celebration, not the bed. */}
+    {isOwnSteward && (
+      <p class="bookmark-cue">
+        <span {...bi(BOOKMARK.cue, lang)}>{BOOKMARK.cue[lang]}</span>{' '}
+        <a href={base} data-bare>{Astro.url.host}{base}</a>
       </p>
-    </div>
-    <div class="takeover-actions">
-      <a
-        class="btn btn-on-action"
-        href={langLink(`${base}/mine`, lang)}
-        {...bi(ADOPTED_TAKEOVER.onward, lang)}
-        >{ADOPTED_TAKEOVER.onward[lang]}</a
-      >
-    </div>
+    )}
+    <a
+      class="btn btn-on-clear"
+      href={langLink(`${base}/mine`, lang)}
+      {...bi(ADOPTED_TAKEOVER.onward, lang)}
+      >{ADOPTED_TAKEOVER.onward[lang]}</a
+    >
   </div>
 </Screen>
 

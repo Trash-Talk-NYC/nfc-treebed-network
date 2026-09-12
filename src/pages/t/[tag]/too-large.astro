@@ -69,63 +69,68 @@ const copy = COPY[reason];
 ---
 
 <Screen title={copy.tab[lang]} lang={lang} presentation={presentation} url={Astro.url}>
-  <div class="screen">
-    <div class="kicker">{presentation.copy.wordmark}</div>
-    <div class="card">
-      <div class="title" {...bi(copy.title, lang)}>{copy.title[lang]}</div>
-      <div class="ident standing" {...bi(TOO_LARGE.standing, lang)}>{TOO_LARGE.standing[lang]}</div>
-    </div>
-    <p class="body-copy" {...bi(copy.body, lang)}>{copy.body[lang]}</p>
-    <div class="spacer" />
-    {
-      picked.length > 0 ? (
-        <>
-          <p class="body-copy">
-            <span {...bi(TOO_LARGE.youPicked, lang)}>{TOO_LARGE.youPicked[lang]}</span>{' '}
-            {picked.map((problem, i) => (
-              <Fragment>
-                {i > 0 && <span class="picked-sep">·</span>}
-                <strong
-                  class="picked"
-                  style={`color:${themeVar(problem.ink)}`}
-                  {...bi(problem.label, lang)}
-                >
-                  {problem.label[lang]}
-                </strong>
-              </Fragment>
-            ))}
-          </p>
-          {note !== '' && <p class="body-copy note-echo">“{note}”</p>}
-          {/* urlencoded, not multipart: there is no photo this time, and the
-              route's text-only branch is what reads it. */}
-          <form method="POST" action={langLink(`${base}/report`, lang)}>
-            {categories.map((value) => (
-              <input type="hidden" name="category" value={value} />
-            ))}
-            {note !== '' && <input type="hidden" name="note" value={note} />}
-            <button class="btn btn-tall btn-alert" type="submit" {...bi(copy.action, lang)}>
-              {copy.action[lang]}
-            </button>
-          </form>
-        </>
-      ) : (
-        <a
-          class="btn btn-tall btn-alert"
-          href={langLink(`${base}/care`, lang)}
-          {...bi(TOO_LARGE.pickAgain, lang)}
-          >{TOO_LARGE.pickAgain[lang]}</a
-        >
-      )
-    }
-    <a class="btn-ghost" href={langLink(ourPlaqueLink(base), lang)} {...bi(TOO_LARGE.back, lang)}>
-      {TOO_LARGE.back[lang]}
-    </a>
+  <div class="kicker">{presentation.copy.wordmark}</div>
+  <div class="card">
+    <div class="title" {...bi(copy.title, lang)}>{copy.title[lang]}</div>
+    <div class="ident standing" {...bi(TOO_LARGE.standing, lang)}>{TOO_LARGE.standing[lang]}</div>
   </div>
+  <p class="body-copy" {...bi(copy.body, lang)}>{copy.body[lang]}</p>
+  <div class="spacer" />
+  {
+    picked.length > 0 ? (
+      <>
+        <p class="body-copy">
+          <span {...bi(TOO_LARGE.youPicked, lang)}>{TOO_LARGE.youPicked[lang]}</span>{' '}
+          {picked.map((problem, i) => (
+            <Fragment>
+              {i > 0 && <span class="picked-sep">·</span>}
+              <strong
+                class="picked"
+                style={`color:${themeVar(problem.ink)}`}
+                {...bi(problem.label, lang)}
+              >
+                {problem.label[lang]}
+              </strong>
+            </Fragment>
+          ))}
+        </p>
+        {note !== '' && <p class="body-copy note-echo">“{note}”</p>}
+        {/* urlencoded, not multipart: there is no photo this time, and the
+            route's text-only branch is what reads it. */}
+        <form method="POST" action={langLink(`${base}/report`, lang)}>
+          {categories.map((value) => (
+            <input type="hidden" name="category" value={value} />
+          ))}
+          {note !== '' && <input type="hidden" name="note" value={note} />}
+          <button class="btn btn-tall btn-on-clear" type="submit" {...bi(copy.action, lang)}>
+            {copy.action[lang]}
+          </button>
+        </form>
+      </>
+    ) : (
+      <a
+        class="btn btn-tall btn-on-clear"
+        href={langLink(`${base}/care`, lang)}
+        {...bi(TOO_LARGE.pickAgain, lang)}
+        >{TOO_LARGE.pickAgain[lang]}</a
+      >
+    )
+  }
+  <a class="btn-ghost" href={langLink(ourPlaqueLink(base), lang)} {...bi(TOO_LARGE.back, lang)}>
+    {TOO_LARGE.back[lang]}
+  </a>
 </Screen>
 
 <style>
   .standing { margin-top: 12px; font-size: 11px; letter-spacing: 0.1em; line-height: 1.5; }
-  .picked { font-weight: 700; }
-  .picked-sep { color: var(--theme-faint); padding: 0 3px; }
+  /* The tile inks are tuned for AA on the beige paper, not on the green
+     ground, so each picked label sits on its own beige pill. */
+  .picked {
+    font-weight: 700;
+    background: var(--theme-ground);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+  .picked-sep { color: var(--ink-quiet); padding: 0 3px; }
   .note-echo { font-style: italic; margin-top: -6px; }
 </style>

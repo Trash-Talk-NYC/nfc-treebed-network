@@ -3,9 +3,14 @@
 The post-tap experience for Trash Talk NYC's NFC tree bed network.
 Tap a tag on a tree guard and the bed's own state picks the screen.
 A bed with no steward yet asks to be adopted; a bed that has one shows who stewards it and offers applause.
+A steward is engraved as a handle and their initials — `@MapleSteward42`, `M. R.` — never as their name: the handle is generated server-side for everyone who adopts at the tag, and for a sidewalk signup written in on the admin page unless the admin deliberately types one.
 A bed the admin has opened no slot on says so instead of inviting anyone — the adoption invitation is withheld on either door until a slot is offered, which is the state the W 171st tags open today.
 The first steward to adopt a bed gets to name it, and that name is the bed's from then on — it shows on both doors for the whole block, outlives the steward who gave it, and only the block admin can take it down.
 Either door's second button is "this bed needs care" — thirsty plants, litter, guard damage or something else, as many as apply, with an optional photo — and both actions end on a full-screen takeover.
+A steward is shown the bed's own `/t/<id>` URL to bookmark — on the "Adopted!" takeover and on the door they come back to — so getting back to their bed never depends on tapping the tag again.
+
+Every tap screen stands on solid Post No Bills Green with Poster Beige as the secondary — the ink, the buttons and the paper under the containers and picker tiles.
+No colour is named anywhere but `src/lib/presentation.ts`, which returns a bed's palette, and the stylesheets read it back off `--theme-*` custom properties.
 
 Every visitor-facing string exists in English and Spanish, with a two-state toggle the visitor operates — both languages shown, the one now speaking filled in — and no browser-language guessing; the whole flow works with JavaScript disabled.
 

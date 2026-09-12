@@ -403,9 +403,9 @@ export const MAX_BED_NOTE_CHARS = 160;
  * numeric code on a street object has no brute-force protection. The screen is
  * drawn without one and is built without one.
  *
- * No username either. Public identity is still `@handle` — it is derived from
- * the name (`deriveUsername`), the way the seeded steward's `@marisol_r` is
- * derived from Marisol Rivera.
+ * No username either. Public identity is still `@handle` — it is GENERATED
+ * (`generateUsername`, `@MapleSteward42`), per the captain's 2026-09-11 ask,
+ * so nothing of the name reaches the street beyond the initials.
  *
  * What carries a steward from here is the year-long session cookie set at
  * adoption; the way back in after losing it is the emailed single-use link
@@ -500,44 +500,88 @@ async function checkAdoptPreconditions(store: Store, plate: string): Promise<voi
   }
 }
 
-/** Trim to the handle alphabet: lowercase, ASCII letters/digits/underscore. */
-function handleSafe(part: string): string {
-  return part
-    .normalize('NFD')
-    // Strip the combining marks NFD just separated out, so José becomes jose
-    // rather than jos — a third of this block's names carry one.
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
+/**
+ * The words a generated handle draws from: single English tree, plant and
+ * street-nature words, curated rather than scraped so nothing unpronounceable
+ * or off-tone can be engraved on a plaque. Capitalized because the handle is.
+ */
+const HANDLE_WORDS = [
+  'Maple', 'Oak', 'Willow', 'Elm', 'Birch', 'Cedar', 'Cherry', 'Ginkgo',
+  'Linden', 'Sycamore', 'Juniper', 'Hawthorn', 'Dogwood', 'Redbud', 'Magnolia',
+  'Pine', 'Ash', 'Beech', 'Chestnut', 'Hackberry', 'Holly', 'Laurel',
+  'Mulberry', 'Pear', 'Plum', 'Poplar', 'Spruce', 'Walnut', 'Zelkova',
+  'Sweetgum', 'Clover', 'Fern', 'Ivy', 'Moss', 'Sage', 'Daisy', 'Marigold',
+  'Sunflower', 'Lavender', 'Aster', 'Zinnia', 'Dahlia', 'Poppy', 'Violet',
+  'Peony', 'Acorn', 'Leaf', 'Root', 'Branch', 'Bark', 'Bloom', 'Blossom',
+  'Canopy', 'Petal', 'Seed', 'Sprout', 'Twig', 'Vine', 'Grove', 'Stoop',
+] as const;
 
 /**
- * The public handle, derived from the name rather than typed.
- *
- * The approved form collects a first and last name and nothing else, and the
- * seeded steward shows the shape the captain has been looking at all along:
- * Marisol Rivera → `@marisol_r`, printed above `M. R.`. So the handle is the
- * first name and the last initial, which is exactly as much as the initials
- * underneath it already give away.
+ * What a generated handle looks like: `MapleSteward42` — a word, then a number
+ * from 10 up to `MAX_GENERATED_HANDLE_NUMBER`, so it matches every handle
+ * `generateUsername` can return, the sweep's wider numbers included.
+ */
+export const GENERATED_USERNAME_RE = /^[A-Z][a-z]+Steward[1-9]\d{1,3}$/;
+
+/**
+ * Where the deterministic sweep gives up: 60 words × ~10,000 numbers is some
+ * 600,000 handles, three orders of magnitude past pilot scale, so reaching it
+ * means `taken` is answering true for everything rather than for a finite set
+ * of existing stewards. Throwing there is what makes the sweep's termination a
+ * guarantee instead of a property of today's callers — and the ceiling is kept
+ * this low because the sweep is synchronous work on the one thread that serves
+ * every tap, run while holding a `store.transaction()` open.
+ */
+export const MAX_GENERATED_HANDLE_NUMBER = 9_999;
+
+/**
+ * The public handle, GENERATED rather than derived from the name — the
+ * captain's 2026-09-11 ask: `<Word>Steward<number>`, e.g. `@MapleSteward42`.
+ * A generated handle puts none of the person's name on the street, so the
+ * initials printed under it stay the only thing the name contributes to the
+ * plaque. Handles that already exist (the seeded `@marisol_r`, anyone who
+ * adopted before this change) keep their shape; only new stewards draw here.
  *
  * `taken` decides collisions rather than a store read, so the caller can run
- * this inside the transaction that will write the user — two people with the
- * same name adopting at once must not both be handed `@marisol_r`.
+ * this inside the transaction that will write the user — two neighbours
+ * adopting at once must not both be handed `@MapleSteward42`. Compare
+ * case-insensitively in `taken`: username lookups fold case.
+ *
+ * `rng` is injectable for tests only; production callers take the default.
+ * Its output is clamped into range rather than trusted: an injected stub that
+ * returns 1 would otherwise put `undefined` into a handle that gets written,
+ * and one returning NaN would slip past a bare min/max into
+ * `<Word>StewardNaN` — a handle the generated shape does not match and that
+ * would still be written if it happened to be free.
  */
-export function deriveUsername(
-  firstName: string,
-  lastName: string,
+export function generateUsername(
   taken: (candidate: string) => boolean,
+  rng: () => number = Math.random,
 ): string {
-  const first = handleSafe(firstName).slice(0, 20);
-  const initial = handleSafe(lastName).slice(0, 1);
-  // A name with nothing in the handle alphabet at all still needs a handle.
-  const base = first === '' ? 'steward' : initial === '' ? first : `${first}_${initial}`;
-  if (!taken(base)) return base;
-  for (let n = 2; ; n += 1) {
-    const candidate = `${base}${n}`;
+  // Random first: 60 words × 990 numbers is far past pilot scale, so a
+  // collision is rare and a retry costs one more roll.
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const index = Math.min(HANDLE_WORDS.length - 1, Math.max(0, Math.floor(rng() * HANDLE_WORDS.length)));
+    const word = HANDLE_WORDS[index] ?? HANDLE_WORDS[0];
+    const roll = Math.floor(rng() * 990);
+    const number = 10 + (Number.isFinite(roll) ? Math.min(989, Math.max(0, roll)) : 0);
+    const candidate = `${word}Steward${number}`;
     if (!taken(candidate)) return candidate;
   }
+  // Deterministic sweep so the walk terminates whatever `rng` does: every
+  // candidate in number order, from the 2-digit ones up to the ceiling. A
+  // handle is always produced while `taken` is finite, the same guarantee the
+  // derived walk gave; past the ceiling the walk refuses rather than spins.
+  for (let number = 10; number <= MAX_GENERATED_HANDLE_NUMBER; number += 1) {
+    for (const word of HANDLE_WORDS) {
+      const candidate = `${word}Steward${number}`;
+      if (!taken(candidate)) return candidate;
+    }
+  }
+  throw new Error(
+    `generateUsername: every <Word>Steward<number> handle up to ${MAX_GENERATED_HANDLE_NUMBER} is taken — ` +
+      '`taken` must be backed by a finite set of existing handles',
+  );
 }
 
 /** The slot cap (spec §7) enforced here, server-side: `min(slots, offeredSlots)`. */
@@ -579,21 +623,21 @@ export async function adoptBed(
     const activeBefore = await tx.getActiveAdoptions(args.plate);
 
     // Resolved inside the transaction, against the users it will commit
-    // alongside: two neighbours with the same name adopting at the same moment
-    // must not both be handed the same handle.
+    // alongside: two neighbours adopting at the same moment must not both be
+    // handed the same generated handle.
     const existing = new Set<string>();
     for (const other of activeBefore) {
       const user = await tx.getUser(other.userId);
       if (user) existing.add(user.username.toLowerCase());
     }
     const username = await (async () => {
-      let candidate = deriveUsername(values.firstName, values.lastName, (c) => existing.has(c));
+      let candidate = generateUsername((c) => existing.has(c.toLowerCase()));
       // The set above only covers this bed; the store is the authority for
-      // every other one, and the walk is bounded by how many people share a
-      // name on one network.
+      // every other one, and the walk is bounded by the odds of rolling an
+      // already-taken word-and-number twice.
       while (await tx.getUserByUsername(candidate)) {
-        existing.add(candidate);
-        candidate = deriveUsername(values.firstName, values.lastName, (c) => existing.has(c));
+        existing.add(candidate.toLowerCase());
+        candidate = generateUsername((c) => existing.has(c.toLowerCase()));
       }
       return candidate;
     })();
@@ -1257,13 +1301,14 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
 /**
  * What the admin's add-a-steward form collects. Email is OPTIONAL here — the
  * sidewalk case requires it (design-record.md, answered open question 3) —
- * where the visitor adopt form requires one. Username is typed or left blank
- * for the same derivation the adopt form uses.
+ * where the visitor adopt form requires one. Username is the one field the
+ * admin may still type: left blank it is generated, the same <Word>Steward<n>
+ * every steward who adopts at the tag gets.
  */
 export interface AdminStewardInput {
   firstName: string;
   lastName: string;
-  /** With or without the leading @; blank derives from the name. */
+  /** With or without the leading @; blank generates one, never from the name. */
   username: string;
   email: string;
   phone: string;
@@ -1273,7 +1318,10 @@ export type AdminStewardErrors = Partial<
   Record<keyof AdminStewardInput, keyof AdminStewardInput>
 >;
 
-const USERNAME_RE = /^[a-z0-9_]{2,30}$/;
+// Letters of either case: a typed handle is stored as typed so it can take
+// the generated shape (`MapleSteward42`) verbatim, and every lookup folds
+// case (`getUserByUsername`), so `DTorres` and `dtorres` are still one handle.
+const USERNAME_RE = /^[A-Za-z0-9_]{2,30}$/;
 
 /** Field-level validation for the admin form; same shape as `validateAdoptInput`. */
 export function validateAdminStewardInput(raw: AdminStewardInput): {
@@ -1285,7 +1333,7 @@ export function validateAdminStewardInput(raw: AdminStewardInput): {
     lastName: capped(raw.lastName, MAX_NAME_CHARS),
     // The handle's own bound is USERNAME_RE's 2–30, which refuses rather than
     // trims — a handle is engraved, so a silently shortened one is wrong.
-    username: raw.username.trim().replace(/^@/, '').toLowerCase(),
+    username: raw.username.trim().replace(/^@/, ''),
     email: capped(raw.email, MAX_EMAIL_CHARS),
     phone: raw.phone.trim(),
   };
@@ -1344,12 +1392,14 @@ export async function addStewardByAdmin(
 
     let username = values.username;
     if (username === '') {
-      // Same derivation, same in-transaction collision walk as `adoptBed`.
+      // Same generator, same in-transaction collision walk as `adoptBed`: a
+      // pen-and-paper steward gets a `<Word>Steward<number>` handle exactly
+      // like somebody adopting at the tag.
       const taken = new Set<string>();
-      username = deriveUsername(values.firstName, values.lastName, (c) => taken.has(c));
+      username = generateUsername((c) => taken.has(c.toLowerCase()));
       while (await tx.getUserByUsername(username)) {
-        taken.add(username);
-        username = deriveUsername(values.firstName, values.lastName, (c) => taken.has(c));
+        taken.add(username.toLowerCase());
+        username = generateUsername((c) => taken.has(c.toLowerCase()));
       }
     } else if (await tx.getUserByUsername(username)) {
       // A typed handle that collides is refused rather than mutated — the

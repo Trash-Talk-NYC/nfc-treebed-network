@@ -92,26 +92,24 @@ const presentation = defaultPresentation();
   presentation={presentation}
   url={Astro.url}
 >
-  <div class="screen">
-    {
-      done ? (
-        <>
-          <h1 class="title" {...bi(UNSUB.title, lang)}>{UNSUB.title[lang]}</h1>
-          <p class="body-copy" {...bi(UNSUB.body, lang)}>{UNSUB.body[lang]}</p>
-          <div class="spacer" />
-        </>
-      ) : (
-        <>
-          <h1 class="title" {...bi(UNSUB.confirmTitle, lang)}>{UNSUB.confirmTitle[lang]}</h1>
-          <p class="body-copy" {...bi(UNSUB.confirmBody, lang)}>{UNSUB.confirmBody[lang]}</p>
-          <div class="spacer" />
-          <form method="POST" action={`${Astro.url.pathname}${Astro.url.search}`}>
-            <button class="btn btn-tall btn-action" type="submit" {...bi(UNSUB.confirmSubmit, lang)}>
-              {UNSUB.confirmSubmit[lang]}
-            </button>
-          </form>
-        </>
-      )
-    }
-  </div>
+  {
+    done ? (
+      <>
+        <h1 class="title" {...bi(UNSUB.title, lang)}>{UNSUB.title[lang]}</h1>
+        <p class="body-copy" {...bi(UNSUB.body, lang)}>{UNSUB.body[lang]}</p>
+        <div class="spacer" />
+      </>
+    ) : (
+      <>
+        <h1 class="title" {...bi(UNSUB.confirmTitle, lang)}>{UNSUB.confirmTitle[lang]}</h1>
+        <p class="body-copy" {...bi(UNSUB.confirmBody, lang)}>{UNSUB.confirmBody[lang]}</p>
+        <div class="spacer" />
+        <form method="POST" action={`${Astro.url.pathname}${Astro.url.search}`}>
+          <button class="btn btn-tall btn-on-clear" type="submit" {...bi(UNSUB.confirmSubmit, lang)}>
+            {UNSUB.confirmSubmit[lang]}
+          </button>
+        </form>
+      </>
+    )
+  }
 </Screen>

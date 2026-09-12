@@ -87,36 +87,34 @@ Astro.response.headers.set('cache-control', 'no-store');
   presentation={presentation}
   url={Astro.url}
 >
-  <div class="screen">
-    <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
-      >{COMMON.backToBed[lang]}</a
-    >
-    {
-      interstitial ? (
-        <>
-          <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
-          <p class="body-copy" {...bi(AUTH.openBody, lang)}>{AUTH.openBody[lang]}</p>
-          <div class="spacer" />
-          <form method="POST" action={langLink(`${base}/signin`, lang)}>
-            <input type="hidden" name="token" value={token} />
-            <button class="btn btn-tall btn-action" type="submit" {...bi(AUTH.openSubmit, lang)}>
-              {AUTH.openSubmit[lang]}
-            </button>
-          </form>
-        </>
-      ) : (
-        <>
-          <h1 class="title" {...bi(AUTH.linkInvalidTitle, lang)}>{AUTH.linkInvalidTitle[lang]}</h1>
-          <p class="body-copy" {...bi(AUTH.linkInvalidBody, lang)}>{AUTH.linkInvalidBody[lang]}</p>
-          <div class="spacer" />
-          <a
-            class="btn btn-tall btn-action"
-            href={langLink(`${base}/auth`, lang)}
-            {...bi(AUTH.requestNew, lang)}
-            >{AUTH.requestNew[lang]}</a
-          >
-        </>
-      )
-    }
-  </div>
+  <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
+    >{COMMON.backToBed[lang]}</a
+  >
+  {
+    interstitial ? (
+      <>
+        <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
+        <p class="body-copy" {...bi(AUTH.openBody, lang)}>{AUTH.openBody[lang]}</p>
+        <div class="spacer" />
+        <form method="POST" action={langLink(`${base}/signin`, lang)}>
+          <input type="hidden" name="token" value={token} />
+          <button class="btn btn-tall btn-on-clear" type="submit" {...bi(AUTH.openSubmit, lang)}>
+            {AUTH.openSubmit[lang]}
+          </button>
+        </form>
+      </>
+    ) : (
+      <>
+        <h1 class="title" {...bi(AUTH.linkInvalidTitle, lang)}>{AUTH.linkInvalidTitle[lang]}</h1>
+        <p class="body-copy" {...bi(AUTH.linkInvalidBody, lang)}>{AUTH.linkInvalidBody[lang]}</p>
+        <div class="spacer" />
+        <a
+          class="btn btn-tall btn-on-clear"
+          href={langLink(`${base}/auth`, lang)}
+          {...bi(AUTH.requestNew, lang)}
+          >{AUTH.requestNew[lang]}</a
+        >
+      </>
+    )
+  }
 </Screen>

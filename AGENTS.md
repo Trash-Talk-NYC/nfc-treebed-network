@@ -25,18 +25,18 @@ The tap resolves to a bed server-side and the bed's state picks one of two scree
 Both doors withhold the adoption invitation on a bed with no offered slot open (`BedView.openSlots`, from `min(slots, offeredSlots)` — see "The block admin" below): door 1 says "isn't open for adoption yet" (`DOOR_NOT_OFFERED`) and offers care alone, and door 2 drops "join them".
 An unoffered bed is a normal state — the six W 171st beds seed that way — not a bed to be "fixed" by restoring the button the rules would then refuse.
 
-**The two doors stand on different grounds, deliberately.**
-Door 1 is Poster Beige — the page ground — with no highlight on the tree type, so its headline reads as one plain sentence; its buttons are the page ground's pair, Deep Purple for adopt and a Roadtop Black outline for care.
-Door 2 is Post No Bills Green with the tree type picked out in beige (`.hl`).
-The captain changed door 1 to beige after the review; it is not an oversight to normalize, and `.hl` does not go back on it — `tests/steward-privacy.e2e.test.ts` asserts the ground, the button pair and the absent highlight in both languages.
-No yellow appears on door 1 at all, which is what keeps it clear of the one pairing that cannot work on that ground.
+**Both doors — and every other tap-flow screen — stand on solid Post No Bills Green with Poster Beige as the secondary.**
+This is the captain's 2026-09-11 reversal of his earlier decision that put door 1 on Poster Beige, so do not restore the beige door: the beige is now the secondary — the ink and body text over the green, the button pair (`btn-on-clear` beige fill / `btn-on-clear-outline`), and the paper the containers and picker tiles stand on (`--theme-ground` is still the beige for exactly that reason, and for the admin, which keeps the old beige look untouched).
+Door 1's headline still carries no highlight, so it reads as one plain sentence; door 2 keeps the tree type picked out in beige (`.hl`) — that asymmetry survived the reversal, and `tests/steward-privacy.e2e.test.ts` asserts the green ground, the shared button pair and door 1's absent highlight in both languages.
+Yellow survives only as the attention role on fills that carry black — the report band and the green-ground error chip — never as a button.
+A signed-in steward also gets the bookmark cue at the bottom of door 2 (and every new steward gets it on the "Adopted!" takeover): the bed's own `/t/<tag>` URL, the way back without tapping the tag.
 
 `THIS BED NEEDS CARE` opens the problem picker (`care.astro`): thirsty plants / litter / guard damage / something else, plus an optional photo.
 The picker is MULTI-select — the tiles are checkboxes and a report carries `categories`, a non-empty list in tile order (a bed that is thirsty AND full of litter is one report); an empty submission is the server's refusal, back to the picker with the bilingual pick-one line, because checkboxes have no `required` that means "at least one".
 "Something else" is a GET submit of the same form back to `?tell=1`, which is the same route rendering the free-text box — a form GET rather than a link or a script, so the second screen exists with JavaScript disabled AND the tiles already pressed ride its query string (a link's href cannot know what is checked); the sentence screen sends them back out as hidden fields beside `other`, and a hidden `lang` field carries the language because a GET replaces its action's query string.
 Both send to `report.ts`, which lands on the full-screen "Thank you" (`thanks.astro`).
 Under both doors' buttons sits one small text link to "About this bed" (`/t/<tag>/about`) — the bed's profile and the network FAQ, never a third big button; see "The block admin" for the data behind it.
-Adoption lands on the full-screen purple "Adopted!" (`adopted.astro`).
+Adoption lands on the full-screen "Adopted!" (`adopted.astro`), on the same green ground as everything else since the reversal.
 
 **Option A — the old plaque-first screen — is scrapped, not flagged off. Do not restore it.**
 With it went the visitor-facing confirm, escalate, receipt and rate-limited screens, which the approved flow has no place for.
@@ -189,7 +189,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - **The adopt form collects NO secret, and must not be given one back.**
   The captain's passwordless decision superseded the earlier PIN plan and ordered the field, the `pinHash` column and the username+PIN screen dropped.
   His three reasons, each of which a secret here undoes: a forgotten one is permanent lockout with no recovery path; a cloned plaque on a public repo is a reusable secret to harvest; and a short numeric code on a street object has no brute-force protection.
-  A steward's public handle is derived from their name instead (`deriveUsername` in `service.ts`) — Marisol Rivera → `@marisol_r`, the shape the seed already had.
+  A steward's public handle is GENERATED instead (`generateUsername` in `service.ts`) — `<Word>Steward<number>`, e.g. `@MapleSteward42`, the captain's 2026-09-11 ask — for every new steward, tap adopt and admin pen-and-paper alike; existing handles (the seeded `@marisol_r`) keep their shape.
 - **Sign-in is an emailed single-use LINK (`/t/<tag>/auth` → `/t/<tag>/signin?token=…`), never a typed code** — a code is relay-phishable through a cloned plaque page, a link resolves against our own domain.
   **Opening the link spends nothing**: mail gateways (Outlook Safe Links, corporate proxies, antivirus) prefetch URLs in incoming mail, so a token burned by a bare GET would be spent before the steward ever saw it. The GET renders an interstitial with one button — consulting the store about the token not at all, so it is also no oracle — and the plain-form POST behind it is what verifies, burns, and signs in. One tap in the mail, one tap on the page; still the tap-to-sign-in shape, still no script.
   The rules live in `service.ts` (`requestSignInLink` / `consumeSignInToken`): 32 random bytes, stored only as a SHA-256 (`SignInToken`), 15-minute expiry, burned on first use, bound to the bed whose auth screen minted it — a link opened at another bed's URL refuses WITHOUT burning, since whoever holds a token is its rightful recipient.
@@ -264,6 +264,9 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   The site root redirects through `ourPlaqueLink` too: a tag never sends anyone to `/`, so what does is an uptime check, a crawler, or somebody typing the domain, and a monitor polling it once a minute would be 1,440 taps a day on the demo bed it is pinned to (`DEMO_TAG_ID`).
   It also counts only a `GET`: Astro renders the door screen for any method, but a tap is a person opening the URL on the chip, and a hand-built POST or PUT — or a monitor's HEAD — is nobody standing at a tree bed.
   Known residual, accepted rather than fixed: because the flag rides the URL, a visitor who uses an in-app back-link is left with `?tg_action=1` in the address bar, so a later return through history, a bookmark or a shared link renders the door screen without logging a tap — a small under-count in the opposite direction. The NFC tag always sends the bare URL, so the primary metric path is unaffected, and the alternatives (a Referer check, a short-lived nav cookie) are each less reliable and less legible than one flag in one place.
+  **A steward of the bed logs no tap on it, ever.**
+  The door screen suppresses the event for a signed-in steward of that bed as well as for `POST_ACTION_FLAGS`, because a steward returning to their own bed is not a passer-by tapping the tag — and that holds for every return path, a browser bookmark and history included, which a flag on one link cannot cover.
+  So the bookmark cue (door 2 and the "Adopted!" takeover) prints the bare `/t/<tag>` and links to exactly that: what a steward saves and what the link carries are the same address, and neither counts.
 - Email and phone are PII: stored on the user record, never rendered on any public screen, never included in any client-visible payload.
   Only the username and the initials are engraved, and only while `displayNameHidden` is false.
 
@@ -281,8 +284,9 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   There is no rename path and the admin never types one.
   The name is **visitor free text rendered as typed in BOTH languages** — a name is not translated — so it is always its own leaf beside the bed's identity (both doors, plus `mine.astro`), never spliced into a bilingual sentence, and it is set in Londrina Solid because this is a plaque, not a form field.
   An unnamed bed renders no element at all.
-- **A steward is shown as username first, then initials — `@marisol_r`, `M. R.`** (`publicHandle` / `publicInitials` in `types.ts`).
-  The handle is DERIVED from the name, not typed: the approved form has no username field, and `deriveUsername` gives the first name plus the last initial — exactly as much as the initials printed under it already give away.
+- **A steward is shown as username first, then initials — `@MapleSteward42`, `M. R.`** (`publicHandle` / `publicInitials` in `types.ts`).
+  The handle is GENERATED, not typed and not derived from the name: the approved form has no username field, and `generateUsername` rolls `<Word>Steward<number>` from a curated word list — so the initials printed under it are the only thing the name puts on the street.
+  The admin's add-steward form may still type one deliberately; a typed handle that collides is refused, not mutated.
   Full name, email and phone are admin-only and must never reach a public screen or payload.
   `fullName` exists for the admin surface and has no caller in the visitor flow.
 - **The word is "steward", not "adopter", throughout** — copy, types, comments and test names alike.
@@ -306,7 +310,10 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 
 - The palette is the identity the captain approved across the tap-flow review (`design-record.md`, constraint 2), and it lives in `src/lib/presentation.ts` — **not** in `src/styles/global.css`, which names no colour at all.
   See "Presentation is data-driven" above.
-  Poster Beige `#eae9da` · Post No Bills Green `#4e6e65` · Deep Purple `#65409a` · Street Sign Yellow `#f3cf02` · Roadtop Black `#1d1d23`, with roles: purple = the positive ownership action, yellow = attention (**always with black on it, never white — white on yellow is 1.53:1**), green = all-clear/adopted and the ground door 2 stands on, beige = the page ground — which is door 1's ground — and the buttons placed on the green.
+  Poster Beige `#eae9da` · Post No Bills Green `#4e6e65` · Deep Purple `#65409a` · Street Sign Yellow `#f3cf02` · Roadtop Black `#1d1d23`, with roles: purple = the admin's action colour and nothing else, yellow = attention (**always with black on it, never white — white on yellow is 1.53:1**), green = all-clear/adopted and — since the captain's 2026-09-11 reversal — the solid page ground of the whole tap flow, beige = the secondary (the ink and buttons on the green, the paper under containers and tiles) and the admin's page ground.
+  The ground reversal took the purple out of the visitor flow entirely — it is 1.36:1 on the green — so there is no action colour on a screen a neighbour sees.
+  The primary action stays distinct from the secondary WITHIN each screen (filled beige `btn-on-clear` against outlined `btn-on-clear-outline`), which is the approved hierarchy; what is gone is a colour meaning "ownership action" across screens, and inventing a new adopt treatment on the green is a look change the captain did not ask for.
+  For the same reason affirmation on the green is a FILL INVERSION, not an ink change: every ink the green carries is the one beige, so the care screen's attached-photo pill fills with the beige and takes the green as its ink (`--fill-affirm` / `--on-fill-affirm`, the `band-clear` vocabulary) rather than swapping one beige for another.
   Four values are one step off the review mock because the mock's own value does not clear WCAG AA; each moved the minimum distance and no hue changed.
   `tests/presentation.test.ts` holds every pair to it.
 - Type is two families and nothing else (constraint 3): **Londrina Solid** on headlines, the plate and buttons; **Barlow** on everything else.
@@ -424,6 +431,7 @@ A surviving `head` is the store's own proof that it has been written to, and `Bl
   The earlier site-level copies of all three have been unset accordingly.
   Checking that is itself a trap: `netlify env:list` run *inside the repo* merges `[build.environment]` into its output, so the build-time keys appear whether or not the site holds them — site-only state has to be checked from outside a checkout.
 - The custom domain (`trashtalknyc.org/t/*` proxying, per ticket #5) is deliberately not wired yet; the `/b/[plate]` → `/t/[tag]` re-key landed separately and is what the site already serves.
+  The bookmark cue prints `Astro.url.host` — whatever host the request arrived on — so when the proxy lands, check that the cue on door 2 and the "Adopted!" takeover prints the public domain and not the Netlify origin the proxy forwards to.
 
 ## Branching model
 

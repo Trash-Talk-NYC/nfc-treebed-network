@@ -5,6 +5,14 @@
    its own look later, and this is the whole of what that costs today.
    If you find yourself typing a hex value below, it belongs there instead.
 
+   Since the captain's 2026-09-11 reversal every tap-flow screen stands on
+   solid Post No Bills Green (`--theme-clear`) with Poster Beige
+   (`--theme-ground` / `--theme-on-clear`) as the secondary: the inks over
+   the green, the button pair, and the paper the containers and picker
+   tiles keep. `--theme-ground` is still the beige — it is the paper the
+   containers stand on and the ADMIN's page ground, which this reversal
+   deliberately does not touch.
+
    Type is two families and nothing else (design-record.md, constraint 3):
    Londrina Solid on headlines, the plate and buttons; Barlow underneath.
    Barlow labels are sentence case, not all-caps — only the buttons and the
@@ -77,9 +85,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
    safe-area insets, or it stops being a takeover on a wide phone. Set on
    the frame and on the element behind it. */
 .ground-clear { background: var(--theme-clear); }
-.ground-action { background: var(--theme-action); }
 body:has(.ground-clear), html:has(.ground-clear) { background: var(--theme-clear); }
-body:has(.ground-action), html:has(.ground-action) { background: var(--theme-action); }
 
 /* ── Safe areas ────────────────────────────────────────────────────────
    Every screen is one of these. The insets are ADDED to the design's own
@@ -110,8 +116,46 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
    padding covers the rest. */
 .screen:not(.takeover) > :first-child { padding-right: 94px; }
 
-.screen-clear { background: var(--theme-clear); color: var(--theme-on-clear); }
-.screen-action { background: var(--theme-action); color: var(--theme-on-action); }
+/* ── The ink set of the ground you are standing on ────────────────────
+   The tap flow's inks travel as INHERITED variables rather than as a list of
+   `.screen-clear .<element>` overrides. A descendant override is more
+   specific than inheritance, so with the list every element inside a light
+   container on the green ground had to be rescued by name — and the one that
+   was forgotten rendered the green's beige ink on the container's near-white
+   paper at about 1.15:1. A container resets the set once instead, so an
+   element added inside it is correct without anyone remembering it.
+
+   The default set sits on `:root`, which is where `themeStyle` writes the
+   `--theme-*` roles: a custom property holding a `var()` is substituted on the
+   element it is declared on, so declared anywhere the roles have not reached
+   every one of these computes to the guaranteed-invalid value and each
+   `color: var(--ink-*)` outside the two scopes below — the whole admin —
+   falls back to the inherited ink. */
+:root {
+  --ink-strong: var(--theme-ink);
+  --ink-quiet: var(--theme-muted);
+  --ink-faint: var(--theme-faint);
+  --ink-edge: var(--theme-border);
+  --ink-affirm: var(--theme-clear);
+  --fill-affirm: var(--theme-clear);
+  --on-fill-affirm: var(--theme-on-clear);
+}
+/* The set is declared on the ground as well as on the screen: the language
+   toggle is pinned outside the screen column and would otherwise stand on the
+   green holding the surface ink. */
+.ground-clear, .screen-clear {
+  --ink-strong: var(--theme-on-clear);
+  --ink-quiet: var(--theme-on-clear-muted);
+  --ink-faint: var(--theme-on-clear-muted);
+  --ink-edge: var(--theme-on-clear-muted);
+  --ink-affirm: var(--theme-on-clear);
+  --fill-affirm: var(--theme-on-clear);
+  --on-fill-affirm: var(--theme-clear);
+}
+.screen-clear {
+  background: var(--theme-clear);
+  color: var(--theme-on-clear);
+}
 
 .spacer { flex: 1; }
 
@@ -123,18 +167,15 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.16em;
-  color: var(--theme-muted);
+  color: var(--ink-quiet);
 }
-.screen-clear .kicker, .screen-action .kicker { color: var(--theme-on-clear-muted); }
-.screen-action .kicker { color: var(--theme-on-action); opacity: 0.8; }
 .ident {
   font-family: 'Barlow', sans-serif;
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.09em;
-  color: var(--theme-muted);
+  color: var(--ink-quiet);
 }
-.screen-clear .ident { color: var(--theme-on-clear-muted); }
 
 /* ── Headlines ────────────────────────────────────────────────────────
    `.hero` is the door screens' statement; `.title` the working screens'. */
@@ -164,9 +205,8 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   font-size: 15px;
   font-weight: 400;
   line-height: 1.55;
-  color: var(--theme-muted);
+  color: var(--ink-quiet);
 }
-.screen-clear .body-copy, .screen-action .body-copy { color: var(--theme-on-clear-muted); }
 .mid {
   flex: 1;
   display: flex;
@@ -200,17 +240,6 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
 
 /* On the page ground */
 .btn-action { background: var(--theme-action); color: var(--theme-on-action); }
-.btn-alert { background: var(--theme-alert); color: var(--theme-on-alert); }
-.btn-outline {
-  background: var(--theme-surface);
-  border: 2px solid var(--theme-ink);
-  color: var(--theme-ink);
-}
-.btn-quiet {
-  background: var(--theme-surface);
-  border: 2px solid var(--theme-border);
-  color: var(--theme-ink);
-}
 /* On the green ground: Poster Beige fill, and an outline of the same. */
 .btn-on-clear { background: var(--theme-on-clear); color: var(--theme-clear); }
 .btn-on-clear-outline {
@@ -218,7 +247,6 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   border: 2px solid var(--theme-on-clear);
   color: var(--theme-on-clear);
 }
-.btn-on-action { background: var(--theme-on-action); color: var(--theme-action); }
 
 /* Barlow, sentence case — a link that happens to sit with the buttons. */
 .btn-ghost {
@@ -231,17 +259,16 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   font-family: 'Barlow', sans-serif;
   font-size: 14px;
   font-weight: 600;
-  color: var(--theme-muted);
+  color: var(--ink-quiet);
   text-decoration: none;
   cursor: pointer;
 }
-.screen-clear .btn-ghost { color: var(--theme-on-clear-muted); }
 .back-link {
   align-self: flex-start;
   font-family: 'Barlow', sans-serif;
   font-size: 14px;
   font-weight: 600;
-  color: var(--theme-muted);
+  color: var(--ink-quiet);
   text-decoration: none;
   min-height: 44px;
   display: flex;
@@ -254,6 +281,9 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   border: 1px solid var(--theme-border);
   border-radius: 12px;
   padding: 18px;
+  /* Its own ink: the card is a light surface whatever ground it sits on,
+     so it must not inherit the green ground's beige ink. */
+  color: var(--theme-ink);
 }
 /* Poster Beige container on the green ground. */
 .box {
@@ -262,11 +292,24 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   border-radius: 11px;
   padding: 15px;
 }
+/* A container is its own paper whatever ground it sits on, so it hands its
+   subtree the surface ink set back — the whole set, not the elements that
+   happen to be inside one today. The all-clear band is one of them: its beige
+   is the same paper the box is drawn on. */
+.card, .box, .band-clear {
+  --ink-strong: var(--theme-ink);
+  --ink-quiet: var(--theme-muted);
+  --ink-faint: var(--theme-faint);
+  --ink-edge: var(--theme-border);
+  --ink-affirm: var(--theme-clear);
+  --fill-affirm: var(--theme-clear);
+  --on-fill-affirm: var(--theme-on-clear);
+}
 .panel-h {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: var(--theme-ink);
+  color: var(--ink-strong);
 }
 
 /* ── Stewards ─────────────────────────────────────────────────────────
@@ -297,17 +340,17 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.08em;
-  color: var(--theme-muted);
+  color: var(--ink-quiet);
   margin-top: 2px;
 }
 .slot-open {
-  border: 2px dashed var(--theme-border);
+  border: 2px dashed var(--ink-edge);
   border-radius: 8px;
   padding: 11px;
   text-align: center;
   font-size: 13px;
   font-weight: 600;
-  color: var(--theme-faint);
+  color: var(--ink-faint);
 }
 
 /* ── Choice tiles: the risograph treatment ────────────────────────────
@@ -386,6 +429,11 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
 }
 .quad-input:checked + .quad > span { color: var(--theme-ground); }
 .quad-input:focus-visible + .quad { outline: 3px solid var(--theme-ink); outline-offset: 2px; }
+/* The ring is drawn past the tile's edge, so it lands on the page ground, not
+   on the paper: the black clears the 3:1 it owes on the beige but only just on
+   the green. The beige is the same tone the focused field ring uses, so the two
+   focus indicators on this screen read alike. */
+.screen-clear .quad-input:focus-visible + .quad { outline-color: var(--ink-affirm); }
 
 /* ── Fields ───────────────────────────────────────────────────────── */
 .field-label {
@@ -393,10 +441,10 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   font-family: 'Barlow', sans-serif;
   font-size: 13px;
   font-weight: 600;
-  color: var(--theme-muted);
+  color: var(--ink-quiet);
   margin-bottom: 5px;
 }
-.field-note { font-size: 11px; font-weight: 600; color: var(--theme-faint); letter-spacing: 0.04em; }
+.field-note { font-size: 11px; font-weight: 600; color: var(--ink-faint); letter-spacing: 0.04em; }
 .field-input, .freetext {
   width: 100%;
   border: 2px solid var(--theme-border);
@@ -411,11 +459,51 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   background: var(--theme-surface);
 }
 .field-input:focus, .freetext:focus { outline: none; border-color: var(--theme-action); }
+/* The purple is 1.36:1 on the green, so on the clear ground the focused edge
+   would vanish into the ground the field sits on — the same reason the error
+   left the purple for the chip. The attention yellow clears the 3:1 a border
+   owes there, but yellow and the unfocused edge are within 1.2:1 of each
+   other, so the border alone would be a focus state nobody can see change.
+   The ring carries it: the beige off the green, the same outline-and-offset
+   the problem tiles already focus with. */
+.screen-clear .field-input:focus,
+.screen-clear .freetext:focus {
+  border-color: var(--theme-alert);
+}
+/* The ring is the keyboard affordance, so it keys off :focus-visible — the
+   same state the problem tiles ring on, and a thumb tap on a street screen
+   gets the border tint alone. It rides `--ink-affirm` rather than naming the
+   role, so a field inside a light container draws the green edge instead of a
+   beige one nobody could see on the paper. */
+.screen-clear .field-input:focus-visible,
+.screen-clear .freetext:focus-visible {
+  outline: 3px solid var(--ink-affirm);
+  outline-offset: 2px;
+}
 .field-input::placeholder, .freetext::placeholder { color: var(--theme-faint); font-weight: 400; }
 .freetext { resize: none; line-height: 1.5; }
 .field-row { display: flex; gap: 9px; }
 .field-row > div { flex: 1; min-width: 0; }
 .field-error { font-size: 13px; font-weight: 600; color: var(--theme-action); margin-top: 5px; }
+/* On the green ground the purple has no contrast, so an error goes on the
+   attention chip instead: Street Sign Yellow, always with black on it. */
+.screen-clear .field-error {
+  background: var(--theme-alert);
+  color: var(--theme-on-alert);
+  border-radius: 8px;
+  padding: 8px 11px;
+}
+
+/* The hidden input is absolutely positioned, and an absolutely positioned
+   child of a flex container takes its static position from the container's
+   content-box corner rather than from where it was written — so focusing ADD A
+   PHOTO would scroll the screen to the top of the tile grid while the ring
+   painted on the pill at the bottom. This block is that flex child instead,
+   and the input's static position is back beside the pill it rings, the same
+   guard `.catgrid` puts around the tile checkboxes. */
+.photo-field {
+  position: relative;
+}
 
 .photo-row {
   display: flex;
@@ -423,22 +511,35 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   justify-content: center;
   gap: 9px;
   min-height: 52px;
-  border: 2px dashed var(--theme-border);
+  border: 2px dashed var(--ink-edge);
   border-radius: 10px;
   padding: 12px;
   font-family: 'Barlow', sans-serif;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.06em;
-  color: var(--theme-muted);
+  color: var(--ink-quiet);
   cursor: pointer;
   text-align: center;
 }
-.photo-row input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.photo-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+/* The file input is hidden the way the tile checkboxes are, so the browser's
+   own ring would be painted on a 1px transparent box and keyboard focus on
+   ADD A PHOTO would be a dead stop between the last tile and SEND IT. The pill
+   carries it instead, in the tone and at the offset the tiles and the fields
+   ring at — drawn past the edge, so the attached state's beige fill is never
+   what it has to read against. It is the tiles' own adjacent-sibling shape
+   rather than `:has()`, because an affordance whose whole job is to exist must
+   not be dropped wholesale by a browser that cannot parse its selector. */
+.photo-input:focus-visible + .photo-row {
+  outline: 3px solid var(--ink-affirm);
+  outline-offset: 2px;
+}
 .photo-row.attached {
   border-style: solid;
-  border-color: var(--theme-clear);
-  color: var(--theme-clear);
+  background: var(--fill-affirm);
+  border-color: var(--fill-affirm);
+  color: var(--on-fill-affirm);
 }
 
 /* ── Full-screen takeovers ────────────────────────────────────────────
@@ -466,14 +567,15 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
   line-height: 1.5;
   max-width: 24ch;
 }
-.screen-action .takeover-sub { color: var(--theme-on-action); opacity: 0.85; }
-.screen-clear .takeover-sub { color: var(--theme-on-clear-muted); }
+.takeover-sub { color: var(--ink-quiet); }
+/* In flow, not absolute: the bookmark cue makes this block tall enough to
+   reach the centred statement, and an out-of-flow one can neither push it nor
+   scroll. The mark's auto margins centre it in whatever room is left, so the
+   screen grows and scrolls on a short viewport instead of overlapping. The
+   safe-area padding stays where it always was, on `.screen`. */
+.takeover > .takeover-mark { margin-block: auto; }
 .takeover-actions {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  padding: 0 18px;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -488,9 +590,43 @@ body:has(.ground-action), html:has(.ground-action) { background: var(--theme-act
 
 /* ── Report band, on the steward's own view ───────────────────────── */
 .band { border-radius: 10px; padding: 13px 15px; }
-.band-alert { background: var(--theme-alert); color: var(--theme-on-alert); }
-.band-clear { background: var(--theme-clear); color: var(--theme-on-clear); }
+/* The yellow is its own paper, and a light one: the green ground's inks would
+   render at about 1.2:1 on it, and the surface set the other containers hand
+   back is no better — the muted and faint greys both miss body contrast on
+   Street Sign Yellow. Everything that carries words takes the black the fill
+   already owes. */
+.band-alert {
+  background: var(--theme-alert);
+  color: var(--theme-on-alert);
+  --ink-strong: var(--theme-on-alert);
+  --ink-quiet: var(--theme-on-alert);
+  --ink-faint: var(--theme-on-alert);
+  --ink-edge: var(--theme-on-alert);
+  --ink-affirm: var(--theme-clear);
+  --fill-affirm: var(--theme-clear);
+  --on-fill-affirm: var(--theme-on-clear);
+}
+/* All-clear reads inverted now that the page itself is the green: a beige
+   band with the green ink, so it does not dissolve into the ground. */
+.band-clear { background: var(--theme-on-clear); color: var(--theme-clear); }
 .band-title { font-family: 'Londrina Solid', cursive; font-size: 21px; line-height: 1.12; }
 .band-sub { font-size: 11px; font-weight: 600; letter-spacing: 0.09em; margin-top: 3px; }
+
+/* ── The bookmark cue ─────────────────────────────────────────────────
+   On the "Adopted!" takeover and, for a signed-in steward, on their bed's
+   door: the bed's own /t/<tag> URL, the way back without tapping the tag.
+   Plain text and a plain link — nothing here needs script. */
+.bookmark-cue {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--ink-quiet);
+  margin: 0;
+}
+.bookmark-cue a {
+  color: var(--ink-strong);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
 
 .logo { display: block; height: 40px; width: auto; }

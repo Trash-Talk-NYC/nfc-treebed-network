@@ -479,7 +479,11 @@ export interface BedEvent {
   createdAt: string;
 }
 
-/** How a steward is named on a public screen: `@marisol_r`. */
+/**
+ * How a steward is named on a public screen: `@MapleSteward42`, the generated
+ * shape every steward has had since 2026-09-11. The seeded `@marisol_r` keeps
+ * the older shape — nothing rewrites a handle already on the street.
+ */
 export function publicHandle(user: User): string {
   return `@${user.username}`;
 }

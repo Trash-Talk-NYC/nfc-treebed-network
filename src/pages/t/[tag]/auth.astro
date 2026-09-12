@@ -129,65 +129,63 @@ if (Astro.request.method === 'POST') {
   presentation={presentation}
   url={Astro.url}
 >
-  <div class="screen">
-    <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
-      >{COMMON.backToBed[lang]}</a
-    >
-    {
-      sent ? (
-        <>
-          <h1 class="title" {...bi(AUTH.sentTitle, lang)}>{AUTH.sentTitle[lang]}</h1>
-          <p class="body-copy" {...bi(AUTH.sentBody, lang)}>{AUTH.sentBody[lang]}</p>
+  <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
+    >{COMMON.backToBed[lang]}</a
+  >
+  {
+    sent ? (
+      <>
+        <h1 class="title" {...bi(AUTH.sentTitle, lang)}>{AUTH.sentTitle[lang]}</h1>
+        <p class="body-copy" {...bi(AUTH.sentBody, lang)}>{AUTH.sentBody[lang]}</p>
+        <div class="spacer" />
+        <a
+          class="btn btn-on-clear"
+          href={langLink(ourPlaqueLink(base), lang)}
+          {...bi(COMMON.backToBed, lang)}
+          >{COMMON.backToBed[lang]}</a
+        >
+      </>
+    ) : !available ? (
+      <>
+        <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
+        <p class="body-copy" {...bi(AUTH.unavailable, lang)}>{AUTH.unavailable[lang]}</p>
+        <div class="spacer" />
+        <a
+          class="btn btn-on-clear"
+          href={langLink(ourPlaqueLink(base), lang)}
+          {...bi(COMMON.backToBed, lang)}
+          >{COMMON.backToBed[lang]}</a
+        >
+      </>
+    ) : (
+      <>
+        <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
+        <p class="body-copy" {...bi(AUTH.sub, lang)}>{AUTH.sub[lang]}</p>
+        <form method="POST" action={langLink(`${base}/auth`, lang)} class="auth-form">
+          <div>
+            <label class="field-label" for="email" {...bi(AUTH.email, lang)}>
+              {AUTH.email[lang]}
+            </label>
+            <input
+              class="field-input"
+              id="email"
+              name="email"
+              type="email"
+              maxlength={MAX_EMAIL_CHARS}
+              value={email}
+              autocomplete="email"
+              required
+            />
+          </div>
+          {error && <div class="field-error" {...bi(error, lang)}>{error[lang]}</div>}
           <div class="spacer" />
-          <a
-            class="btn btn-action"
-            href={langLink(ourPlaqueLink(base), lang)}
-            {...bi(COMMON.backToBed, lang)}
-            >{COMMON.backToBed[lang]}</a
-          >
-        </>
-      ) : !available ? (
-        <>
-          <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
-          <p class="body-copy" {...bi(AUTH.unavailable, lang)}>{AUTH.unavailable[lang]}</p>
-          <div class="spacer" />
-          <a
-            class="btn btn-action"
-            href={langLink(ourPlaqueLink(base), lang)}
-            {...bi(COMMON.backToBed, lang)}
-            >{COMMON.backToBed[lang]}</a
-          >
-        </>
-      ) : (
-        <>
-          <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
-          <p class="body-copy" {...bi(AUTH.sub, lang)}>{AUTH.sub[lang]}</p>
-          <form method="POST" action={langLink(`${base}/auth`, lang)} class="auth-form">
-            <div>
-              <label class="field-label" for="email" {...bi(AUTH.email, lang)}>
-                {AUTH.email[lang]}
-              </label>
-              <input
-                class="field-input"
-                id="email"
-                name="email"
-                type="email"
-                maxlength={MAX_EMAIL_CHARS}
-                value={email}
-                autocomplete="email"
-                required
-              />
-            </div>
-            {error && <div class="field-error" {...bi(error, lang)}>{error[lang]}</div>}
-            <div class="spacer" />
-            <button class="btn btn-tall btn-action" type="submit" {...bi(AUTH.submit, lang)}>
-              {AUTH.submit[lang]}
-            </button>
-          </form>
-        </>
-      )
-    }
-  </div>
+          <button class="btn btn-tall btn-on-clear" type="submit" {...bi(AUTH.submit, lang)}>
+            {AUTH.submit[lang]}
+          </button>
+        </form>
+      </>
+    )
+  }
 </Screen>
 
 <style>

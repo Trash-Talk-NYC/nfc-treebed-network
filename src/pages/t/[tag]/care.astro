@@ -79,138 +79,150 @@ const backToChoices = langLink(`${base}/care${carriedQuery ? `?${carriedQuery}` 
   presentation={presentation}
   url={Astro.url}
 >
-  <div class="screen">
-    <a
-      class="back-link"
-      href={telling ? backToChoices : backToBed}
-      {...bi(telling ? COMMON.backToChoices : COMMON.backToBed, lang)}
-      >{(telling ? COMMON.backToChoices : COMMON.backToBed)[lang]}</a
-    >
-    <h1 class="title" {...bi(telling ? CARE.noteTitle : CARE.title, lang)}>
-      {(telling ? CARE.noteTitle : CARE.title)[lang]}
-    </h1>
+  <a
+    class="back-link"
+    href={telling ? backToChoices : backToBed}
+    {...bi(telling ? COMMON.backToChoices : COMMON.backToBed, lang)}
+    >{(telling ? COMMON.backToChoices : COMMON.backToBed)[lang]}</a
+  >
+  <h1 class="title" {...bi(telling ? CARE.noteTitle : CARE.title, lang)}>
+    {(telling ? CARE.noteTitle : CARE.title)[lang]}
+  </h1>
 
-    {/* multipart, and the text parts first: the route reads the category and
-        the note off the head of the body and never buffers the photo, which
-        only works while the file input is last in the DOM (request-body.ts).
-        `tests/care-form-order.e2e.test.ts` posts this form in its rendered
-        order, so moving the file input up fails the suite. */}
-    <form class="care-form" method="POST" action={action} enctype="multipart/form-data">
-      {/* The form's DEFAULT button, deliberately first and carrying nothing:
-          Enter after checking a tile files the report. Without it the first
-          submit in tree order is "Something else", whose GET would carry a
-          visitor to the sentence screen at the moment they meant to send. */}
-      <button type="submit" hidden aria-hidden="true" tabindex="-1"></button>
-      {
-        telling ? (
-          <>
-            <input type="hidden" name="category" value={other.value} />
-            {carried.map((value) => (
-              <input type="hidden" name="category" value={value} />
-            ))}
-            <p class="body-copy" {...bi(CARE.noteHelp, lang)}>
-              {CARE.noteHelp[lang]}
-            </p>
-            <textarea
-              class="freetext"
-              name="note"
-              rows="5"
-              maxlength={MAX_NOTE_CHARS}
-              {...biAttr('placeholder', CARE.notePlaceholder, lang)}
-            />
-            <div class="charcount" data-charcount>0 / {MAX_NOTE_CHARS}</div>
-            {carriedProblems.length > 0 && (
-              <p class="also-sending">
-                <span {...bi(CARE.alsoSending, lang)}>{CARE.alsoSending[lang]}</span>{' '}
-                {carriedProblems.map((problem, i) => (
-                  <Fragment>
-                    {i > 0 && <span class="also-sep">·</span>}
-                    <span
-                      class="also-cat"
-                      style={`color:${themeVar(problem.ink)}`}
-                      {...bi(problem.label, lang)}
-                    >
-                      {problem.label[lang]}
-                    </span>
-                  </Fragment>
-                ))}
-              </p>
-            )}
-          </>
-        ) : (
-          <>
-            {nothingPicked && (
-              <p class="field-error" {...bi(CARE.pickOne, lang)}>
-                {CARE.pickOne[lang]}
-              </p>
-            )}
-            {/* What carries the language through the GET submit below: a GET
-                replaces its action's query string, so `?lang=` on the action
-                would be lost — the field rides instead, and the layout's
-                toggle script keeps its value current. Harmless on the POST,
-                whose action still carries the language. */}
-            <input type="hidden" name="lang" value={lang} />
-            <div class="catgrid">
-              {/* Checkbox + label: the whole tile is the hit target, every
-                  chosen state is `:checked`, and none of it needs script. The
-                  input is a direct child of the grid so the adjacent-sibling
-                  selector reaches its label; being absolutely positioned, it
-                  creates no track of its own. The ink is a theme role, never
-                  a hex. */}
-              {tiles.map((problem) => (
+  {/* multipart, and the text parts first: the route reads the category and
+      the note off the head of the body and never buffers the photo, which
+      only works while the file input is last in the DOM (request-body.ts).
+      `tests/care-form-order.e2e.test.ts` posts this form in its rendered
+      order, so moving the file input up fails the suite. */}
+  <form class="care-form" method="POST" action={action} enctype="multipart/form-data">
+    {/* The form's DEFAULT button, deliberately first and carrying nothing:
+        Enter after checking a tile files the report. Without it the first
+        submit in tree order is "Something else", whose GET would carry a
+        visitor to the sentence screen at the moment they meant to send. */}
+    <button type="submit" hidden aria-hidden="true" tabindex="-1"></button>
+    {
+      telling ? (
+        <>
+          <input type="hidden" name="category" value={other.value} />
+          {carried.map((value) => (
+            <input type="hidden" name="category" value={value} />
+          ))}
+          <p class="body-copy" {...bi(CARE.noteHelp, lang)}>
+            {CARE.noteHelp[lang]}
+          </p>
+          <textarea
+            class="freetext"
+            name="note"
+            rows="5"
+            maxlength={MAX_NOTE_CHARS}
+            {...biAttr('placeholder', CARE.notePlaceholder, lang)}
+          />
+          <div class="charcount" data-charcount>0 / {MAX_NOTE_CHARS}</div>
+          {carriedProblems.length > 0 && (
+            <p class="also-sending">
+              <span {...bi(CARE.alsoSending, lang)}>{CARE.alsoSending[lang]}</span>{' '}
+              {carriedProblems.map((problem, i) => (
                 <Fragment>
-                  <input
-                    class="quad-input"
-                    type="checkbox"
-                    id={`cat-${problem.value}`}
-                    name="category"
-                    value={problem.value}
-                    checked={checked.has(problem.value)}
-                  />
-                  <label
-                    class="quad"
-                    for={`cat-${problem.value}`}
-                    style={`color:${themeVar(problem.ink)};border-color:${themeVar(problem.edge)}`}
+                  {i > 0 && <span class="also-sep">·</span>}
+                  <span
+                    class="also-cat"
+                    style={`color:${themeVar(problem.ink)}`}
+                    {...bi(problem.label, lang)}
                   >
-                    <span {...bi(problem.label, lang)}>{problem.label[lang]}</span>
-                  </label>
+                    {problem.label[lang]}
+                  </span>
                 </Fragment>
               ))}
-              {/* The fourth quadrant opens the sentence box — its own screen,
-                  as approved, with or without JavaScript. A GET submit of this
-                  same form rather than a link, so the tiles already pressed
-                  ride its query string onto that screen. */}
-              <button
-                class="quad quad-tell"
-                type="submit"
-                name="tell"
-                value="1"
-                formmethod="get"
-                formaction={`${base}/care`}
-                style={`color:${themeVar(other.ink)};border-color:${themeVar(other.edge)}`}
-              >
-                <span {...bi(other.label, lang)}>{other.label[lang]}</span>
-              </button>
-            </div>
-          </>
-        )
-      }
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          {nothingPicked && (
+            <p class="field-error" {...bi(CARE.pickOne, lang)}>
+              {CARE.pickOne[lang]}
+            </p>
+          )}
+          {/* What carries the language through the GET submit below: a GET
+              replaces its action's query string, so `?lang=` on the action
+              would be lost — the field rides instead, and the layout's
+              toggle script keeps its value current. Harmless on the POST,
+              whose action still carries the language. */}
+          <input type="hidden" name="lang" value={lang} />
+          <div class="catgrid">
+            {/* Checkbox + label: the whole tile is the hit target, every
+                chosen state is `:checked`, and none of it needs script. The
+                input is a direct child of the grid so the adjacent-sibling
+                selector reaches its label; being absolutely positioned, it
+                creates no track of its own. The ink is a theme role, never
+                a hex. */}
+            {tiles.map((problem) => (
+              <Fragment>
+                <input
+                  class="quad-input"
+                  type="checkbox"
+                  id={`cat-${problem.value}`}
+                  name="category"
+                  value={problem.value}
+                  checked={checked.has(problem.value)}
+                />
+                <label
+                  class="quad"
+                  for={`cat-${problem.value}`}
+                  style={`color:${themeVar(problem.ink)};border-color:${themeVar(problem.edge)}`}
+                >
+                  <span {...bi(problem.label, lang)}>{problem.label[lang]}</span>
+                </label>
+              </Fragment>
+            ))}
+            {/* The fourth quadrant opens the sentence box — its own screen,
+                as approved, with or without JavaScript. A GET submit of this
+                same form rather than a link, so the tiles already pressed
+                ride its query string onto that screen. */}
+            <button
+              class="quad quad-tell"
+              type="submit"
+              name="tell"
+              value="1"
+              formmethod="get"
+              formaction={`${base}/care`}
+              style={`color:${themeVar(other.ink)};border-color:${themeVar(other.edge)}`}
+            >
+              <span {...bi(other.label, lang)}>{other.label[lang]}</span>
+            </button>
+          </div>
+        </>
+      )
+    }
 
-      {/* Both states are in the document, and the class picks which shows.
-          Nothing rewrites text, so the language toggle keeps working on the
-          one that is visible. */}
-      <label class="photo-row">
-        <input type="file" name="photo" accept="image/*" capture="environment" />
+    {/* The input is the pill's SIBLING, not its child, so the focus ring can
+        be an adjacent-sibling rule like the tiles' rather than a `:has()`, and
+        the pair sits in its own block so the hidden input's static position is
+        beside the pill rather than at the form's corner — the same hazard
+        `.catgrid` guards against for the tile checkboxes.
+        Both label states are in the document and the class picks which shows;
+        nothing rewrites text, so the language toggle keeps working on the one
+        that is visible. */}
+    <div class="photo-field">
+      <input
+        class="photo-input"
+        id="photo"
+        type="file"
+        name="photo"
+        accept="image/*"
+        capture="environment"
+      />
+      <label class="photo-row" for="photo">
         <span class="photo-idle" {...bi(COMMON.addPhoto, lang)}>{COMMON.addPhoto[lang]}</span>
         <span class="photo-on" {...bi(COMMON.photoAttached, lang)}>{COMMON.photoAttached[lang]}</span>
       </label>
+    </div>
 
-      <div class="spacer" />
-      <button class="btn btn-tall btn-alert" type="submit" {...bi(COMMON.sendIt, lang)}>
-        {COMMON.sendIt[lang]}
-      </button>
-    </form>
-  </div>
+    <div class="spacer" />
+    <button class="btn btn-tall btn-on-clear" type="submit" {...bi(COMMON.sendIt, lang)}>
+      {COMMON.sendIt[lang]}
+    </button>
+  </form>
 </Screen>
 
 <script is:inline>
@@ -219,7 +231,7 @@ const backToChoices = langLink(`${base}/care${carriedQuery ? `?${carriedQuery}` 
   // screens submit correctly with this script absent — the file input is a
   // file input and the server caps the note either way.
   (function () {
-    var photo = document.querySelector('.photo-row input[type=file]');
+    var photo = document.querySelector('.photo-input');
     var row = document.querySelector('.photo-row');
     if (photo && row) {
       photo.addEventListener('change', function () {
@@ -257,18 +269,25 @@ const backToChoices = langLink(`${base}/care${carriedQuery ? `?${carriedQuery}` 
     font-family: 'Barlow', sans-serif;
     font-size: 13px;
     font-weight: 600;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
     margin: -4px 0 0;
   }
-  .also-sending .also-cat { font-weight: 700; }
-  .also-sending .also-sep { color: var(--theme-faint); padding: 0 2px; }
+  /* The tile inks are tuned for AA on the beige paper, not on the green
+     ground, so each carried label sits on its own beige pill. */
+  .also-sending .also-cat {
+    font-weight: 700;
+    background: var(--theme-ground);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+  .also-sending .also-sep { color: var(--ink-quiet); padding: 0 2px; }
   .photo-on { display: none; }
   .photo-row.attached .photo-idle { display: none; }
   .photo-row.attached .photo-on { display: inline; }
   .charcount {
     font-size: 12px;
     font-weight: 600;
-    color: var(--theme-faint);
+    color: var(--ink-quiet);
     text-align: right;
     margin-top: -6px;
   }

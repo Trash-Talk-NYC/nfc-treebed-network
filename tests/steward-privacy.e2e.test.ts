@@ -19,14 +19,16 @@ import { seedData } from '../src/lib/store-dataset';
 import { signInByLink } from './helpers/steward-session';
 import { serverEnv } from './helpers/server-env';
 import { defaultPresentation } from '../src/lib/presentation';
-import { DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, COMMON } from '../src/lib/copy';
+import { BOOKMARK, DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, COMMON } from '../src/lib/copy';
 import { problemFor } from '../src/lib/problem';
 
 /** The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847. */
 const TAG = '2mq2amhv';
 
-/** The page ground, read from the presentation rather than typed as a hex. */
-const DEFAULT_GROUND = defaultPresentation().colors.ground;
+/** The tap flow's page ground — the green — read from the presentation
+ * rather than typed as a hex. Solid Post No Bills Green on every screen is
+ * the captain's 2026-09-11 reversal of the earlier beige door 1. */
+const TAP_GROUND = defaultPresentation().colors.clear;
 
 let server: ChildProcessWithoutNullStreams;
 let origin = '';
@@ -121,10 +123,12 @@ async function startOn(data: Awaited<ReturnType<typeof seedData>>): Promise<[Chi
 }
 
 describe('the door a bed with no steward opens', () => {
-  // The captain moved this screen onto Poster Beige and dropped the highlight
-  // after the review. Both are visible facts about the rendered HTML, and both
-  // are the kind of thing a later "tidy-up" would undo by making the two doors
-  // match — so they are asserted rather than left to a comment.
+  // Since the captain's 2026-09-11 reversal BOTH doors stand on solid Post No
+  // Bills Green with Poster Beige as the secondary — but door 1 still carries
+  // no highlight, so its headline reads as one plain sentence. Both are
+  // visible facts about the rendered HTML and both are the kind of thing a
+  // later "tidy-up" would drift, so they are asserted rather than left to a
+  // comment.
   beforeAll(async () => {
     const data = seedData();
     data.adoptions = [];
@@ -136,7 +140,7 @@ describe('the door a bed with no steward opens', () => {
     if (openDataDir) await rm(openDataDir, { recursive: true, force: true });
   });
 
-  it('stands on the page ground, not the green, and carries no highlight', async () => {
+  it('stands on the solid green like door 2, and carries no highlight', async () => {
     const response = await fetch(`${openOrigin}/t/${TAG}`);
     expect(response.status).toBe(200);
     const html = await response.text();
@@ -145,32 +149,32 @@ describe('the door a bed with no steward opens', () => {
     expect(html).toContain(DOOR_UNSTEWARDED.adopt.en);
     expect(html).toContain(DOOR_UNSTEWARDED.headAfter.en);
 
-    // On the page ground: no green screen class, and the browser chrome behind
-    // the notch matches the beige rather than staying on the old green.
-    // Anchored to the class ATTRIBUTE — `ground-clear` also appears in the
-    // inlined stylesheet, which a bare substring match would find on every
-    // screen and pass on none.
-    expect(html).toContain('class="frame ground-page"');
-    expect(html).not.toContain('class="frame ground-clear"');
-    expect(html).not.toContain('class="screen screen-clear"');
-    expect(html).toContain(`content="${DEFAULT_GROUND}"`);
+    // On the green: the frame and the screen both carry it, and the browser
+    // chrome behind the notch matches the green rather than the old beige.
+    // All three come off the layout's single ground role, so they cannot
+    // disagree — the old beige ground is gone rather than merely unused.
+    expect(html).toContain('class="frame ground-clear"');
+    expect(html).toContain('class="screen screen-clear"');
+    expect(html).not.toContain('ground-page');
+    expect(html).not.toContain('screen-page');
+    expect(html).toContain(`content="${TAP_GROUND}"`);
 
     // One plain sentence: the tree type is still its own bilingual leaf, but
-    // nothing picks it out.
+    // nothing picks it out — the highlight stays door 2's.
     expect(html).not.toContain('class="hl"');
     expect(html).toContain('data-es="roble sauce"');
 
-    // Same two buttons, same order, in the page ground's own pair.
+    // Same two buttons, same order, in the beige-on-green pair door 2 uses.
     const adoptAt = html.indexOf(DOOR_UNSTEWARDED.adopt.en);
     const careAt = html.indexOf(COMMON.needsCare.en);
     expect(adoptAt).toBeGreaterThan(-1);
     expect(careAt).toBeGreaterThan(adoptAt);
-    expect(html).toContain('class="btn btn-tall btn-action"');
-    expect(html).toContain('class="btn btn-outline"');
-    // Anchored to the attribute for the same reason as the ground above: the
-    // green-ground button classes are defined in the inlined stylesheet on
-    // every screen, so a bare substring would never fail.
-    expect(html).not.toContain('class="btn btn-tall btn-on-clear"');
+    expect(html).toContain('class="btn btn-tall btn-on-clear"');
+    expect(html).toContain('class="btn btn-on-clear-outline"');
+    // The old page-ground pair is gone with the beige door. Anchored to the
+    // attribute for the same reason as the ground above.
+    expect(html).not.toContain('class="btn btn-tall btn-action"');
+    expect(html).not.toContain('class="btn btn-outline"');
   });
 
   it('says all of it in Spanish too', async () => {
@@ -178,9 +182,9 @@ describe('the door a bed with no steward opens', () => {
     expect(html).toContain(DOOR_UNSTEWARDED.adopt.es);
     expect(html).toContain(DOOR_UNSTEWARDED.sub.es);
     expect(html).toContain(COMMON.needsCare.es);
-    // Still the beige ground, whichever language it is read in.
-    expect(html).toContain('class="frame ground-page"');
-    expect(html).not.toContain('class="screen screen-clear"');
+    // Still the green ground, whichever language it is read in.
+    expect(html).toContain('class="frame ground-clear"');
+    expect(html).toContain('class="screen screen-clear"');
     expect(html).not.toContain('class="hl"');
   });
 });
@@ -219,12 +223,13 @@ describe('the door a bed nobody has offered a slot on opens', () => {
     expect(html).not.toContain(DOOR_UNSTEWARDED.sub.en);
     expect(html).toContain(COMMON.needsCare.en);
 
-    // Still door 1's own ground and pair: beige, no highlight, no yellow.
-    expect(html).toContain('class="frame ground-page"');
-    expect(html).not.toContain('class="screen screen-clear"');
+    // Still door 1: the green ground, no highlight, and only the care action
+    // in the beige-on-green pair.
+    expect(html).toContain('class="frame ground-clear"');
+    expect(html).toContain('class="screen screen-clear"');
     expect(html).not.toContain('class="hl"');
-    expect(html).toContain('class="btn btn-outline"');
-    expect(html).not.toContain('class="btn btn-tall btn-action"');
+    expect(html).toContain('class="btn btn-on-clear-outline"');
+    expect(html).not.toContain('class="btn btn-tall btn-on-clear"');
   });
 
   it('says it in Spanish too', async () => {
@@ -234,7 +239,7 @@ describe('the door a bed nobody has offered a slot on opens', () => {
     expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.es);
     expect(html).not.toContain(DOOR_UNSTEWARDED.sub.es);
     expect(html).toContain(COMMON.needsCare.es);
-    expect(html).toContain('class="frame ground-page"');
+    expect(html).toContain('class="frame ground-clear"');
     expect(html).not.toContain('class="hl"');
   });
 });
@@ -274,9 +279,9 @@ describe('the shipped W 171st tags', () => {
       expect(html, tagId).toContain(COMMON.needsCare.en);
       expect(html, tagId).not.toContain(DOOR_STEWARDED.applaud.en);
 
-      // Door 1's ground, not the adopted green.
-      expect(html, tagId).toContain('class="frame ground-page"');
-      expect(html, tagId).not.toContain('class="screen screen-clear"');
+      // The one solid green every screen stands on now.
+      expect(html, tagId).toContain('class="frame ground-clear"');
+      expect(html, tagId).toContain('class="screen screen-clear"');
     }
   });
 
@@ -360,7 +365,7 @@ describe('a steward who asked not to be named', () => {
     const titleOf = (page: string) => /<title>([^<]*)<\/title>/.exec(page)?.[1];
     expect(titleOf(html)).toBe('YOUR BED · Willow oak');
     expect(titleOf(door)).toBe('Roble sauce · TRASH TALK NYC');
-    const mineEs = await fetch(`${origin}/t/${TAG}/mine?lang=es`, { headers: { cookie: cookie! } });
+    const mineEs = await fetch(`${origin}/t/${TAG}/mine?lang=es`, { headers: { cookie } });
     const htmlEs = await mineEs.text();
     expect(titleOf(htmlEs)).toBe('TU CANTERO · Roble sauce');
     // The Spanish render carries no weekly-photo ask either.
@@ -372,6 +377,36 @@ describe('a steward who asked not to be named', () => {
     ] as const) {
       const page = await (await fetch(`${origin}/t/${TAG}/${path}?lang=es`)).text();
       expect(titleOf(page), path).toBe(expected);
+    }
+  });
+
+  it('is offered the bookmark cue on their own door, and a passer-by is not', async () => {
+    // The way back without tapping the tag: the bed's own /t/<tag> URL, on
+    // the door, for the signed-in steward only. In both languages, with the
+    // URL as its own untranslated leaf.
+    const anonymous = await (await fetch(`${origin}/t/${TAG}`)).text();
+    expect(anonymous).not.toContain(BOOKMARK.cue.en);
+
+    const cookie = await stewardSession();
+
+    const door = await (
+      await fetch(`${origin}/t/${TAG}`, { headers: { cookie } })
+    ).text();
+    expect(door).toContain(BOOKMARK.cue.en);
+    expect(door).toContain(`data-es="${BOOKMARK.cue.es}"`);
+    expect(door).toContain(`/t/${TAG}`);
+
+    // What the steward sees is what they save: the cue's href is exactly the
+    // bare address it prints, in Spanish too, where every other link of ours
+    // carries the language. A long-press that bookmarks the link and a
+    // bookmark of the page itself are then the same URL.
+    for (const search of ['', '?lang=es']) {
+      const page = await (
+        await fetch(`${origin}/t/${TAG}${search}`, { headers: { cookie } })
+      ).text();
+      const cue = new RegExp(`<a href="([^"]+)"[^>]*>[^<]*/t/${TAG}</a>`).exec(page);
+      expect(cue, `no cue anchor on ${search || 'the English door'}`).not.toBeNull();
+      expect(cue![1], search).toBe(`/t/${TAG}`);
     }
   });
 

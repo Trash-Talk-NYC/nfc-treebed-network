@@ -68,7 +68,7 @@ const SEGMENT_LABELS: Record<Lang, { text: string; name: string }> = {
     z-index: 40;
     display: flex;
     border-radius: 22px;
-    border: 2px solid var(--theme-border);
+    border: 2px solid var(--ink-edge);
     background: var(--theme-surface);
     overflow: hidden;
   }
@@ -80,7 +80,7 @@ const SEGMENT_LABELS: Record<Lang, { text: string; name: string }> = {
     min-width: 44px;
     min-height: 44px;
     padding: 0 6px;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
     font-family: 'Barlow', sans-serif;
     font-size: 13px;
     font-weight: 700;
@@ -98,28 +98,22 @@ const SEGMENT_LABELS: Record<Lang, { text: string; name: string }> = {
     color: var(--theme-surface);
   }
 
-  /* On the coloured grounds — the two doors and the takeovers — it reads as
-     part of the ground rather than a chip stuck on top of it. */
+  /* On the green ground — the two doors and the takeovers — it reads as
+     part of the ground rather than a chip stuck on top of it. The ink and the
+     edge need no override: the ground hands down its own `--ink-*` set. */
   :global(.ground-clear) .lang-toggle {
-    border-color: var(--theme-on-clear-muted);
     background: transparent;
-  }
-  :global(.ground-clear) .lang-choice {
-    color: var(--theme-on-clear-muted);
   }
   :global(.ground-clear) .lang-choice[aria-current='true'] {
     background: var(--theme-on-clear);
     color: var(--theme-clear);
   }
-  :global(.ground-action) .lang-toggle {
-    border-color: var(--theme-on-action);
-    background: transparent;
-  }
-  :global(.ground-action) .lang-choice {
-    color: var(--theme-on-action);
-  }
-  :global(.ground-action) .lang-choice[aria-current='true'] {
-    background: var(--theme-on-action);
-    color: var(--theme-action);
+  /* The pressed state needs its own tone here: the beige the surface press
+     paints is 1.06:1 against the label this ground gives the toggle, so the
+     segment would go blank under the thumb holding it. The press deepens the
+     green instead of lightening it, which keeps the beige label legible on the
+     pill it is printed on rather than washing it out. */
+  :global(.ground-clear) .lang-choice:not([aria-current='true']):active {
+    background: color-mix(in srgb, var(--theme-ink) 24%, transparent);
   }
 </style>
