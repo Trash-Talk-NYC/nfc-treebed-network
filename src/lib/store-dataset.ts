@@ -4,11 +4,19 @@
 // persistence and share this shape, the seed, and the operations, so the two
 // backends cannot drift apart on what the data means.
 
-import bcrypt from 'bcryptjs';
-import { randomBytes } from 'node:crypto';
 import type { Store } from './store';
 import type { ProblemCategory } from './problem';
-import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
+import type {
+  Adoption,
+  Bed,
+  BedEvent,
+  Block,
+  NetworkSettings,
+  Report,
+  SignInRequest,
+  SignInToken,
+  User,
+} from './types';
 import { GENERIC_TREE } from './tree-species';
 
 export interface Data {
@@ -19,10 +27,13 @@ export interface Data {
   reports: Report[];
   events: BedEvent[];
   reportCounter: number;
+  /** Outstanding tap-to-sign-in links, hashed (types.ts `SignInToken`). */
+  signInTokens: SignInToken[];
+  /** The sign-in rate limit's sliding window (types.ts `SignInRequest`). */
+  signInRequests: SignInRequest[];
+  /** Network-wide settings the block admin edits. */
+  settings: NetworkSettings;
 }
-
-/** The demo PIN the seeded steward gets where sign-in is not publicly reachable. */
-export const DEMO_STEWARD_PIN = '1234';
 
 /**
  * Fill in fields a record predates.
@@ -41,6 +52,14 @@ export const DEMO_STEWARD_PIN = '1234';
  */
 export function normalizeData(data: Data): Data {
   data.blocks ??= {};
+  // A store written before the sign-in link and the digest existed simply has
+  // no outstanding links, no rate-limit window, and the digest OFF — the
+  // captain's explicit instruction ("do not send anything"): no mail goes out
+  // until he picks a frequency on the admin index.
+  data.signInTokens ??= [];
+  data.signInRequests ??= [];
+  data.settings ??= { digestCadence: 'off' };
+  data.settings.digestCadence ??= 'off';
   // Insert BEFORE the loops, so a freshly inserted checked-in record goes
   // through exactly the same normalization a stored one does: the next field
   // added to `Bed` or `Block` is then filled in for both, rather than only
@@ -110,11 +129,22 @@ function normalizeUser(user: User): void {
     user.firstName ??= parts[0] ?? '';
     user.lastName ??= parts.slice(1).join(' ');
   }
-  user.pinHash ??= null;
-  // A record that predates the pen-and-paper case was created by somebody
-  // signing themselves up, which is exactly the state these two describe.
-  user.hasSignInRoute ??= user.pinHash !== null;
+  // RE-DERIVED, not filled in — the one deliberate exception to "additive" in
+  // this file, because the field's meaning changed under the stored rows.
+  // `hasSignInRoute` used to mean "holds a PIN"; passwordless re-keys it to
+  // "has an email a sign-in link can reach", and a stored `false` from the
+  // PIN era would silently lock out every steward the emailed link now
+  // covers — pen-and-paper stewards the admin entered with an email included.
+  // The retired `pinHash` a live row may still carry is left in place,
+  // unread, which is what lossless means here.
+  user.hasSignInRoute = typeof user.email === 'string' && user.email.trim() !== '';
   user.recordHeldOnBehalf ??= false;
+  // A steward from before the language was recorded gets the default the
+  // screens themselves fall back to; the digest speaks English to them until
+  // they adopt again or an admin edit exists to correct it.
+  user.lang = user.lang === 'es' ? 'es' : 'en';
+  user.digestOptedOut ??= false;
+  user.digestLastSentAt ??= null;
 }
 
 function normalizeAdoption(adoption: Adoption): void {
@@ -346,27 +376,24 @@ export function ensureCheckedInBlocks(data: Data): void {
 // The one hand-seeded bed for the Popl card field test, matching the
 // approved screens exactly. No provisioning flow exists yet by design.
 //
-// `demoPin` is what the backend decides, because it is a deployment question
-// rather than a data one: the door screen engraves `@marisol_r` on a public
-// screen and sign-in has no rate limiting yet (see the security notes), so a
-// well-known PIN on a publicly reachable store hands any passer-by the bed's
-// steward — `/mine` and the deliberately auth-gated `/clear`.
-// Passing `null` seeds the steward with a hash of a random secret nobody
-// holds: the adoption still renders exactly as approved, and no PIN opens it
-// until a real one is issued.
-export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promise<Data> {
+// The seeded steward carries no secret of any kind: sign-in is an emailed
+// single-use link (service.ts), so there is nothing here for a passer-by to
+// guess and nothing for a cloned repo to leak. The seed email is a reserved
+// `.invalid` address on purpose — a sign-in link requested for it goes
+// nowhere real, and the e2e suite reads it out of the dev outbox instead.
+export function seedData(): Data {
   const marisol: User = {
     id: 'user-marisol',
     firstName: 'Marisol',
     lastName: 'Rivera',
     username: 'marisol_r',
-    // Real users get their PIN hashed at signup; nothing plaintext is stored.
-    // The async hash keeps the first tap of a cold server off a blocked loop.
-    pinHash: await bcrypt.hash(demoPin ?? randomBytes(32).toString('hex'), 10),
     hasSignInRoute: true,
     recordHeldOnBehalf: false,
     email: 'seed-marisol@example.invalid',
     phone: '+1 555 010 0847',
+    lang: 'en',
+    digestOptedOut: false,
+    digestLastSentAt: null,
     points: 340,
     streakWeeks: 0,
     createdAt: '2026-05-02T14:00:00.000Z',
@@ -426,6 +453,12 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
     events: [],
     // Receipt numbers continue from the prototype's RPT-2216-0847.
     reportCounter: 2216,
+    signInTokens: [],
+    signInRequests: [],
+    // OFF until the captain turns it on in the block admin — his explicit
+    // "do not send anything". The cadence choices exist; the default mails
+    // nobody.
+    settings: { digestCadence: 'off' },
   };
 }
 
@@ -481,6 +514,23 @@ export const ops = {
     const users = Object.values(data.users);
     return detach(users.find((u) => u.username.toLowerCase() === wanted) ?? null);
   },
+  getUserByEmail(data: Data, email: string): User | null {
+    // Case-insensitive, like the username lookup: an email typed on a phone
+    // arrives capitalized as often as not, and RFC-strict local-part case
+    // sensitivity would refuse the very person the link is for.
+    const wanted = email.trim().toLowerCase();
+    if (wanted === '') return null;
+    const users = Object.values(data.users);
+    return detach(users.find((u) => u.email.trim().toLowerCase() === wanted) ?? null);
+  },
+  getUsers(data: Data): User[] {
+    // Stable order for the digest run: creation time, then id.
+    return detach(
+      Object.values(data.users).sort(
+        (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+      ),
+    );
+  },
   putUser(data: Data, user: User): void {
     data.users[user.id] = detach(user);
   },
@@ -488,6 +538,13 @@ export const ops = {
     return detach(
       data.adoptions
         .filter((a) => a.bedPlate === bedPlate && a.releasedAt === null)
+        .sort((a, b) => a.adoptedAt.localeCompare(b.adoptedAt)),
+    );
+  },
+  getActiveAdoptionsForUser(data: Data, userId: string): Adoption[] {
+    return detach(
+      data.adoptions
+        .filter((a) => a.userId === userId && a.releasedAt === null)
         .sort((a, b) => a.adoptedAt.localeCompare(b.adoptedAt)),
     );
   },
@@ -528,6 +585,33 @@ export const ops = {
         .filter((e) => e.bedPlate === bedPlate && (eventType === undefined || e.eventType === eventType))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     );
+  },
+  getSignInToken(data: Data, tokenHash: string): SignInToken | null {
+    return detach(data.signInTokens.find((t) => t.tokenHash === tokenHash) ?? null);
+  },
+  createSignInToken(data: Data, token: SignInToken): void {
+    data.signInTokens.push(detach(token));
+  },
+  deleteSignInToken(data: Data, tokenHash: string): void {
+    data.signInTokens = data.signInTokens.filter((t) => t.tokenHash !== tokenHash);
+  },
+  deleteSignInTokensExpiredBy(data: Data, now: string): void {
+    data.signInTokens = data.signInTokens.filter((t) => t.expiresAt > now);
+  },
+  getSignInRequestsSince(data: Data, since: string): SignInRequest[] {
+    return detach(data.signInRequests.filter((r) => r.requestedAt >= since));
+  },
+  appendSignInRequest(data: Data, request: SignInRequest): void {
+    data.signInRequests.push(detach(request));
+  },
+  deleteSignInRequestsBefore(data: Data, cutoff: string): void {
+    data.signInRequests = data.signInRequests.filter((r) => r.requestedAt >= cutoff);
+  },
+  getNetworkSettings(data: Data): NetworkSettings {
+    return detach(data.settings);
+  },
+  updateNetworkSettings(data: Data, settings: NetworkSettings): void {
+    data.settings = detach(settings);
   },
 };
 
@@ -584,6 +668,14 @@ export class TransactionStore implements Store {
     return ops.getUserByUsername(this.data, username);
   }
 
+  async getUserByEmail(email: string): Promise<User | null> {
+    return ops.getUserByEmail(this.data, email);
+  }
+
+  async getUsers(): Promise<User[]> {
+    return ops.getUsers(this.data);
+  }
+
   async createUser(user: User): Promise<void> {
     ops.putUser(this.data, user);
   }
@@ -594,6 +686,10 @@ export class TransactionStore implements Store {
 
   async getActiveAdoptions(bedPlate: string): Promise<Adoption[]> {
     return ops.getActiveAdoptions(this.data, bedPlate);
+  }
+
+  async getActiveAdoptionsForUser(userId: string): Promise<Adoption[]> {
+    return ops.getActiveAdoptionsForUser(this.data, userId);
   }
 
   async createAdoption(adoption: Adoption): Promise<void> {
@@ -630,5 +726,41 @@ export class TransactionStore implements Store {
 
   async getEvents(bedPlate: string, eventType?: BedEvent['eventType']): Promise<BedEvent[]> {
     return ops.getEvents(this.data, bedPlate, eventType);
+  }
+
+  async getSignInToken(tokenHash: string): Promise<SignInToken | null> {
+    return ops.getSignInToken(this.data, tokenHash);
+  }
+
+  async createSignInToken(token: SignInToken): Promise<void> {
+    ops.createSignInToken(this.data, token);
+  }
+
+  async deleteSignInToken(tokenHash: string): Promise<void> {
+    ops.deleteSignInToken(this.data, tokenHash);
+  }
+
+  async deleteSignInTokensExpiredBy(now: string): Promise<void> {
+    ops.deleteSignInTokensExpiredBy(this.data, now);
+  }
+
+  async getSignInRequestsSince(since: string): Promise<SignInRequest[]> {
+    return ops.getSignInRequestsSince(this.data, since);
+  }
+
+  async appendSignInRequest(request: SignInRequest): Promise<void> {
+    ops.appendSignInRequest(this.data, request);
+  }
+
+  async deleteSignInRequestsBefore(cutoff: string): Promise<void> {
+    ops.deleteSignInRequestsBefore(this.data, cutoff);
+  }
+
+  async getNetworkSettings(): Promise<NetworkSettings> {
+    return ops.getNetworkSettings(this.data);
+  }
+
+  async updateNetworkSettings(settings: NetworkSettings): Promise<void> {
+    ops.updateNetworkSettings(this.data, settings);
   }
 }

@@ -15,7 +15,7 @@ import { defaultPresentation } from '../../lib/presentation';
 import { MAX_FORM_BYTES, abandonBody, readFormOrRefuse } from '../../lib/request-body';
 import { adminEnabled, isAdminSession, setAdminSession, verifyAdminKey } from '../../lib/session';
 import { getStore } from '../../lib/store';
-import type { Block } from '../../lib/types';
+import { DIGEST_CADENCES, type Block, type DigestCadence } from '../../lib/types';
 
 // A deploy with no key has no admin — 404, not a sign-in for a keyless door.
 if (!adminEnabled()) {
@@ -44,8 +44,10 @@ if (Astro.request.method === 'POST') {
 
 const signedIn = isAdminSession(Astro.cookies);
 
-// The block list, only once the session exists.
+// The block list — and the network's digest cadence — only once the session
+// exists.
 const blocks: Array<{ block: Block; count: Phrase }> = [];
+let digestCadence: DigestCadence = 'off';
 if (signedIn) {
   const store = getStore();
   for (const block of await store.getBlocks()) {
@@ -54,7 +56,18 @@ if (signedIn) {
     const beds = (await store.getBedsInBlock(block.id)).filter((bed) => bed.retiredAt === null);
     blocks.push({ block, count: bedCountLabel(beds.length) });
   }
+  digestCadence = (await store.getNetworkSettings()).digestCadence;
 }
+// The saved note after /admin/digest redirects back, same shape as the
+// block page's.
+const saved = signedIn && Astro.url.searchParams.get('saved') === '1';
+
+const cadenceLabel: Record<DigestCadence, Phrase> = {
+  off: ADMIN.cadenceOff,
+  weekly: ADMIN.cadenceWeekly,
+  biweekly: ADMIN.cadenceBiweekly,
+  monthly: ADMIN.cadenceMonthly,
+};
 ---
 
 <AdminScreen
@@ -85,6 +98,35 @@ if (signedIn) {
             </a>
           ))}
         </div>
+        <section class="digest-settings">
+          <h2 class="digest-title" {...bi(ADMIN.digestTitle, lang)}>
+            {ADMIN.digestTitle[lang]}
+          </h2>
+          <p class="body-copy" {...bi(ADMIN.digestSub, lang)}>
+            {ADMIN.digestSub[lang]}
+          </p>
+          <form method="POST" action={langLink('/admin/digest', lang)} class="cadence-form">
+            {DIGEST_CADENCES.map((cadence) => (
+              <label class="cadence-option">
+                <input
+                  type="radio"
+                  name="digestCadence"
+                  value={cadence}
+                  checked={cadence === digestCadence}
+                />
+                <span {...bi(cadenceLabel[cadence], lang)}>{cadenceLabel[cadence][lang]}</span>
+              </label>
+            ))}
+            {saved && (
+              <p class="save-note" {...bi(ADMIN.saved, lang)}>
+                {ADMIN.saved[lang]}
+              </p>
+            )}
+            <button class="btn btn-action" type="submit" {...bi(ADMIN.saveCadence, lang)}>
+              {ADMIN.saveCadence[lang]}
+            </button>
+          </form>
+        </section>
       </div>
     ) : (
       <div class="admin-narrow">
@@ -128,5 +170,35 @@ if (signedIn) {
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+  .digest-settings {
+    margin-top: 28px;
+    padding-top: 18px;
+    border-top: 1px solid var(--theme-border);
+  }
+  .digest-title {
+    font-family: 'Londrina Solid', cursive;
+    font-weight: 400;
+    font-size: 22px;
+    line-height: 1.1;
+    margin: 0 0 4px;
+  }
+  .cadence-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .cadence-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .save-note {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theme-muted);
+    margin: 0;
   }
 </style>

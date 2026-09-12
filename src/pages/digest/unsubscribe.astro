@@ -1,0 +1,59 @@
+---
+// One-click unsubscribe from the steward digest.
+//
+// The link arrives only inside a digest mail, signed over the user id with
+// the same secret the session cookies use (digest.ts): holding the mail IS
+// the authorization, so no sign-in stands in the way of stopping mail —
+// that is what one-click means, and a GET is what an email client will
+// follow. The flip is idempotent, so a mail scanner prefetching the link
+// costs the steward nothing worse than the opt-out the link promises; a
+// resubscribe control belongs to a later settings surface, and the admin
+// can be asked meanwhile.
+//
+// A bad or truncated link is a machine case, answered in plain text like
+// the other refusals of that kind. The valid screen is bilingual like
+// every other screen — the reader chose a language when they adopted, and
+// the link carries it (`unsubscribePath` builds it with langLink).
+import Screen from '../../layouts/Screen.astro';
+import { getStore } from '../../lib/store';
+import { verifyUnsubscribe } from '../../lib/unsubscribe-link';
+import { bi } from '../../lib/bilingual';
+import { UNSUB } from '../../lib/copy';
+import { resolveLang } from '../../lib/i18n';
+import { defaultPresentation } from '../../lib/presentation';
+import { abandonBody } from '../../lib/request-body';
+
+const userId = Astro.url.searchParams.get('u') ?? '';
+const mac = Astro.url.searchParams.get('s') ?? '';
+if (Astro.request.method !== 'GET' || userId === '' || !verifyUnsubscribe(userId, mac)) {
+  await abandonBody(Astro.request);
+  return new Response('Not a valid link.', { status: 404 });
+}
+
+const store = getStore();
+// Inside a transaction like every read-check-write; a link for a user that
+// no longer exists still lands on the calm screen — there is nothing left
+// to mail either way, and "did this id ever exist" is not worth answering.
+await store.transaction(async (tx) => {
+  const user = await tx.getUser(userId);
+  if (user && !user.digestOptedOut) {
+    await tx.updateUser({ ...user, digestOptedOut: true });
+  }
+});
+
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = defaultPresentation();
+---
+
+<Screen
+  title={`${UNSUB.title[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <div class="screen">
+    <h1 class="title" {...bi(UNSUB.title, lang)}>{UNSUB.title[lang]}</h1>
+    <p class="body-copy" {...bi(UNSUB.body, lang)}>{UNSUB.body[lang]}</p>
+    <div class="spacer" />
+  </div>
+</Screen>

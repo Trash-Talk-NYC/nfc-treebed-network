@@ -1,0 +1,77 @@
+---
+// Where the emailed sign-in link lands: verify the token, burn it, set the
+// year-long session cookie, and hand the steward their own view.
+//
+// A GET, because an email link is a GET — which puts the token in a URL.
+// Accepted residual, stated rather than buried: this server writes no access
+// log and nothing here logs the URL or the token, the token is single-use
+// and expires in minutes, and burning it on first use means a URL recovered
+// later from somewhere opens nothing. The alternatives (a code to type) are
+// the relay-phishable shape the captain decided against.
+//
+// Every failure — expired, spent, wrong bed, never ours — lands on one calm
+// screen with one message: distinguishing them would make this URL an oracle
+// for which tokens were real. The screen offers the auth form for a fresh
+// link, which is the remedy for all of them.
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store';
+import { RuleError, consumeSignInToken, getBedView } from '../../../lib/service';
+import { setSessionUser } from '../../../lib/session';
+import { bi } from '../../../lib/bilingual';
+import { AUTH, COMMON } from '../../../lib/copy';
+import { langLink, resolveLang } from '../../../lib/i18n';
+import { presentationFor } from '../../../lib/presentation';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
+
+const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
+if (notBound) return notBound;
+const { plate, base } = bound;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) {
+  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
+}
+
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = presentationFor(view.bed);
+
+// Only a real link-open signs in: a hand-built POST at this URL is answered
+// by the same screen with no verification spent on it.
+if (Astro.request.method === 'GET') {
+  const token = Astro.url.searchParams.get('token') ?? '';
+  if (token !== '') {
+    try {
+      const user = await consumeSignInToken(store, { plate, token });
+      setSessionUser(Astro.cookies, user.id);
+      return Astro.redirect(langLink(`${base}/mine`, lang), 303);
+    } catch (err) {
+      if (!(err instanceof RuleError && err.code === 'invalid-token')) throw err;
+      // Fall through to the one calm failure screen below.
+    }
+  }
+}
+Astro.response.status = 410;
+---
+
+<Screen
+  title={`${AUTH.title[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <div class="screen">
+    <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
+      >{COMMON.backToBed[lang]}</a
+    >
+    <h1 class="title" {...bi(AUTH.linkInvalidTitle, lang)}>{AUTH.linkInvalidTitle[lang]}</h1>
+    <p class="body-copy" {...bi(AUTH.linkInvalidBody, lang)}>{AUTH.linkInvalidBody[lang]}</p>
+    <div class="spacer" />
+    <a
+      class="btn btn-tall btn-action"
+      href={langLink(`${base}/auth`, lang)}
+      {...bi(AUTH.requestNew, lang)}
+      >{AUTH.requestNew[lang]}</a
+    >
+  </div>
+</Screen>

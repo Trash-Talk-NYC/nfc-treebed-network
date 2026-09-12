@@ -30,14 +30,13 @@ if (!process.env.TREEBED_SESSION_SECRET) {
   process.exit(1);
 }
 
-// The one bound whose test-seam value turns a feature off rather than down.
-// Said here because this is the only code that runs before the port is bound:
-// the adapter imports every page chunk *and* the middleware lazily, so the
-// warning in src/middleware.ts is the first request of any route, not boot.
-const pinHashes = process.env.TREEBED_MAX_INFLIGHT_PIN_HASHES;
-if (pinHashes !== undefined && pinHashes !== '' && Number(pinHashes) < 1) {
+// Not an error either: without a Brevo key the dev outbox stands in outside
+// production, and in production the sign-in screen says email sign-in isn't
+// ready while the rest of the flow carries on (src/lib/mail.ts). Said out
+// loud so "no sign-in mail arrived" reads as the configured state it is.
+if (!process.env.BREVO_API_KEY) {
   console.warn(
-    `TREEBED_MAX_INFLIGHT_PIN_HASHES=${pinHashes}: sign-in is disabled, every attempt answers busy.`,
+    'BREVO_API_KEY is not set: sign-in and digest mail go to the .data/outbox dev transport (or, in production, are disabled).',
   );
 }
 

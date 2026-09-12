@@ -40,7 +40,7 @@ beforeAll(async () => {
   if (built.status !== 0) throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
 
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-bed-name-'));
-  const data = await seedData();
+  const data = seedData();
   // The stewarded demo bed carries a name, as if its first steward gave one.
   data.beds['BED-HRL-0847']!.bedName = GIVEN_NAME;
   // One empty W 171st bed offered, so its adopt form fronts a FIRST steward.

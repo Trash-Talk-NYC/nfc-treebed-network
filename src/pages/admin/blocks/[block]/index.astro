@@ -17,7 +17,7 @@
 import AdminScreen from '../../../../layouts/AdminScreen.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
-import { ADMIN, ADOPT, AUTH, COMMON } from '../../../../lib/copy';
+import { ADMIN, ADOPT, COMMON } from '../../../../lib/copy';
 import {
   bedHeadingName,
   bedRowName,
@@ -527,7 +527,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   <dd>{steward.user.lastName}</dd>
                 </div>
                 <div>
-                  <dt {...bi(AUTH.username, lang)}>{AUTH.username[lang]}</dt>
+                  <dt {...bi(ADMIN.username, lang)}>{ADMIN.username[lang]}</dt>
                   <dd>{publicHandle(steward.user)}</dd>
                 </div>
                 <div>

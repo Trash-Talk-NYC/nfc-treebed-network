@@ -24,6 +24,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { signInByLink } from './helpers/steward-session';
 
 /** The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847. */
 const TAG = '2mq2amhv';
@@ -105,18 +106,14 @@ async function newestReport(): Promise<StoredReport> {
  * the last one first — a second send would ride the open report as weight
  * instead.
  */
+let stewardSession: string | null = null;
 async function clearAsSteward(): Promise<void> {
-  const posted = await fetch(`${origin}/t/${TAG}/auth`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
-    body: 'username=marisol_r&pin=1234',
-    redirect: 'manual',
-  });
-  const session = posted.headers.getSetCookie().find((cookie) => cookie.startsWith('tg_session='));
-  if (!session) throw new Error(`sign-in handed out no session cookie (${posted.status})`);
+  // The emailed-link sign-in, once — the cookie lasts a year, and link
+  // requests are rate limited per email.
+  stewardSession ??= await signInByLink(origin, dataDir, TAG);
   const cleared = await fetch(`${origin}/t/${TAG}/clear`, {
     method: 'POST',
-    headers: { origin, cookie: session.split(';')[0]! },
+    headers: { origin, cookie: stewardSession },
     redirect: 'manual',
   });
   if (cleared.status !== 303) throw new Error(`clear answered ${cleared.status}`);

@@ -54,9 +54,18 @@
 
 import { getStore as getBlobStore, type Store as BlobsClientStore } from '@netlify/blobs';
 import type { Store } from './store';
-import { BUILD_TARGET } from './build-target';
 import { getRequestContext } from './request-context';
-import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
+import type {
+  Adoption,
+  Bed,
+  BedEvent,
+  Block,
+  NetworkSettings,
+  Report,
+  SignInRequest,
+  SignInToken,
+  User,
+} from './types';
 import { type Data, TransactionStore, detach, normalizeData, ops, seedData } from './store-dataset';
 import { HEAD_KEY, REVISION_PREFIX, STORE_NAME } from './store-keys';
 
@@ -170,7 +179,7 @@ export class BlobsStore implements Store {
         // Lost the seeding race. The refused create is itself strongly
         // consistent proof that rev/1 exists, so walk from there rather than
         // asking the listing again — which, still stale-empty, would send us
-        // back through another bcrypt-priced seed to lose again.
+        // back through another seed-and-upload to lose again.
         known = 1;
         continue;
       }
@@ -240,18 +249,13 @@ export class BlobsStore implements Store {
    * First contact: write the seed as revision 1, unless another instance beats
    * us to it.
    *
-   * The seeded steward gets no demo PIN here. This store is the deployed,
-   * publicly tappable one, its door screen engraves `@marisol_r`, and sign-in
-   * has no rate limiting yet — a PIN everybody knows would be an open steward
-   * account on the internet. TREEBED_SEED_PIN is a development-only seam for
-   * driving the sign-in flow against this backend locally, and the netlify
-   * target ignores it outright: a production build that cannot honour the
-   * variable cannot be talked into an open steward account by a stray
-   * `netlify env:set`. Unset — and on netlify, always — no PIN opens it.
+   * The seed holds no sign-in secret of any kind: sign-in is an emailed
+   * single-use link, and the seeded steward's `.invalid` email can receive
+   * none — so the publicly tappable store seeds with no account anyone can
+   * open, which is the property the retired demo-PIN seam existed to protect.
    */
   private async seed(): Promise<Loaded | null> {
-    const seedPin = BUILD_TARGET === 'netlify' ? null : process.env.TREEBED_SEED_PIN || null;
-    const data = await seedData(seedPin);
+    const data = seedData();
     const write = await this.blobs.set(revisionKey(1), serialize(data), { onlyIfNew: true });
     if (!write.modified) return null;
     await this.setHead(1);
@@ -395,6 +399,14 @@ export class BlobsStore implements Store {
     return ops.getUserByUsername((await this.load()).data, username);
   }
 
+  async getUserByEmail(email: string): Promise<User | null> {
+    return ops.getUserByEmail((await this.load()).data, email);
+  }
+
+  async getUsers(): Promise<User[]> {
+    return ops.getUsers((await this.load()).data);
+  }
+
   async createUser(user: User): Promise<void> {
     await this.transaction((tx) => tx.createUser(user));
   }
@@ -405,6 +417,10 @@ export class BlobsStore implements Store {
 
   async getActiveAdoptions(bedPlate: string): Promise<Adoption[]> {
     return ops.getActiveAdoptions((await this.load()).data, bedPlate);
+  }
+
+  async getActiveAdoptionsForUser(userId: string): Promise<Adoption[]> {
+    return ops.getActiveAdoptionsForUser((await this.load()).data, userId);
   }
 
   async createAdoption(adoption: Adoption): Promise<void> {
@@ -441,6 +457,42 @@ export class BlobsStore implements Store {
 
   async getEvents(bedPlate: string, eventType?: BedEvent['eventType']): Promise<BedEvent[]> {
     return ops.getEvents((await this.load()).data, bedPlate, eventType);
+  }
+
+  async getSignInToken(tokenHash: string): Promise<SignInToken | null> {
+    return ops.getSignInToken((await this.load()).data, tokenHash);
+  }
+
+  async createSignInToken(token: SignInToken): Promise<void> {
+    await this.transaction((tx) => tx.createSignInToken(token));
+  }
+
+  async deleteSignInToken(tokenHash: string): Promise<void> {
+    await this.transaction((tx) => tx.deleteSignInToken(tokenHash));
+  }
+
+  async deleteSignInTokensExpiredBy(now: string): Promise<void> {
+    await this.transaction((tx) => tx.deleteSignInTokensExpiredBy(now));
+  }
+
+  async getSignInRequestsSince(since: string): Promise<SignInRequest[]> {
+    return ops.getSignInRequestsSince((await this.load()).data, since);
+  }
+
+  async appendSignInRequest(request: SignInRequest): Promise<void> {
+    await this.transaction((tx) => tx.appendSignInRequest(request));
+  }
+
+  async deleteSignInRequestsBefore(cutoff: string): Promise<void> {
+    await this.transaction((tx) => tx.deleteSignInRequestsBefore(cutoff));
+  }
+
+  async getNetworkSettings(): Promise<NetworkSettings> {
+    return ops.getNetworkSettings((await this.load()).data);
+  }
+
+  async updateNetworkSettings(settings: NetworkSettings): Promise<void> {
+    await this.transaction((tx) => tx.updateNetworkSettings(settings));
   }
 }
 

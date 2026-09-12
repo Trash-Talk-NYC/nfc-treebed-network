@@ -16,6 +16,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { seedData } from '../src/lib/store-dataset';
+import { signInByLink } from './helpers/steward-session';
 import { defaultPresentation } from '../src/lib/presentation';
 import { DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, COMMON } from '../src/lib/copy';
 import { problemFor } from '../src/lib/problem';
@@ -30,6 +31,13 @@ let server: ChildProcessWithoutNullStreams;
 let origin = '';
 let dataDir = '';
 
+/** The steward's session cookie, fetched once through the emailed link. */
+let cachedSession: string | null = null;
+async function stewardSession(): Promise<string> {
+  cachedSession ??= await signInByLink(origin, dataDir, TAG);
+  return cachedSession;
+}
+
 beforeAll(async () => {
   const built = spawnSync('npm', ['run', 'build'], {
     encoding: 'utf8',
@@ -42,7 +50,7 @@ beforeAll(async () => {
   // its steward hidden. Nothing in the visitor flow can set the flag — the
   // admin page that will is a later task — so the state is written directly,
   // which is also the state that page will produce.
-  const data = await seedData();
+  const data = seedData();
   data.adoptions[0]!.displayNameHidden = true;
   await writeFile(path.join(dataDir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
 
@@ -119,7 +127,7 @@ describe('the door a bed with no steward opens', () => {
   // are the kind of thing a later "tidy-up" would undo by making the two doors
   // match — so they are asserted rather than left to a comment.
   beforeAll(async () => {
-    const data = await seedData();
+    const data = seedData();
     data.adoptions = [];
     [openServer, openOrigin, openDataDir] = await startOn(data);
   }, 60_000);
@@ -188,7 +196,7 @@ describe('the door a bed nobody has offered a slot on opens', () => {
   let quietDataDir = '';
 
   beforeAll(async () => {
-    const data = await seedData();
+    const data = seedData();
     data.adoptions = [];
     data.beds['BED-HRL-0847']!.offeredSlots = 0;
     [quietServer, quietOrigin, quietDataDir] = await startOn(data);
@@ -315,20 +323,11 @@ describe('a steward who asked not to be named', () => {
   it('still sees their own bed, and themselves on it', async () => {
     // Hiding is about the public screen. A steward who is invisible on the
     // sidewalk must not be invisible to themselves on the view that carries
-    // the clear button.
-    const signedIn = await fetch(`${origin}/t/${TAG}/auth`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
-      body: 'username=marisol_r&pin=1234',
-      redirect: 'manual',
-    });
-    const cookie = signedIn.headers
-      .getSetCookie()
-      .find((c) => c.startsWith('tg_session='))
-      ?.split(';')[0];
-    expect(cookie, `sign-in handed out no session (${signedIn.status})`).toBeTruthy();
+    // the clear button. Signed in the shipped way: the emailed link, read
+    // out of the dev outbox.
+    const cookie = await stewardSession();
 
-    const mine = await fetch(`${origin}/t/${TAG}/mine`, { headers: { cookie: cookie! } });
+    const mine = await fetch(`${origin}/t/${TAG}/mine`, { headers: { cookie } });
     expect(mine.status).toBe(200);
     const html = await mine.text();
     expect(html).toContain('marisol_r');
@@ -394,17 +393,8 @@ describe('a steward who asked not to be named', () => {
       303,
     );
 
-    const signedIn = await fetch(`${origin}/t/${TAG}/auth`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
-      body: 'username=marisol_r&pin=1234',
-      redirect: 'manual',
-    });
-    const cookie = signedIn.headers
-      .getSetCookie()
-      .find((c) => c.startsWith('tg_session='))
-      ?.split(';')[0];
-    const mine = await fetch(`${origin}/t/${TAG}/mine`, { headers: { cookie: cookie! } });
+    const cookie = await stewardSession();
+    const mine = await fetch(`${origin}/t/${TAG}/mine`, { headers: { cookie } });
     const html = await mine.text();
     expect(html).toContain('bolsas en la esquina');
     expect(html).toContain('la reja está doblada');

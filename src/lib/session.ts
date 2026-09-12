@@ -119,15 +119,15 @@ const cookieOptions = {
 // /admin route is gated here.
 //
 // The gate is one shared high-entropy key, `TREEBED_ADMIN_KEY`, held in the
-// environment like the session secret — NOT a username+PIN, deliberately:
-// the /auth PIN screens are a dead end nothing new may build on (AGENTS.md),
-// and a short memorable secret on an un-rate-limited form is the exact trap
-// they document. Comparing a long random key is constant-time and costs no
-// bcrypt, so the sign-in form cannot be used to queue CPU work the way /auth
-// can (`MAX_INFLIGHT_PIN_HASHES`), and there is no username to enumerate.
-// What it does not have is per-IP throttling — the same platform-tier gap
-// every bound in request-body.ts records as owed — which the key's entropy,
-// not the form, is what covers until then.
+// environment like the session secret — NOT a typed account secret,
+// deliberately: a short memorable secret on an un-rate-limited form is the
+// trap the retired PIN screens documented, and the steward flow's emailed
+// link is not for the admin either (the admin is a role, not a steward's
+// mailbox). Comparing a long random key is constant-time, costs no hashing,
+// and offers no username to enumerate. What it does not have is per-IP
+// throttling — the same platform-tier gap every bound in request-body.ts
+// records as owed — which the key's entropy, not the form, is what covers
+// until then.
 //
 // Unset in production, the admin surface answers 404 everywhere: a deploy
 // that never configured a key has no admin, rather than an open one. Dev

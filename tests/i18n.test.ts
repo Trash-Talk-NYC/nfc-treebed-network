@@ -122,13 +122,12 @@ describe('the dictionary', () => {
 
   it('has actually been translated, not copied across', () => {
     // A named few are the same word in both languages and legitimately so:
-    // "PIN", "ADMIN", "DEMO" and "NFC" are what a Spanish speaker on this
-    // block says too. Everything else differing is what "translated" means,
-    // and this is what catches a screen added in English with the Spanish
-    // copied across.
+    // "ADMIN", "DEMO" and "NFC" are what a Spanish speaker on this block
+    // says too. Everything else differing is what "translated" means, and
+    // this is what catches a screen added in English with the Spanish copied
+    // across.
     const identical = phrases.filter(([, p]) => p.en === p.es).map(([name]) => name);
     expect(identical).toEqual([
-      'AUTH.pin',
       'ADMIN.adminLabel',
       'ADMIN.demoBadge',
       'ADMIN.badgeNfcShort',
@@ -233,6 +232,12 @@ describe('the rendered surface', () => {
     ['types.ts', 'field names and derived handles, not copy'],
     ['i18n.ts', 'language codes and the cookie name'],
     ['bilingual.ts', 'the data-attribute names themselves'],
+    // The mail plane: env-variable names in refusal details for logs, never
+    // rendered to a visitor. The messages a person reads come from copy.ts.
+    ['mail.ts', 'transport configuration errors, logged not rendered'],
+    // Email HTML scaffolding (inline styles, markup) around Phrase values —
+    // the words in the mail come from copy.ts and are held bilingual there.
+    ['signin-mail.ts', 'email markup scaffolding; words come from copy.ts'],
   ]);
 
   /** Every `src/lib` module any screen imports. */
