@@ -222,6 +222,10 @@ if (Astro.request.method === 'POST') {
     const params = new URLSearchParams();
     if (plate !== '') params.set('bed', plate);
     params.set('saved', '1');
+    // The form's action carries the whole query string through, so a save made
+    // with the older photos revealed comes back revealed: collapsing to the
+    // capped six would cost a tap on a phone on the sidewalk.
+    if (Astro.url.searchParams.get('photos') === 'all') params.set('photos', 'all');
     return Astro.redirect(langLink(`/admin/blocks/${blockId}?${params}`, lang), 303);
   }
 }

@@ -430,6 +430,16 @@ export const HEAD_READ_IDLE_MS = FORM_READ_IDLE_MS;
  * CHUNK_ALLOWANCE_BYTES)`, about 52MB. Past the shed count a read keeps
  * nothing, and what bounds it is `SHED_DRAIN_BYTES`/`SHED_DRAIN_MS` of ingress
  * rather than a share of this.
+ *
+ * What this covers is the READ. The report route's WRITE phase — the blob
+ * upload a kept photo pays for — sits outside it: the reservation is released
+ * when the read ends, and the bytes live a moment longer while they are handed
+ * to the photo store (about `2 × cap` per admitted upload on Blobs, which
+ * copies the view into its own buffer for the client). The route drops every
+ * reference the instant that write returns, so nothing MB-scale is pinned
+ * across the rules or the redirect, and the window is one upload's own write
+ * rather than a whole transaction. Same accepted node-target residual tier as
+ * the reservation notes above; netlify's 4MB cap is what production carries.
  */
 export const MAX_INFLIGHT_BODY_BYTES = boundFromEnv(
   'TREEBED_MAX_INFLIGHT_BODY_BYTES',

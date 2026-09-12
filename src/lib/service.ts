@@ -920,9 +920,14 @@ export async function renameBedBySteward(
   const now = args.now ?? new Date();
   // A save that changes nothing writes nothing — decided on a plain read
   // first, because a transaction whose callback writes nothing still commits
-  // a revision on Blobs. The transaction below re-decides it.
+  // a revision on Blobs. The transaction below re-decides both checks; the
+  // steward check is read here too so this path never answers OK to a caller
+  // the rule never authorized.
   const standing = await getActiveBed(store, args.plate);
-  if (standing !== null && standing.bedName === name) return;
+  if (standing !== null && standing.bedName === name) {
+    const standingStewards = await store.getActiveAdoptions(args.plate);
+    if (standingStewards.some((a) => a.userId === args.userId)) return;
+  }
   await store.transaction(async (tx) => {
     const bed = await getActiveBed(tx, args.plate);
     if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);

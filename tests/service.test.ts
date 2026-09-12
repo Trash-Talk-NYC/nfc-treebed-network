@@ -645,6 +645,13 @@ describe('renaming the bed from the steward view', () => {
     expect(await store.getEvents(PLATE, 'rename')).toHaveLength(0);
   });
 
+  it('refuses a non-steward even when the name would not change', async () => {
+    await renameBedBySteward(store, { plate: PLATE, userId: 'user-marisol', name: 'La Madrina' });
+    await expect(
+      renameBedBySteward(store, { plate: PLATE, userId: 'visitor-1', name: 'La Madrina' }),
+    ).rejects.toMatchObject({ code: 'not-steward' });
+  });
+
   it('refuses an empty name — a takedown stays the admin’s act', async () => {
     await renameBedBySteward(store, { plate: PLATE, userId: 'user-marisol', name: 'La Madrina' });
     await expect(

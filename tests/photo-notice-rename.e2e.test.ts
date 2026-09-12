@@ -482,5 +482,22 @@ describe('the bed’s earlier photos', () => {
     expect(posted.headers.get('location')).toBe(
       `${DEMO_BLOCK_PATH}?bed=${PLATE}&photodeleted=1&photos=all`,
     );
+
+    // And so does SAVE CHANGES: the form's action carries the query string in,
+    // so its redirect has to carry the reveal back out.
+    const saved = await fetch(`${origin}${DEMO_BLOCK_PATH}?bed=${PLATE}&photos=all`, {
+      method: 'POST',
+      headers: {
+        cookie,
+        origin,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({ plate: PLATE }).toString(),
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(303);
+    expect(saved.headers.get('location')).toBe(
+      `${DEMO_BLOCK_PATH}?bed=${PLATE}&saved=1&photos=all`,
+    );
   });
 });

@@ -116,12 +116,14 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
   // megabytes of photo storage on a write the rules were never going to keep.
   // The read is an optimization and never the gate — the transaction decides,
   // and the delete below is still what covers a race.
-  let stored: { id: string; contentType: string; bytes: number } | undefined;
-  if (photo !== null && (await reportPhotoCouldBeKept(getStore(), { plate, actorId: actor }))) {
-    const id = `photo-${randomUUID()}`;
-    await getPhotoBlobs().putPhotoBlob(id, photo.bytes);
-    stored = { id, contentType: photo.contentType, bytes: photo.bytes.byteLength };
-  }
+  const stored = await storePhoto(photo, plate, actor);
+  // The in-flight byte budget bounds the READ, and its reservation was already
+  // released when the read finished. `photo.bytes` is a VIEW into the whole
+  // buffered body, so holding it here would pin megabytes across the
+  // transaction and the redirect — outside any accounting. Dropping the last
+  // reference the moment the blob is written leaves the window where the bytes
+  // outlive the reservation as the blob write itself and nothing more.
+  photo = null;
 
   try {
     const outcome = await reportProblem(getStore(), {
@@ -151,6 +153,23 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
     throw err;
   }
 };
+
+/**
+ * Write the attached photo under a fresh server-minted id, or nothing at all
+ * when the rules are about to decline the press. Its own scope so the caller
+ * can drop the body it was reading from as soon as this returns.
+ */
+async function storePhoto(
+  photo: { bytes: Uint8Array; contentType: string } | null,
+  plate: string,
+  actorId: string,
+): Promise<{ id: string; contentType: string; bytes: number } | undefined> {
+  if (photo === null) return undefined;
+  if (!(await reportPhotoCouldBeKept(getStore(), { plate, actorId }))) return undefined;
+  const id = `photo-${randomUUID()}`;
+  await getPhotoBlobs().putPhotoBlob(id, photo.bytes);
+  return { id, contentType: photo.contentType, bytes: photo.bytes.byteLength };
+}
 
 /**
  * Best-effort removal of a blob whose row was never written. A failure leaves
