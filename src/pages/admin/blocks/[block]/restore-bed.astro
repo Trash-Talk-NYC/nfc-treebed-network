@@ -12,7 +12,11 @@
 // were never touched by the retirement, so the bed and its still-bound tag
 // come back as they were, with no deploy.
 import AdminScreen from '../../../../layouts/AdminScreen.astro';
-import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
+import {
+  redirectAdminWithBody,
+  refuseAdminWithBody,
+  requireAdmin,
+} from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
 import { ADMIN } from '../../../../lib/copy';
 import { bedHeadingName } from '../../../../lib/format';
@@ -39,12 +43,12 @@ if (!block || !bed || bed.blockId !== blockId) {
 // Already back — a stale tab, or a resubmitted confirmation. The honest answer
 // is the block page the bed is on again, not a 404 for a bed that is fine.
 if (bed.retiredAt === null) {
-  await abandonBody(Astro.request);
-  if (Astro.request.method === 'POST') {
-    const params = new URLSearchParams({ restored: '1' });
-    return Astro.redirect(langLink(`${base}?${params}`, lang), 303);
-  }
-  return Astro.redirect(langLink(base, lang), 302);
+  // A GET lands on the plain block page: nothing just happened, so there is
+  // no flash to raise. A resubmitted confirmation gets the one it expected.
+  return await redirectAdminWithBody(Astro.request, {
+    get: langLink(base, lang),
+    post: langLink(`${base}?restored=1`, lang),
+  });
 }
 
 if (Astro.request.method === 'POST') {

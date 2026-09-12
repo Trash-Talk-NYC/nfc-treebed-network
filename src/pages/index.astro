@@ -1,7 +1,14 @@
 ---
+import Screen from '../layouts/Screen.astro';
+import { bi } from '../lib/bilingual';
+import { ROOT } from '../lib/copy';
+import { resolveLang, type Lang } from '../lib/i18n';
 import { ourPlaqueLink } from '../lib/plaque-url';
-import { demoBinding } from '../lib/tag-bindings';
+import { defaultPresentation } from '../lib/presentation';
 import { abandonBody } from '../lib/request-body';
+import { getActiveBed } from '../lib/service';
+import { getStore } from '../lib/store';
+import { demoBinding } from '../lib/tag-bindings';
 
 // Rendered for any method, and an answer given without touching its body
 // leaves Node to read that body to its end. Nothing here wants one.
@@ -16,11 +23,37 @@ await abandonBody(Astro.request);
 // so what does is an uptime check, a crawler, or somebody typing the domain —
 // and a monitor polling this once a minute would be 1,440 taps a day on the
 // bed it lands on.
+//
+// The redirect is conditional on the demo bed still being LIVE, because the
+// admin can retire it like any other bed: following a binding whose bed is
+// gone would land the root on the calm "not assigned" screen, which answers
+// 404, and a pinned uptime check would start alerting on a delete nobody
+// connected to the root. The bed is not made undeletable to prevent that —
+// the root is made not to depend on it. Where there is nothing to redirect
+// to, the screen below is a calm 200.
+const lang: Lang = resolveLang(Astro.url, Astro.cookies);
 const demo = demoBinding();
-if (!demo) {
-  console.error('root redirect: the demo tag has no active binding (tag-bindings.ts)');
-  return new Response('The demo tag is not bound.', { status: 500 });
+const bed = demo === null ? null : await getActiveBed(getStore(), demo.sitePlate);
+if (demo !== null && bed !== null) {
+  const seeOther = Astro.request.method !== 'GET' && Astro.request.method !== 'HEAD';
+  return Astro.redirect(ourPlaqueLink(`/t/${demo.tagId}`), seeOther ? 303 : 302);
 }
-const seeOther = Astro.request.method !== 'GET' && Astro.request.method !== 'HEAD';
-return Astro.redirect(ourPlaqueLink(`/t/${demo.tagId}`), seeOther ? 303 : 302);
+
+const presentation = defaultPresentation();
 ---
+
+<Screen
+  title={presentation.copy.wordmark}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <div class="screen">
+    <div class="kicker">{presentation.copy.wordmark}</div>
+    <div class="card">
+      <div class="title" {...bi(ROOT.title, lang)}>{ROOT.title[lang]}</div>
+    </div>
+    <div class="body-copy" {...bi(ROOT.body, lang)}>{ROOT.body[lang]}</div>
+    <div class="spacer"></div>
+  </div>
+</Screen>

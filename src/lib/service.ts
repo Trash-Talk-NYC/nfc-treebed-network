@@ -198,7 +198,7 @@ export function engravedStewards(stewards: BedView['stewards']): BedView['stewar
  * "not assigned" screen instead of filing reports against a bed the admin
  * cannot see.
  */
-async function getActiveBed(store: Store, plate: string): Promise<Bed | null> {
+export async function getActiveBed(store: Store, plate: string): Promise<Bed | null> {
   const bed = await store.getBed(plate);
   return bed !== null && bed.retiredAt === null ? bed : null;
 }

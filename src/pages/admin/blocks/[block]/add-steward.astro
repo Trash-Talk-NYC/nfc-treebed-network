@@ -8,13 +8,17 @@
 // and a missing email is never read as consent to be contacted; no outreach
 // exists and none is invented (service.ts, `addStewardByAdmin`).
 import AdminScreen from '../../../../layouts/AdminScreen.astro';
-import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
+import {
+  redirectAdminWithBody,
+  refuseAdminWithBody,
+  requireAdmin,
+} from '../../../../lib/admin-route';
 import { bi, biAttr } from '../../../../lib/bilingual';
 import { ADMIN, ADOPT, ADOPT_ERRORS, AUTH, COMMON } from '../../../../lib/copy';
 import { bedHeadingName } from '../../../../lib/format';
 import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
 import { presentationFor } from '../../../../lib/presentation';
-import { MAX_FORM_BYTES, abandonBody, readFormOrRefuse } from '../../../../lib/request-body';
+import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
 import {
   MAX_EMAIL_CHARS,
   MAX_NAME_CHARS,
@@ -46,11 +50,7 @@ if (!bed || bed.blockId !== blockId) {
 // the block page the bed is now gone from, the same one `delete-bed.astro`
 // gives a resubmitted confirmation.
 if (bed.retiredAt !== null) {
-  await abandonBody(Astro.request);
-  return Astro.redirect(
-    langLink(`${base}?deleted=1`, lang),
-    Astro.request.method === 'GET' || Astro.request.method === 'HEAD' ? 302 : 303,
-  );
+  return await redirectAdminWithBody(Astro.request, langLink(`${base}?deleted=1`, lang));
 }
 const bedLink = langLink(`${base}?bed=${plate}`, lang);
 

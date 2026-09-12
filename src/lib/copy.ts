@@ -289,6 +289,20 @@ export const ABOUT_FAQ = {
   },
 } satisfies Record<string, Phrase>;
 
+/**
+ * The site root, on the rare occasion it has nothing to redirect to — the demo
+ * binding is gone, or the bed behind it has been retired from the admin. The
+ * root is monitors, crawlers and typed domains, so this is a calm 200 rather
+ * than an error: nobody standing at a tree ever sees it.
+ */
+export const ROOT = {
+  title: { en: 'Tap a tag to begin.', es: 'Toca una etiqueta para empezar.' },
+  body: {
+    en: 'This network lives on the tree guards. Find a tag on a guard on the block and hold your phone to it.',
+    es: 'Esta red vive en las rejas de los árboles. Busca una etiqueta en una reja de la cuadra y acerca tu teléfono.',
+  },
+} satisfies Record<string, Phrase>;
+
 /** Where a refused upload lands. */
 export const TOO_LARGE = {
   tabOverLimit: { en: 'Photo too large', es: 'Foto demasiado grande' },

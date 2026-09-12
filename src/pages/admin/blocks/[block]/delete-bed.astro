@@ -13,7 +13,11 @@
 // renders the calm "not assigned" screen. This page says exactly that, and
 // says more when the bed is live: stewards on it, an open report on it.
 import AdminScreen from '../../../../layouts/AdminScreen.astro';
-import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
+import {
+  redirectAdminWithBody,
+  refuseAdminWithBody,
+  requireAdmin,
+} from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
 import { ADMIN } from '../../../../lib/copy';
 import { bedHeadingName } from '../../../../lib/format';
@@ -41,11 +45,7 @@ if (!bed || bed.blockId !== blockId) {
 // answer is the block page the bed is now gone from, not a 404 for a bed the
 // captain just acted on.
 if (bed.retiredAt !== null) {
-  await abandonBody(Astro.request);
-  return Astro.redirect(
-    langLink(`${base}?deleted=1`, lang),
-    Astro.request.method === 'GET' || Astro.request.method === 'HEAD' ? 302 : 303,
-  );
+  return await redirectAdminWithBody(Astro.request, langLink(`${base}?deleted=1`, lang));
 }
 
 if (Astro.request.method === 'POST') {
