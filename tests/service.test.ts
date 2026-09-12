@@ -10,6 +10,7 @@ import {
   MAX_REPORT_PHOTOS,
   RuleError,
   adoptBed,
+  claimApplauseNotice,
   closeReport,
   deleteReportPhotoByAdmin,
   engravedStewards,
@@ -21,6 +22,7 @@ import {
   logTap,
   photoRendersInline,
   renameBedBySteward,
+  reportPhotoCouldBeKept,
   reportProblem,
   sendApplause,
   storedPhotoContentType,
@@ -489,71 +491,124 @@ describe('applause', () => {
     const noon = new Date('2026-08-11T16:00:00Z');
     const evening = new Date('2026-08-11T23:00:00Z');
     const nextDay = new Date('2026-08-12T16:00:00Z');
-    expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: noon })).toEqual({
-      counted: true,
-      notice: null,
-    });
+    expect(
+      (await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: noon })).counted,
+    ).toBe(true);
     // `events` is append-only with nothing pruning it, so a button anybody can
     // press without signing in has to stop costing something at some point.
     expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: evening })).toEqual({
       counted: false,
-      notice: null,
+      noticeQueued: false,
     });
-    expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', now: noon })).toEqual({
-      counted: true,
-      notice: null,
-    });
-    expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: nextDay })).toEqual({
-      counted: true,
-      notice: null,
-    });
+    expect(
+      (await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', now: noon })).counted,
+    ).toBe(true);
+    expect(
+      (await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: nextDay })).counted,
+    ).toBe(true);
     expect(await store.getEvents(PLATE, 'applause')).toHaveLength(3);
   });
 
-  it('names the stewards to mail once per bed per NY day, and claims the day first', async () => {
+  it('queues one notice per bed per NY day, and claims the day before anything is sent', async () => {
     const noon = new Date('2026-08-11T16:00:00Z');
     const evening = new Date('2026-08-11T23:00:00Z'); // 19:00 NY, same day
     const nextDay = new Date('2026-08-12T16:00:00Z');
-    // The first counted applause of the day carries the notice — the seeded
-    // steward has an email and no opt-out — and the claim is on the bed
-    // BEFORE anything is sent (claim-then-send, like the digest).
-    const first = await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', notify: true, now: noon });
-    expect(first.counted).toBe(true);
-    expect(first.notice?.recipients.map((u) => u.id)).toEqual(['user-marisol']);
+    // The first counted applause of the day queues the notice and claims the
+    // day on the spot. Nothing is mailed here: the press is somebody standing
+    // at a tree, and the scheduled run delivers it (digest.ts).
+    const first = await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: noon });
+    expect(first).toEqual({ counted: true, noticeQueued: true });
     expect((await store.getBed(PLATE))!.applauseNoticeAt).toBe(noon.toISOString());
+    expect((await store.getBed(PLATE))!.applauseNoticeDueAt).toBe(noon.toISOString());
     // A second neighbour the same NY day: counted, but the steward already
     // heard — a popular bed must not become a noisy inbox.
-    const second = await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', notify: true, now: evening });
-    expect(second).toMatchObject({ counted: true, notice: null });
+    const second = await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', now: evening });
+    expect(second).toEqual({ counted: true, noticeQueued: false });
+    // Claimed, and the claim names the mailable steward and empties the queue.
+    const claimed = await claimApplauseNotice(store, PLATE);
+    expect(claimed?.recipients.map((u) => u.id)).toEqual(['user-marisol']);
+    expect((await store.getBed(PLATE))!.applauseNoticeDueAt).toBeNull();
+    // Claim-then-send: a rerun of the same day finds nothing to send.
+    expect(await claimApplauseNotice(store, PLATE)).toBeNull();
     // The next day starts fresh.
-    const tomorrow = await sendApplause(store, { plate: PLATE, actorId: 'visitor-3', notify: true, now: nextDay });
-    expect(tomorrow.notice?.recipients).toHaveLength(1);
+    const tomorrow = await sendApplause(store, { plate: PLATE, actorId: 'visitor-3', now: nextDay });
+    expect(tomorrow.noticeQueued).toBe(true);
+    expect((await store.getBedsWithApplauseNoticeDue()).map((b) => b.plate)).toEqual([PLATE]);
   });
 
-  it('never names a steward who opted out or has no email, and leaves the day unclaimed', async () => {
+  it('never names a steward who opted out or has no email, and hands the day back', async () => {
     const noon = new Date('2026-08-11T16:00:00Z');
     const marisol = (await store.getUser('user-marisol'))!;
     await store.updateUser({ ...marisol, digestOptedOut: true });
     // Opted out of the digest opts out of applause mail too — one flag, every
-    // courtesy mail — and with nobody mailable the day is NOT claimed, so a
-    // steward who resumes later does not find it already spent.
-    const optedOut = await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', notify: true, now: noon });
-    expect(optedOut).toMatchObject({ counted: true, notice: null });
-    expect((await store.getBed(PLATE))!.applauseNoticeAt).toBeNull();
+    // courtesy mail — and with nobody mailable the claim hands the day BACK,
+    // so a steward who resumes later that day does not find it already spent.
+    await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: noon });
+    expect(await claimApplauseNotice(store, PLATE)).toBeNull();
+    let bed = (await store.getBed(PLATE))!;
+    expect(bed.applauseNoticeDueAt).toBeNull();
+    expect(bed.applauseNoticeAt).toBeNull();
 
     await store.updateUser({ ...marisol, digestOptedOut: false, email: '' });
-    const noEmail = await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', notify: true, now: noon });
-    expect(noEmail).toMatchObject({ counted: true, notice: null });
-    expect((await store.getBed(PLATE))!.applauseNoticeAt).toBeNull();
+    await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', now: noon });
+    expect(await claimApplauseNotice(store, PLATE)).toBeNull();
+    bed = (await store.getBed(PLATE))!;
+    expect(bed.applauseNoticeDueAt).toBeNull();
+    expect(bed.applauseNoticeAt).toBeNull();
+  });
+});
+
+describe('a carried photo the rules would decline', () => {
+  const care = (over: Partial<Parameters<typeof reportProblem>[1]> = {}) => ({
+    plate: PLATE,
+    actorId: 'visitor-1',
+    categories: ['litter' as const],
+    note: '',
+    photoAttached: false,
+    ...over,
   });
 
-  it('claims nothing while the caller cannot mail at all', async () => {
-    // `notify` is whether a mail could actually go out (transport configured,
-    // an origin for links): claiming a day nothing could send would silently
-    // burn notices on a deploy that gets mail later.
-    const quiet = await sendApplause(store, { plate: PLATE, actorId: 'visitor-1' });
-    expect(quiet).toMatchObject({ counted: true, notice: null });
-    expect((await store.getBed(PLATE))!.applauseNoticeAt).toBeNull();
+  it('is not worth uploading for a press the rule is about to decline', async () => {
+    const noon = new Date('2026-08-11T16:00:00Z');
+    // Nothing open, nothing said today: the upload is worth making.
+    expect(await reportPhotoCouldBeKept(store, { plate: PLATE, actorId: 'visitor-1', now: noon })).toBe(true);
+    await reportProblem(store, care({ now: noon }));
+    // Their own open report — the press is 'already-said', so the megabytes
+    // would be written and deleted again.
+    expect(await reportPhotoCouldBeKept(store, { plate: PLATE, actorId: 'visitor-1', now: noon })).toBe(false);
+    // A second neighbour adds weight, so theirs is worth keeping.
+    expect(await reportPhotoCouldBeKept(store, { plate: PLATE, actorId: 'visitor-2', now: noon })).toBe(true);
+    await reportProblem(store, care({ actorId: 'visitor-2', now: noon }));
+    expect(await reportPhotoCouldBeKept(store, { plate: PLATE, actorId: 'visitor-2', now: noon })).toBe(false);
+  });
+
+  it('is not worth uploading once the report is at its photo cap', async () => {
+    const noon = new Date('2026-08-11T16:00:00Z');
+    const filed = await reportProblem(store, care({ now: noon }));
+    const reportId = filed.report!.id;
+    for (let i = 0; i < MAX_REPORT_PHOTOS; i += 1) {
+      await store.addReportPhoto({
+        id: `photo-${i}`,
+        bedPlate: PLATE,
+        reportId,
+        actorId: `visitor-${i + 10}`,
+        contentType: 'image/jpeg',
+        bytes: 1024,
+        uploadedAt: noon.toISOString(),
+      });
+    }
+    expect(await reportPhotoCouldBeKept(store, { plate: PLATE, actorId: 'visitor-99', now: noon })).toBe(false);
+  });
+
+  it('says nothing about the day already reported by somebody else', async () => {
+    const noon = new Date('2026-08-11T16:00:00Z');
+    const later = new Date('2026-08-11T20:00:00Z');
+    await reportProblem(store, care({ now: noon }));
+    await closeReport(store, { plate: PLATE, actorId: 'user-marisol', now: later });
+    // Their own report is closed, but they have had their say today: the next
+    // press writes nothing, so its photo is not worth uploading either.
+    expect(await reportPhotoCouldBeKept(store, { plate: PLATE, actorId: 'visitor-1', now: later })).toBe(false);
+    expect(await reportPhotoCouldBeKept(store, { plate: PLATE, actorId: 'visitor-2', now: later })).toBe(true);
   });
 });
 

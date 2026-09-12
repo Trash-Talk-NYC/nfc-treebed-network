@@ -333,6 +333,35 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
 }
 
 /**
+ * Whether a photo this press carries could still be kept — a PLAIN read, run
+ * before the route uploads the bytes.
+ *
+ * The upload is megabytes on the one route that mints an identity for a
+ * cookie-less caller, and the presses `reportProblem` declines pay for it in
+ * full: today's second say, a neighbour already counted on the open report,
+ * a report at `MAX_CONFIRMATIONS`, or one already at `MAX_REPORT_PHOTOS`.
+ * Answering that off a plain read costs nothing and skips exactly those
+ * uploads.
+ *
+ * It is an OPTIMIZATION and never the gate: the transaction re-decides every
+ * one of these checks, and the route still deletes an orphan whose row the
+ * rule then declined. A `false` here only means the bytes need not be
+ * written; `photoAttached` is unaffected, because somebody did attach one.
+ */
+export async function reportPhotoCouldBeKept(
+  store: Store,
+  args: { plate: string; actorId: string; now?: Date },
+): Promise<boolean> {
+  const { plate, actorId } = args;
+  const now = args.now ?? new Date();
+  const open = await store.getOpenReport(plate);
+  if (!open) return !(await hasReportedToday(store, plate, actorId, now));
+  if (open.reporterId === actorId || open.confirmedBy.includes(actorId)) return false;
+  if (open.confirmedBy.length >= MAX_CONFIRMATIONS) return false;
+  return (await store.getReportPhotosForReport(open.id)).length < MAX_REPORT_PHOTOS;
+}
+
+/**
  * Put a carried upload's row on the record, bound to the report the press
  * just filed or weighted — or decline it past `MAX_REPORT_PHOTOS`, silently,
  * exactly as the pre-storage build discarded every photo. Runs inside the
@@ -361,12 +390,22 @@ async function keepReportPhoto(
 }
 
 /**
- * The stewards one applause notification should reach, and the bed as claimed.
- * Null wherever no mail is due — see `sendApplause`.
+ * The stewards an applause notification should reach for this bed: an active
+ * adoption, an email on record, and no digest opt-out — the digest's own bar,
+ * one flag for every courtesy mail, so "stop these emails" means all of them.
+ * A pen-and-paper steward with no email is simply never a recipient.
+ *
+ * Resolved at SEND time (the scheduled run reads it through its own `tx`),
+ * not when the applause landed: hours may pass between the press and the
+ * delivery, and who is mailable then is what matters.
  */
-export interface ApplauseNotice {
-  bed: Bed;
-  recipients: User[];
+export async function mailableStewards(tx: Store, plate: string): Promise<User[]> {
+  const recipients: User[] = [];
+  for (const adoption of await tx.getActiveAdoptions(plate)) {
+    const user = await tx.getUser(adoption.userId);
+    if (user && user.email.trim() !== '' && !user.digestOptedOut) recipients.push(user);
+  }
+  return recipients;
 }
 
 /**
@@ -380,29 +419,24 @@ export interface ApplauseNotice {
  * standing at the tree always has.
  *
  * Returns whether this press was the one that counted, so the screen can be
- * honest without being a rule notice — and, when `notify` asked for it, whom
- * to email about the applause. That answer is bounded to ONE notification per
- * bed per NY day however many people applaud (`Bed.applauseNoticeAt`, the
- * captain heard about the first pair of hands and reads the rest in the
- * digest), and it is a CLAIM written before any send, the digest's own shape:
- * the caller mails outside the transaction — a Blobs commit that loses re-runs
- * its callback, and a mail call inside one is a double send waiting to happen
- * — so a send that then fails forfeits that day's notice rather than doubling
- * a later one.
+ * honest without being a rule notice — and whether it QUEUED the day's
+ * notification mail. Nothing is sent from here, and the route sends nothing
+ * either: the press is somebody standing at a tree on cellular, and a Brevo
+ * call in front of their redirect (a 5s timeout and a retry behind it) buys
+ * them nothing. The scheduled run delivers it (`runApplauseNotices` in
+ * digest.ts), claim-then-send, the digest's own shape.
  *
- * Who is mailable is the digest's own bar: an email on record and no
- * digest opt-out — one flag for every courtesy mail, so "stop these emails"
- * means all of them — and a pen-and-paper steward with no email is simply
- * never a recipient. A counted applause with nobody mailable leaves the day
- * unclaimed, so a steward who adds an email later does not find it spent.
- * `notify` is whether the caller CAN mail at all (transport configured, an
- * origin for links): claiming a day nothing could send would burn notices
- * while mail is unconfigured.
+ * The bound is unchanged: ONE notification per bed per NY day however many
+ * people applaud (`Bed.applauseNoticeAt`, the captain hears about the first
+ * pair of hands and reads the rest in the digest). `applauseNoticeDueAt` is
+ * what says a notice is still owed; who it reaches is resolved when it goes
+ * out, so a steward who adds an email or resumes the digest between the press
+ * and the morning is included.
  */
 export async function sendApplause(
   store: Store,
-  args: { plate: string; actorId: string; notify?: boolean; now?: Date },
-): Promise<{ counted: boolean; notice: ApplauseNotice | null }> {
+  args: { plate: string; actorId: string; now?: Date },
+): Promise<{ counted: boolean; noticeQueued: boolean }> {
   const now = args.now ?? new Date();
   return store.transaction(async (tx) => {
     const bed = await getActiveBed(tx, args.plate);
@@ -411,21 +445,46 @@ export async function sendApplause(
     const already = (await tx.getEvents(args.plate, 'applause')).some(
       (e) => e.actorId === args.actorId && nyCalendarDay(new Date(e.createdAt)) === today,
     );
-    if (already) return { counted: false, notice: null };
+    if (already) return { counted: false, noticeQueued: false };
     await appendEvent(tx, args.plate, 'applause', args.actorId, null, now);
-    if (!args.notify) return { counted: true, notice: null };
     const noticed =
       bed.applauseNoticeAt !== null && nyCalendarDay(new Date(bed.applauseNoticeAt)) === today;
-    if (noticed) return { counted: true, notice: null };
-    const recipients: User[] = [];
-    for (const adoption of await tx.getActiveAdoptions(args.plate)) {
-      const user = await tx.getUser(adoption.userId);
-      if (user && user.email.trim() !== '' && !user.digestOptedOut) recipients.push(user);
-    }
-    if (recipients.length === 0) return { counted: true, notice: null };
-    const claimed: Bed = { ...bed, applauseNoticeAt: now.toISOString() };
+    if (noticed) return { counted: true, noticeQueued: false };
+    const claimed: Bed = {
+      ...bed,
+      applauseNoticeAt: now.toISOString(),
+      applauseNoticeDueAt: now.toISOString(),
+    };
     await tx.updateBed(claimed);
-    return { counted: true, notice: { bed: claimed, recipients } };
+    return { counted: true, noticeQueued: true };
+  });
+}
+
+/**
+ * Take a queued applause notice off the bed, inside the run's own
+ * transaction, and answer with the stewards to mail — the claim half of
+ * claim-then-send: a rerun or a crash after the commit costs one notice at
+ * worst and never doubles one.
+ *
+ * With nobody mailable the day is also UNCLAIMED (`applauseNoticeAt` back to
+ * null), so a steward who adds an email or resumes the digest later that day
+ * is not left with a notice already spent on an empty recipient list.
+ */
+export async function claimApplauseNotice(
+  store: Store,
+  plate: string,
+): Promise<{ bed: Bed; recipients: User[] } | null> {
+  return store.transaction(async (tx) => {
+    const bed = await getActiveBed(tx, plate);
+    if (!bed || bed.applauseNoticeDueAt === null) return null;
+    const recipients = await mailableStewards(tx, plate);
+    const cleared: Bed = {
+      ...bed,
+      applauseNoticeAt: recipients.length === 0 ? null : bed.applauseNoticeAt,
+      applauseNoticeDueAt: null,
+    };
+    await tx.updateBed(cleared);
+    return recipients.length === 0 ? null : { bed: cleared, recipients };
   });
 }
 
@@ -1769,6 +1828,7 @@ export async function addBedByAdmin(
       blockId: args.blockId,
       blockPosition: position,
       applauseNoticeAt: null,
+      applauseNoticeDueAt: null,
       nycSyncedAt: null,
       nycMissingSince: null,
       retiredAt: null,

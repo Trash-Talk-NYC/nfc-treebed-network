@@ -24,14 +24,16 @@ import { unsubscribePath } from './unsubscribe-link';
 
 /**
  * One steward's applause mail. `minePath` is the steward-view path for the
- * bed in the steward's own language (the route knows the tag; this builder
- * does not), and `origin` is the absolute origin every link resolves against
+ * bed in the steward's own language (the caller knows the tag; this builder
+ * does not) — null for a bed no tag is bound to, where there is no steward
+ * view to offer and the mail omits the link, exactly as the digest does.
+ * `origin` is the absolute origin every link resolves against
  * (`publicOrigin` — never the Host header in production).
  */
 export function buildApplauseMail(args: {
   user: User;
   bed: Bed;
-  minePath: string;
+  minePath: string | null;
   origin: string;
 }): MailMessage {
   const { user, bed, origin } = args;
@@ -49,7 +51,7 @@ export function buildApplauseMail(args: {
     .filter((part): part is string => part !== null && part !== '')
     .join(' · ');
 
-  const mineLink = `${origin}${args.minePath}`;
+  const mineLink = args.minePath === null ? null : `${origin}${args.minePath}`;
   const unsubscribe = `${origin}${unsubscribePath(user)}`;
 
   const text = [
@@ -58,8 +60,7 @@ export function buildApplauseMail(args: {
     bedTitle,
     t(APPLAUSE_MAIL.body),
     '',
-    `${t(DIGEST_MAIL.viewBed)}: ${mineLink}`,
-    '',
+    ...(mineLink === null ? [] : [`${t(DIGEST_MAIL.viewBed)}: ${mineLink}`, '']),
     t(APPLAUSE_MAIL.oncePerDay),
     '',
     `${t(DIGEST_MAIL.unsubscribe)}: ${unsubscribe}`,
@@ -71,7 +72,9 @@ export function buildApplauseMail(args: {
     `<div style="margin:0 0 16px;padding:12px 16px;background:${colors.surface};border-radius:8px;">` +
     `<p style="margin:0 0 6px;font-weight:700;">${escapeHtml(bedTitle)}</p>` +
     `<p style="margin:0 0 4px;">${escapeHtml(t(APPLAUSE_MAIL.body))}</p>` +
-    `<p style="margin:6px 0 0;"><a href="${escapeHtml(mineLink)}" style="color:${colors.action};font-weight:700;">${escapeHtml(t(DIGEST_MAIL.viewBed))}</a></p>` +
+    (mineLink === null
+      ? ''
+      : `<p style="margin:6px 0 0;"><a href="${escapeHtml(mineLink)}" style="color:${colors.action};font-weight:700;">${escapeHtml(t(DIGEST_MAIL.viewBed))}</a></p>`) +
     `</div>` +
     `<p style="margin:0 0 16px;">${escapeHtml(t(APPLAUSE_MAIL.oncePerDay))}</p>` +
     `<p style="margin:0;font-size:13px;"><a href="${escapeHtml(unsubscribe)}" style="color:${colors.muted};">${escapeHtml(t(DIGEST_MAIL.unsubscribe))}</a></p>` +

@@ -75,6 +75,12 @@ export interface Store {
   updateBlock(block: Block): Promise<void>;
   /** Beds assigned to a block, in block order. */
   getBedsInBlock(blockId: string): Promise<Bed[]>;
+  /**
+   * Beds owing an applause notification (`Bed.applauseNoticeDueAt`), oldest
+   * claim first — what the scheduled run reads to deliver them. Retired beds
+   * are left out: a bed the admin deleted mails nobody.
+   */
+  getBedsWithApplauseNoticeDue(): Promise<Bed[]>;
 
   // -- users -----------------------------------------------------------
   getUser(id: string): Promise<User | null>;

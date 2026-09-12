@@ -26,7 +26,7 @@ import { bedHeadingName, sentLabel } from '../../../../lib/format';
 import { langLink, resolveLang, type Lang } from '../../../../lib/i18n';
 import { presentationFor } from '../../../../lib/presentation';
 import { abandonBody } from '../../../../lib/request-body';
-import { RuleError, deleteReportPhotoByAdmin } from '../../../../lib/service';
+import { RuleError, deleteReportPhotoByAdmin, photoRendersInline } from '../../../../lib/service';
 import { getPhotoBlobs, getStore } from '../../../../lib/store';
 
 const lang: Lang = resolveLang(Astro.url, Astro.cookies);
@@ -100,11 +100,28 @@ const sent = sentLabel(new Date(photo.uploadedAt));
     <div class="idline">
       {photo.reportId} · <span {...bi(sent, lang)}>{sent[lang]}</span>
     </div>
-    <img
-      class="photo-preview"
-      src={`/admin/photos/${photo.id}`}
-      {...biAttr('alt', ADMIN.photoAlt, lang)}
-    />
+    {
+      /* The same branch the panel's grid takes: a HEIC upload, or one stored
+         as application/octet-stream (which the serving route's nosniff keeps
+         from rendering), is offered as a link to open rather than as a broken
+         image — the captain must see the same thing on both screens before
+         deciding to delete. */
+      photoRendersInline(photo.contentType) ? (
+        <img
+          class="photo-preview"
+          src={`/admin/photos/${photo.id}`}
+          {...biAttr('alt', ADMIN.photoAlt, lang)}
+        />
+      ) : (
+        <a
+          class="photo-preview photo-preview-open"
+          href={`/admin/photos/${photo.id}`}
+          {...bi(ADMIN.photoUnrenderable, lang)}
+        >
+          {ADMIN.photoUnrenderable[lang]}
+        </a>
+      )
+    }
     <p class="body-copy" {...bi(ADMIN.deletePhotoBody, lang)}>{ADMIN.deletePhotoBody[lang]}</p>
     <form method="POST" action={langLink(`${base}/delete-photo?photo=${photo.id}`, lang)}>
       <button class="btn btn-tall btn-alert" type="submit" {...bi(ADMIN.deletePhotoSubmit, lang)}>
@@ -128,5 +145,19 @@ const sent = sentLabel(new Date(photo.uploadedAt));
     border-radius: 9px;
     border: 1px solid var(--theme-border);
     object-fit: contain;
+  }
+  /* The unrenderable case keeps the preview's box and says what it is, the
+     dashed treatment the panel's grid uses for the same file. */
+  .photo-preview-open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-height: 120px;
+    padding: 16px;
+    border-style: dashed;
+    font-weight: 600;
+    color: var(--theme-action);
+    text-decoration: none;
   }
 </style>

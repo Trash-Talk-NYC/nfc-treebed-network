@@ -204,6 +204,18 @@ export interface Bed {
    */
   applauseNoticeAt: string | null;
   /**
+   * Set when a counted applause has claimed the day but the mail has not gone
+   * out yet, and cleared by the scheduled run that delivers it
+   * (`runApplauseNotices` in digest.ts).
+   *
+   * The notice is QUEUED rather than sent from the press, because the press is
+   * somebody standing at a tree: a Brevo call in front of their redirect puts
+   * the transport's timeout and retry between them and the thank-you takeover.
+   * `applauseNoticeAt` beside it is still what bounds the notice to one per
+   * bed per NY day; this only says one is owed.
+   */
+  applauseNoticeDueAt: string | null;
+  /**
    * Set when the captain deletes this bed on the admin page.
    *
    * Deleting is retiring, never erasing: the plate is the join key every

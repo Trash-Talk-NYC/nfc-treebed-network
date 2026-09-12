@@ -11,6 +11,7 @@ import {
   buildDigestMail,
   cadencePeriodMs,
   digestDue,
+  runApplauseNotices,
   runDigest,
   unsubscribePath,
   verifyUnsubscribe,
@@ -236,5 +237,64 @@ describe('the unsubscribe link', () => {
     expect(verifyUnsubscribe(user.id, params.get('s')!)).toBe(true);
     expect(verifyUnsubscribe('user-somebody-else', params.get('s')!)).toBe(false);
     expect(verifyUnsubscribe(user.id, 'forged')).toBe(false);
+  });
+});
+
+describe('the applause notices the tap flow queued', () => {
+  it('delivers them on the daily clock even while the digest cadence is off', async () => {
+    // The shipped default: no digest at all. The captain's "i realize when
+    // applause is sent i dont get emailed" is a different mail, so it still
+    // goes out.
+    expect((await store.getNetworkSettings()).digestCadence).toBe('off');
+    await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: NOW });
+    const { sent, send } = capture();
+    const run = await runApplauseNotices(store, { origin: 'https://example.org', send });
+    expect(run).toEqual({ sent: 1, failed: 0 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.to.email).toBe('seed-marisol@example.invalid');
+    expect(sent[0]!.subject).toBe('Someone applauded your tree bed');
+    // The demo tag is bound to this bed, so the mail links the steward's view.
+    expect(sent[0]!.text).toContain('https://example.org/t/2mq2amhv/mine');
+    // Claim-then-send: the queue is empty, so a rerun mails nothing.
+    const again = await runApplauseNotices(store, { origin: 'https://example.org', send });
+    expect(again).toEqual({ sent: 0, failed: 0 });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('mails once per bed per NY day however many people applaud', async () => {
+    await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: NOW });
+    await sendApplause(store, {
+      plate: PLATE,
+      actorId: 'visitor-2',
+      now: new Date(NOW.getTime() + 60 * 60 * 1000),
+    });
+    const { sent, send } = capture();
+    await runApplauseNotices(store, { origin: 'https://example.org', send });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('mails nobody without an email, and hands that day back', async () => {
+    const marisol = (await store.getUser('user-marisol'))!;
+    await store.updateUser({ ...marisol, email: '' });
+    await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: NOW });
+    const { sent, send } = capture();
+    const run = await runApplauseNotices(store, { origin: 'https://example.org', send });
+    expect(run).toEqual({ sent: 0, failed: 0 });
+    expect(sent).toHaveLength(0);
+    // Nobody was mailable, so the day is not spent: an email added later that
+    // day still earns the notice.
+    const bed = (await store.getBed(PLATE))!;
+    expect(bed.applauseNoticeAt).toBeNull();
+    expect(bed.applauseNoticeDueAt).toBeNull();
+  });
+
+  it('forfeits a notice whose send fails rather than queueing it again', async () => {
+    await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: NOW });
+    const run = await runApplauseNotices(store, {
+      origin: 'https://example.org',
+      send: async () => ({ ok: false as const, detail: 'brevo said no' }),
+    });
+    expect(run).toEqual({ sent: 0, failed: 1 });
+    expect(await store.getBedsWithApplauseNoticeDue()).toHaveLength(0);
   });
 });

@@ -4,7 +4,7 @@
 import type { APIRoute } from 'astro';
 import { randomUUID } from 'node:crypto';
 import { getPhotoBlobs, getStore } from '../../../lib/store';
-import { RuleError, reportProblem } from '../../../lib/service';
+import { RuleError, reportPhotoCouldBeKept, reportProblem } from '../../../lib/service';
 import { getActorId } from '../../../lib/session';
 import { noteFrom, problemsFrom, type ProblemCategory } from '../../../lib/problem';
 import {
@@ -110,8 +110,14 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
   // or a report already at its photo cap — deletes it on the way out; the one
   // orphan a crash between the two can leave is an invisible blob no row
   // names, which is the cheap direction (store.ts, `PhotoBlobs`).
+  //
+  // The presses the rule is about to decline are filtered off a plain read
+  // first (`reportPhotoCouldBeKept`), so an anonymous caller cannot spend
+  // megabytes of photo storage on a write the rules were never going to keep.
+  // The read is an optimization and never the gate — the transaction decides,
+  // and the delete below is still what covers a race.
   let stored: { id: string; contentType: string; bytes: number } | undefined;
-  if (photo !== null) {
+  if (photo !== null && (await reportPhotoCouldBeKept(getStore(), { plate, actorId: actor }))) {
     const id = `photo-${randomUUID()}`;
     await getPhotoBlobs().putPhotoBlob(id, photo.bytes);
     stored = { id, contentType: photo.contentType, bytes: photo.bytes.byteLength };

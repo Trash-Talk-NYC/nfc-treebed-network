@@ -21,6 +21,11 @@
 // transaction re-runs its callback when a commit loses, and a mail call
 // inside one would be a double send waiting for a busy afternoon.
 //
+// The same module carries the applause notices the tap flow queues
+// (`runApplauseNotices`, at the bottom): a different mail on the same daily
+// clock, deliberately NOT gated on the cadence, and here because the delivery
+// shape — claim inside a transaction, send outside it — is the same one.
+//
 // Nobody is emailed without an address, and design-record.md's answered open
 // question 3 still holds: a missing email is never consent to be contacted.
 // A pen-and-paper steward the captain wrote in WITH an email gave it for
@@ -36,6 +41,8 @@ import { TAG_BINDINGS, type TagBinding } from './tag-bindings';
 import { defaultPresentation } from './presentation';
 import { problemFor } from './problem';
 import { sendMail, type MailMessage, type MailResult } from './mail';
+import { buildApplauseMail } from './applause-mail';
+import { claimApplauseNotice } from './service';
 import { unsubscribePath } from './unsubscribe-link';
 
 export { unsubscribePath, verifyUnsubscribe } from './unsubscribe-link';
@@ -275,6 +282,79 @@ export async function runDigest(
       // scheduled function's log would copy PII somewhere nothing prunes.
       console.error(`[digest] send failed for ${content.user.id}: ${outcome.detail}`);
     }
+  }
+  return result;
+}
+
+// ── Applause notices ────────────────────────────────────────────────────
+
+export interface ApplauseNoticeRunResult {
+  /** Beds whose queued notice was claimed and mailed to at least one steward. */
+  sent: number;
+  /** Claims whose send then failed — that day's notice is forfeited. */
+  failed: number;
+}
+
+/**
+ * Deliver the applause notices the tap flow queued (`sendApplause` →
+ * `Bed.applauseNoticeDueAt`).
+ *
+ * It rides the digest's daily schedule but is INDEPENDENT of its cadence:
+ * `digestCadence` says how often a steward wants the periodic summary, and
+ * the captain's "i realize when applause is sent i dont get emailed" is a
+ * different mail. So this runs even while the cadence is off — the only thing
+ * that stops it is mail being unconfigured, which leaves the notices queued
+ * rather than burning them (the function checks that before calling either
+ * run).
+ *
+ * Claim-then-send, the same shape as the digest and for the same reason: the
+ * claim commits before the send, so a crash or a second concurrent run costs
+ * one notice at worst and never doubles one. Who is mailable is resolved
+ * inside that claim — an active adoption, an email on record, no digest
+ * opt-out — so nobody without an email is ever a recipient, and a bed with
+ * nobody mailable hands its day back (`claimApplauseNotice`).
+ */
+export async function runApplauseNotices(
+  store: Store,
+  args: {
+    origin: string;
+    send?: (message: MailMessage) => Promise<MailResult>;
+    bindings?: readonly TagBinding[];
+  },
+): Promise<ApplauseNoticeRunResult> {
+  const send = args.send ?? sendMail;
+  const bindings = args.bindings ?? TAG_BINDINGS;
+  const result: ApplauseNoticeRunResult = { sent: 0, failed: 0 };
+  // A plain read for the candidates; the claim re-decides each one, so a
+  // stale candidate costs a no-op rather than a duplicate mail.
+  for (const candidate of await store.getBedsWithApplauseNoticeDue()) {
+    const claimed = await claimApplauseNotice(store, candidate.plate);
+    if (claimed === null) continue;
+    const { bed, recipients } = claimed;
+    // In parallel: the stewards of one bed are at most `MAX_BED_SLOTS`, and a
+    // scheduled run has no visitor waiting on it either way.
+    const outcomes = await Promise.all(
+      recipients.map(async (user) => {
+        const outcome = await send(
+          buildApplauseMail({
+            user,
+            bed,
+            // A bed no tag is bound to has no steward view to link; the mail
+            // still says what happened, the way the digest does.
+            minePath: mineLink(bed.plate, user.lang, bindings),
+            origin: args.origin,
+          }),
+        );
+        if (!outcome.ok) {
+          // The address is on the user record already; repeating it in a
+          // scheduled function's log would copy PII somewhere nothing prunes.
+          console.error(`[applause] notice send failed for ${user.id}: ${outcome.detail}`);
+        }
+        return outcome.ok;
+      }),
+    );
+    if (outcomes.some((ok) => ok)) result.sent += 1;
+    else result.failed += 1;
   }
   return result;
 }

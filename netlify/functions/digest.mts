@@ -10,6 +10,11 @@
 // missing define disarms getStore()'s own netlify guard), and digest.ts
 // resolves its signing secret from the environment alone.
 //
+// It carries a second errand on the same clock: the applause notifications the
+// tap flow queues (`Bed.applauseNoticeDueAt`), delivered by
+// `runApplauseNotices` regardless of the digest cadence — the press must never
+// wait on a mail call, and a notice is not a digest.
+//
 // Daily, not "weekly", on purpose: the cadence is a stored network setting
 // the captain edits (off / weekly / every two weeks / monthly), so the
 // schedule just asks every day and `runDigest` sends only to stewards whose
@@ -23,7 +28,7 @@
 // a logged no-op, never a crash: the tap flow owes nothing to the digest.
 
 import { getStore } from '../../src/lib/store';
-import { runDigest } from '../../src/lib/digest';
+import { runApplauseNotices, runDigest } from '../../src/lib/digest';
 import { mailAvailable, publicOrigin } from '../../src/lib/mail';
 
 export default async (): Promise<Response> => {
@@ -45,12 +50,19 @@ export default async (): Promise<Response> => {
     );
     return new Response('mail not configured', { status: 200 });
   }
-  const result = await runDigest(getStore(), { origin });
+  const store = getStore();
+  // The applause notices the tap flow queued go out whatever the cadence says:
+  // `digestCadence` is how often a steward wants the periodic summary, and the
+  // captain's "i realize when applause is sent i dont get emailed" is a
+  // different mail. This run only rides the same daily clock.
+  const applause = await runApplauseNotices(store, { origin });
+  const result = await runDigest(store, { origin });
   // Counts only — never an address, never a token.
   console.log(
-    `[digest] cadence=${result.cadence} sent=${result.sent} failed=${result.failed}`,
+    `[digest] cadence=${result.cadence} sent=${result.sent} failed=${result.failed} ` +
+      `applause=${applause.sent} applauseFailed=${applause.failed}`,
   );
-  return Response.json(result);
+  return Response.json({ ...result, applause });
 };
 
 export const config = {

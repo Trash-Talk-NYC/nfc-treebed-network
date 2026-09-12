@@ -161,6 +161,10 @@ export class LocalStore implements Store, PhotoBlobs {
     return ops.getBedsInBlock(await this.load(), blockId);
   }
 
+  async getBedsWithApplauseNoticeDue(): Promise<Bed[]> {
+    return ops.getBedsWithApplauseNoticeDue(await this.load());
+  }
+
   async getUser(id: string): Promise<User | null> {
     return ops.getUser(await this.load(), id);
   }

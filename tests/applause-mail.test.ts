@@ -35,6 +35,7 @@ const BED: Bed = {
   blockId: null,
   blockPosition: null,
   applauseNoticeAt: null,
+  applauseNoticeDueAt: null,
   nycSyncedAt: null,
   nycMissingSince: null,
   retiredAt: null,
@@ -81,6 +82,22 @@ describe('the applause mail', () => {
     });
     expect(en.subject).toBe('Someone applauded your tree bed');
     expect(en.to).toEqual({ email: 'seed-marisol@example.invalid', name: 'Marisol Rivera' });
+  });
+
+  it('omits the steward-view link for a bed no tag is bound to', () => {
+    // The notice goes out on the scheduled run, hours after the press, and a
+    // bed whose tag has since been retired has no steward view to offer. The
+    // mail still says what happened — the digest omits its link the same way.
+    const mail = buildApplauseMail({
+      user: steward(),
+      bed: BED,
+      minePath: null,
+      origin: 'https://example.org',
+    });
+    expect(mail.text).not.toContain('https://example.org/t/');
+    expect(mail.html).not.toContain('/mine');
+    expect(mail.text).toContain('You’ll hear about applause at most once a day');
+    expect(mail.text).toContain('/digest/unsubscribe');
   });
 
   it('escapes the visitor-typed bed name in the HTML half', () => {

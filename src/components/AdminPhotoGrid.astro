@@ -1,0 +1,123 @@
+---
+// Stored care photos, as the admin's grid — the open report's own and the
+// bed's earlier ones render the identical thing, so it is authored once: the
+// delete link, the alt text and the "open to view" fallback cannot drift
+// apart between the two sections of the panel.
+//
+// Admin-only by decision (the captain's 2026-09-12 "store the photos and show
+// them in admin"): no public or steward screen may carry a stored photo or
+// its URL, so this component has exactly one caller and the bytes come from
+// `/admin/photos/<id>`, behind the same gate.
+import { bi, biAttr } from '../lib/bilingual';
+import { ADMIN } from '../lib/copy';
+import { sentLabel } from '../lib/format';
+import { langLink, type Lang } from '../lib/i18n';
+import { photoRendersInline } from '../lib/service';
+import type { ReportPhoto } from '../lib/types';
+
+interface Props {
+  photos: ReportPhoto[];
+  /** The block page these photos belong to — where the delete link points. */
+  base: string;
+  lang: Lang;
+}
+const { photos, base, lang } = Astro.props;
+---
+
+<div class="photo-grid">
+  {
+    photos.map((photo) => {
+      const sent = sentLabel(new Date(photo.uploadedAt));
+      return (
+        <figure class="photo-item">
+          {photoRendersInline(photo.contentType) ? (
+            <img
+              class="photo-thumb"
+              src={`/admin/photos/${photo.id}`}
+              loading="lazy"
+              {...biAttr('alt', ADMIN.photoAlt, lang)}
+            />
+          ) : (
+            <a
+              class="photo-open"
+              href={`/admin/photos/${photo.id}`}
+              {...bi(ADMIN.photoUnrenderable, lang)}
+            >
+              {ADMIN.photoUnrenderable[lang]}
+            </a>
+          )}
+          <figcaption class="photo-meta">
+            <span {...bi(sent, lang)}>{sent[lang]}</span>
+            <a
+              class="photo-delete"
+              href={langLink(`${base}/delete-photo?photo=${photo.id}`, lang)}
+              {...bi(ADMIN.deletePhotoLink, lang)}
+            >
+              {ADMIN.deletePhotoLink[lang]}
+            </a>
+          </figcaption>
+        </figure>
+      );
+    })
+  }
+</div>
+
+<style>
+  /* Small enough to scan, big enough to judge — the delete link opens the
+     confirmation page, so a mis-tap here costs a navigation. */
+  .photo-grid {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+  }
+  .photo-item {
+    margin: 0;
+    min-width: 0;
+  }
+  .photo-thumb {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--theme-border);
+    background: var(--theme-surface);
+  }
+  /* A stored file the browser cannot paint: the same box, as a link. */
+  .photo-open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px dashed var(--theme-border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theme-action);
+    text-decoration: none;
+  }
+  .photo-meta {
+    margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink-quiet);
+  }
+  /* Destructive, so the alert role's ink — the same treatment as the bed's
+     own delete link at the bottom of the panel. */
+  .photo-delete {
+    flex: none;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--theme-alert-ink);
+    text-decoration: none;
+  }
+</style>

@@ -1,15 +1,19 @@
 // The captain's 2026-09-12 asks, against a real server: a care photo that is
 // STORED and shown to the admin (with the delete that accepting uploads
-// obliges), an applause that reaches the steward's inbox once a day, and a
+// obliges), an applause that reaches the steward's inbox once a day — queued
+// at the press and delivered by the scheduled run, never in front of the
+// visitor's redirect — and a
 // bed renamed from the steward's own view. All driven the way the street
 // drives them — real POSTs, the dev outbox, the rendered HTML — because each
 // one crosses the seam between a route, the store, and a screen.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { runApplauseNotices } from '../src/lib/digest';
+import { LocalStore } from '../src/lib/store-local';
 import { serverEnv } from './helpers/server-env';
 import { signInByLink } from './helpers/steward-session';
 
@@ -31,6 +35,9 @@ beforeAll(async () => {
   if (built.status !== 0) throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
 
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-photo-'));
+  // The scheduled-run half below signs an unsubscribe link in THIS process,
+  // so it keys off the same secret the server was handed.
+  process.env.TREEBED_SESSION_SECRET ??= 'e2e-secret-not-a-real-one';
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
     env: serverEnv({
       TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
@@ -67,7 +74,10 @@ interface StoredData {
   reports: Array<{ id: string; photoAttached: boolean; closedAt: string | null }>;
   photos: Array<{ id: string; reportId: string; bedPlate: string; contentType: string; bytes: number }>;
   events: Array<{ eventType: string; actorId: string | null; note: string }>;
-  beds: Record<string, { bedName: string | null; applauseNoticeAt: string | null }>;
+  beds: Record<
+    string,
+    { bedName: string | null; applauseNoticeAt: string | null; applauseNoticeDueAt: string | null }
+  >;
 }
 
 async function storedData(): Promise<StoredData> {
@@ -262,7 +272,7 @@ describe('the stored care photo', () => {
 describe('the applause notice', () => {
   const SUBJECT = 'Someone applauded your tree bed';
 
-  it('mails the steward on the day’s first counted applause, and only then', async () => {
+  it('queues on the day’s first counted applause, mails nothing at the press, and goes out on the scheduled run', async () => {
     const first = await fetch(`${origin}/t/${TAG}/applause`, {
       method: 'POST',
       headers: { origin, cookie: await visitorCookie() },
@@ -270,23 +280,51 @@ describe('the applause notice', () => {
     });
     expect(first.status).toBe(303);
     expect(first.headers.get('location')).toBe(`/t/${TAG}/thanks?applause=1`);
+    // Nobody standing at a tree waits on a mail call: the press claims the
+    // day and queues the notice, and the outbox is still empty.
+    expect(await outboxWithSubject(SUBJECT)).toHaveLength(0);
+    const claimed = (await storedData()).beds[PLATE]!;
+    expect(claimed.applauseNoticeAt).not.toBeNull();
+    expect(claimed.applauseNoticeDueAt).not.toBeNull();
 
-    const mails = await outboxWithSubject(SUBJECT);
-    expect(mails).toHaveLength(1);
-    expect(mails[0]!.to.email).toBe('seed-marisol@example.invalid');
-    expect(mails[0]!.text).toContain(`/t/${TAG}/mine`);
-    // The same one-click unsubscribe the digest carries — one flag, every mail.
-    expect(mails[0]!.headers?.['List-Unsubscribe']).toContain('/digest/unsubscribe');
-    expect((await storedData()).beds[PLATE]!.applauseNoticeAt).not.toBeNull();
-
-    // A second neighbour the same NY day: counted, no second mail.
+    // A second neighbour the same NY day: counted, and the queue is unchanged
+    // — one notice per bed per NY day however many people applaud.
     const second = await fetch(`${origin}/t/${TAG}/applause`, {
       method: 'POST',
       headers: { origin, cookie: await visitorCookie() },
       redirect: 'manual',
     });
     expect(second.status).toBe(303);
-    expect(await outboxWithSubject(SUBJECT)).toHaveLength(1);
+    expect(await outboxWithSubject(SUBJECT)).toHaveLength(0);
+
+    // The delivery half, the way the scheduled function drives it — over a
+    // COPY of the store the server just wrote, because the running server
+    // holds the dataset in memory and two writers to one file is not a thing
+    // this suite should invent. The send is injected, so no transport of any
+    // kind is involved.
+    const copied = path.join(dataDir, 'scheduled-run.json');
+    await copyFile(path.join(dataDir, 'store.json'), copied);
+    const store = new LocalStore(copied);
+    const sent: Array<{ to: { email: string }; subject: string; text: string; headers?: Record<string, string> }> = [];
+    const run = await runApplauseNotices(store, {
+      origin: 'https://example.org',
+      send: async (message) => {
+        sent.push(message);
+        return { ok: true, transport: 'outbox' };
+      },
+    });
+    expect(run).toEqual({ sent: 1, failed: 0 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.subject).toBe(SUBJECT);
+    expect(sent[0]!.to.email).toBe('seed-marisol@example.invalid');
+    expect(sent[0]!.text).toContain(`/t/${TAG}/mine`);
+    // The same one-click unsubscribe the digest carries — one flag, every mail.
+    expect(sent[0]!.headers?.['List-Unsubscribe']).toContain('/digest/unsubscribe');
+    // Claim-then-send: the queue is empty, so a rerun mails nothing.
+    expect(await runApplauseNotices(store, { origin: 'https://example.org', send: async () => ({ ok: true, transport: 'outbox' }) })).toEqual({
+      sent: 0,
+      failed: 0,
+    });
   });
 });
 

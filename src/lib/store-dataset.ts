@@ -140,8 +140,10 @@ function normalizeBed(bed: Bed): void {
   bed.careNote ??= '';
   bed.blockId ??= null;
   bed.blockPosition ??= null;
-  // A bed from before applause mail has simply never had one sent.
+  // A bed from before applause mail has simply never had one sent, and owes
+  // none.
   bed.applauseNoticeAt ??= null;
+  bed.applauseNoticeDueAt ??= null;
   bed.nycSyncedAt ??= null;
   bed.nycMissingSince ??= null;
   // A bed written before deleting existed was never deleted.
@@ -293,6 +295,7 @@ export function seedData(): Data {
       blockId: DEMO_BLOCK_ID,
       blockPosition: 1,
       applauseNoticeAt: null,
+      applauseNoticeDueAt: null,
       nycSyncedAt: null,
       nycMissingSince: null,
       retiredAt: null,
@@ -372,6 +375,15 @@ export const ops = {
       Object.values(data.beds)
         .filter((bed) => bed.blockId === blockId)
         .sort((a, b) => (a.blockPosition ?? 0) - (b.blockPosition ?? 0)),
+    );
+  },
+  getBedsWithApplauseNoticeDue(data: Data): Bed[] {
+    // Oldest claim first, so a run that dies partway has still delivered the
+    // notices that had waited longest.
+    return detach(
+      Object.values(data.beds)
+        .filter((bed) => bed.applauseNoticeDueAt !== null && bed.retiredAt === null)
+        .sort((a, b) => (a.applauseNoticeDueAt ?? '').localeCompare(b.applauseNoticeDueAt ?? '')),
     );
   },
   getUser(data: Data, id: string): User | null {
@@ -565,6 +577,10 @@ export class TransactionStore implements Store {
 
   async getBedsInBlock(blockId: string): Promise<Bed[]> {
     return ops.getBedsInBlock(this.data, blockId);
+  }
+
+  async getBedsWithApplauseNoticeDue(): Promise<Bed[]> {
+    return ops.getBedsWithApplauseNoticeDue(this.data);
   }
 
   async getUser(id: string): Promise<User | null> {

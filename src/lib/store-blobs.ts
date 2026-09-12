@@ -393,6 +393,10 @@ export class BlobsStore implements Store, PhotoBlobs {
     return ops.getBedsInBlock((await this.load()).data, blockId);
   }
 
+  async getBedsWithApplauseNoticeDue(): Promise<Bed[]> {
+    return ops.getBedsWithApplauseNoticeDue((await this.load()).data);
+  }
+
   async getUser(id: string): Promise<User | null> {
     return ops.getUser((await this.load()).data, id);
   }
