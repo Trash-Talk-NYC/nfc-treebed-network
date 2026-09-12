@@ -94,8 +94,17 @@ const back = langLink(ourPlaqueLink(base), lang);
       <div class="fact">
         <span class="fact-label" {...bi(ABOUT.treeLabel, lang)}>{ABOUT.treeLabel[lang]}</span>
         <span class="fact-value" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
-        {!bed.treePresent && (
-          <span class="fact-note" {...bi(ABOUT.noTree, lang)}>{ABOUT.noTree[lang]}</span>
+        {/* Omitted entirely while nobody has recorded whether a tree stands
+            (types.ts), the same rule as every fact below: the species is what
+            the bed is FOR and is always named, but a default is not somebody
+            having looked. */}
+        {bed.treePresent !== null && (
+          <span
+            class="fact-note"
+            {...bi(bed.treePresent ? ABOUT.treeStanding : ABOUT.noTree, lang)}
+          >
+            {(bed.treePresent ? ABOUT.treeStanding : ABOUT.noTree)[lang]}
+          </span>
         )}
       </div>
       {/* Omitted entirely while the guard is not yet recorded (types.ts):

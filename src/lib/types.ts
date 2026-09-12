@@ -143,8 +143,15 @@ export interface Bed {
    * is not translated), each its own leaf on the screen and bounded by
    * `MAX_BED_NOTE_CHARS` (service.ts) like every other typed field.
    */
-  /** Whether a tree currently stands in this bed. Stumps and empty pits are real states. */
-  treePresent: boolean;
+  /**
+   * Whether a tree currently stands in this bed — stumps and empty pits are
+   * real states. Three-way like `guard`: `null` is NOT YET RECORDED, which is
+   * what every seeded bed and every backfilled row starts at. A checkbox
+   * cannot tell "unchecked" from "not sent", so this is a radio group at the
+   * panel and its absence from a POST keeps the fact as it stands rather than
+   * publishing "no tree" for a bed nobody has looked at.
+   */
+  treePresent: boolean | null;
   /**
    * Whether anything is planted in the bed besides the tree.
    *
@@ -409,8 +416,8 @@ export function guardMaterialFrom(value: unknown): GuardMaterial | null | undefi
 }
 
 /**
- * Narrow a form value to one of the profile's three-way facts (`plantsPresent`,
- * `plantingRecommended`), exactly like the guard above: 'yes' or 'no', null for
+ * Narrow a form value to one of the profile's three-way facts (`treePresent`,
+ * `plantsPresent`, `plantingRecommended`), exactly like the guard above: 'yes' or 'no', null for
  * the NOT RECORDED choice — the same value NOT YET RECORDED has on the record,
  * so it means the same thing at both ends — and undefined for anything else,
  * which keeps the fact as it stands.

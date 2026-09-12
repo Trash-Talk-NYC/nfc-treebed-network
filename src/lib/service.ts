@@ -853,6 +853,33 @@ export interface BlockView {
 }
 
 /**
+ * What the neighbours who added their weight to an open report said.
+ *
+ * The report belongs to whoever filed it, so a confirming neighbour's own
+ * categories and sentence ride on their `confirm` event (`reportProblem`).
+ * The join is the event's own `reportId`, NEVER a time window:
+ * `report → clear → report` is a supported loop and only the id says which
+ * lap an event belongs to; events written before that field carry null and
+ * match nothing, which shows no neighbour rather than the wrong one.
+ * Bounded by `MAX_CONFIRMATIONS`, like the confirmations themselves.
+ *
+ * One helper rather than one per screen: the steward's own view and the
+ * captain's panel must not drift on what a report says, because the panel
+ * exists so the captain never sees less of one than the steward does.
+ */
+export async function getOpenReportConfirms(
+  store: Store,
+  plate: string,
+  openReport: Report | null,
+): Promise<Array<{ categories: ProblemCategory[]; note: string }>> {
+  if (!openReport) return [];
+  return (await store.getEvents(plate, 'confirm'))
+    .filter((e) => e.reportId === openReport.id && (e.categories.length > 0 || e.note !== ''))
+    .reverse()
+    .map((e) => ({ categories: e.categories, note: e.note }));
+}
+
+/**
  * The block admin page's read.
  *
  * `openReportFor` is the plate of the bed the page has open, and the only one
@@ -877,12 +904,7 @@ export async function getBlockView(
     }
     const openReport =
       bed.plate === openReportFor ? ((await store.getOpenReport(bed.plate)) ?? null) : null;
-    const openReportConfirms = openReport
-      ? (await store.getEvents(bed.plate, 'confirm'))
-          .filter((e) => e.reportId === openReport.id && (e.categories.length > 0 || e.note !== ''))
-          .reverse()
-          .map((e) => ({ categories: e.categories, note: e.note }))
-      : [];
+    const openReportConfirms = await getOpenReportConfirms(store, bed.plate, openReport);
     beds.push({ bed, stewards, openReport, openReportConfirms });
   }
   return { block, beds };
@@ -905,23 +927,26 @@ export interface BlockSaveInput {
      * radio at all, which keeps the guard exactly as it stands.
      */
     guard: GuardMaterial | null | undefined;
-    /** The bed profile's switches — the facts "About this bed" states. */
-    treePresent: boolean;
     /**
-     * The profile's two three-way choices, read like `guard`: true, false,
-     * null for the NOT RECORDED choice that takes the fact back, and
-     * undefined for a form that carried no radio, which keeps it as it stands.
+     * The bed profile's three-way facts — what "About this bed" states — all
+     * read like `guard`: true, false, null for the NOT RECORDED choice that
+     * takes the fact back, and undefined for a form that carried no radio,
+     * which keeps it as it stands. One rule covers the whole profile: a field
+     * the form did not carry is never blanked.
      */
+    treePresent: boolean | null | undefined;
     plantsPresent: boolean | null | undefined;
     plantingRecommended: boolean | null | undefined;
     /**
      * The profile's typed notes: what is planted, what to plant, what care
      * the bed needs right now. Rendered as typed on the public about screen,
-     * so each goes through `capped` here like every other typed field.
+     * so each goes through `capped` here like every other typed field —
+     * and undefined is the same keep-as-it-stands the facts above get, so a
+     * form with no textarea in it cannot blank the admin's words.
      */
-    plantsNote: string;
-    recommendedPlantsNote: string;
-    careNote: string;
+    plantsNote: string | undefined;
+    recommendedPlantsNote: string | undefined;
+    careNote: string | undefined;
     /**
      * WHICH unfilled slots the captain left switched on, by slot number.
      *
@@ -1001,6 +1026,15 @@ function offeredSlotCount(numbers: number[], filled: number, slots: number): num
   return filled + chosen.size;
 }
 
+/**
+ * A profile note as submitted, or what stands when the form did not carry the
+ * field at all — the same keep-as-it-stands the three-way facts get, so one
+ * rule covers the whole profile and a partial POST blanks nothing.
+ */
+function keptNote(submitted: string | undefined, stored: string): string {
+  return submitted === undefined ? stored : capped(submitted, MAX_BED_NOTE_CHARS);
+}
+
 export async function saveBlockSettings(store: Store, args: BlockSaveInput): Promise<void> {
   await store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
@@ -1025,15 +1059,15 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       offeredSlots,
       bedName: args.bed.clearBedName ? null : bed.bedName,
       guard: args.bed.guard === undefined ? bed.guard : args.bed.guard,
-      treePresent: args.bed.treePresent,
+      treePresent: args.bed.treePresent === undefined ? bed.treePresent : args.bed.treePresent,
       plantsPresent: args.bed.plantsPresent === undefined ? bed.plantsPresent : args.bed.plantsPresent,
       plantingRecommended:
         args.bed.plantingRecommended === undefined
           ? bed.plantingRecommended
           : args.bed.plantingRecommended,
-      plantsNote: capped(args.bed.plantsNote, MAX_BED_NOTE_CHARS),
-      recommendedPlantsNote: capped(args.bed.recommendedPlantsNote, MAX_BED_NOTE_CHARS),
-      careNote: capped(args.bed.careNote, MAX_BED_NOTE_CHARS),
+      plantsNote: keptNote(args.bed.plantsNote, bed.plantsNote),
+      recommendedPlantsNote: keptNote(args.bed.recommendedPlantsNote, bed.recommendedPlantsNote),
+      careNote: keptNote(args.bed.careNote, bed.careNote),
     });
   });
 }
@@ -1207,7 +1241,7 @@ export async function addBedByAdmin(
       slots: 1,
       offeredSlots: 0,
       guard: null,
-      treePresent: true,
+      treePresent: null,
       plantsPresent: null,
       plantsNote: '',
       plantingRecommended: null,

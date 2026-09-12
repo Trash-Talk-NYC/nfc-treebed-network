@@ -41,13 +41,15 @@ type BedSave = NonNullable<Parameters<typeof saveBlockSettings>[1]['bed']>;
 function bedSave(overrides: Partial<BedSave> = {}): BedSave {
   return {
     plate: W171_PLATE,
+    // Every profile field defaults to "the form did not carry it", which is
+    // the save's keep-as-it-stands: a test says what it means to change.
     guard: undefined,
-    treePresent: true,
+    treePresent: undefined,
     plantsPresent: undefined,
     plantingRecommended: undefined,
-    plantsNote: '',
-    recommendedPlantsNote: '',
-    careNote: '',
+    plantsNote: undefined,
+    recommendedPlantsNote: undefined,
+    careNote: undefined,
     offeredSlotNumbers: [],
     addSlots: 0,
     ...overrides,
@@ -93,17 +95,17 @@ describe('the six real beds on W 171st', () => {
     expect(new Set(globals).size).toBe(6);
   });
 
-  it('seeds every bed with the profile defaults: nothing recorded but a tree standing', async () => {
+  it('seeds every bed with the profile defaults: nothing recorded at all', async () => {
     // Guards are ordered in the real world and tags go in with them, so the
     // profile asserts nothing about the guard — null, never 'none' — until
-    // the captain records the material on the admin page. The plants and the
-    // planting recommendation follow the same rule: null, never false, so the
-    // public page publishes "nothing planted yet" only once somebody has
-    // stood at the bed and said so.
+    // the captain records the material on the admin page. The tree, the
+    // plants and the planting recommendation follow the same rule: null,
+    // never false, so the public page publishes "nothing planted yet" — or
+    // "no tree" — only once somebody has stood at the bed and said so.
     const view = await getBlockView(freshStore(), W171_BLOCK_ID);
     for (const { bed } of view!.beds) {
       expect(bed.guard, bed.plate).toBeNull();
-      expect(bed.treePresent, bed.plate).toBe(true);
+      expect(bed.treePresent, bed.plate).toBeNull();
       expect(bed.plantsPresent, bed.plate).toBeNull();
       expect(bed.plantingRecommended, bed.plate).toBeNull();
       expect(bed.plantsNote, bed.plate).toBe('');
@@ -174,7 +176,7 @@ describe('the block reaches a store seeded before it existed', () => {
     // which would publicly deny the guard the old date says went in — and
     // the legacy date survives untouched: additive and lossless.
     expect(bed.guard).toBeNull();
-    expect(bed.treePresent).toBe(true);
+    expect(bed.treePresent).toBeNull();
     expect(bed.plantsPresent).toBeNull();
     expect(bed.plantingRecommended).toBeNull();
     expect(bed.plantsNote).toBe('');
@@ -535,6 +537,54 @@ describe('saving the block admin page', () => {
     expect(unrecorded.plantingRecommended).toBeNull();
   });
 
+  it('keeps every profile field a form did not carry, rather than blanking it', async () => {
+    // One rule for the whole profile: a stale page or a hand-built POST that
+    // carries no radio and no textarea changes nothing. The facts already
+    // read `undefined` as keep-as-it-stands; the notes and the tree — which a
+    // checkbox could not tell "unchecked" from "not sent" — do too.
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        treePresent: true,
+        plantsPresent: true,
+        plantingRecommended: true,
+        plantsNote: 'Daffodils along the guard side.',
+        recommendedPlantsNote: 'Swamp milkweed.',
+        careNote: 'Water twice a week.',
+      }),
+    });
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave(),
+    });
+    const bed = (await store.getBed(W171_PLATE))!;
+    expect(bed.treePresent).toBe(true);
+    expect(bed.plantsPresent).toBe(true);
+    expect(bed.plantingRecommended).toBe(true);
+    expect(bed.plantsNote).toBe('Daffodils along the guard side.');
+    expect(bed.recommendedPlantsNote).toBe('Swamp milkweed.');
+    expect(bed.careNote).toBe('Water twice a week.');
+  });
+
+  it('takes the tree back to NOT RECORDED on the choice, like the guard', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ treePresent: false }),
+    });
+    expect((await store.getBed(W171_PLATE))!.treePresent).toBe(false);
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ treePresent: null }),
+    });
+    expect((await store.getBed(W171_PLATE))!.treePresent).toBeNull();
+  });
+
   it('saves the bed profile — the switches and the typed notes, capped and stripped', async () => {
     const store = freshStore();
     await saveBlockSettings(store, {
@@ -560,6 +610,15 @@ describe('saving the block admin page', () => {
     expect(bed.plantsNote).toBe('Daffodils and a hosta');
     expect(bed.recommendedPlantsNote).toHaveLength(MAX_BED_NOTE_CHARS);
     expect(bed.careNote).toBe('Litter pickup after weekends. Rake in fall.');
+
+    // A submitted-but-empty textarea still clears: keep-as-it-stands is about
+    // a field that never arrived, not one the captain emptied on purpose.
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ careNote: '' }),
+    });
+    expect((await store.getBed(W171_PLATE))!.careNote).toBe('');
   });
 
   it('adds a slot up to the bound, and clamps what is offered to what exists', async () => {

@@ -17,7 +17,7 @@ import { ABOUT, ABOUT_FAQ } from '../src/lib/copy';
 const TAG = '2mq2amhv';
 /** A real W 171st tag (tag-bindings.ts) — its bed seeds unoffered, so door 1. */
 const DOOR1_TAG = 'jjhq9gfj';
-/** Another real W 171st tag, whose bed keeps the seeded profile: nothing recorded. */
+/** Another real W 171st tag, whose bed keeps the seeded profile: nothing recorded at all. */
 const UNRECORDED_TAG = '1hc0t9cj';
 
 /** What the admin typed onto the demo bed's profile for this run. */
@@ -45,19 +45,20 @@ beforeAll(async () => {
   const data = await seedData();
   const demo = data.beds['BED-HRL-0847']!;
   demo.guard = 'metal';
+  demo.treePresent = true;
   demo.plantsPresent = true;
   demo.plantsNote = PLANTS_NOTE;
   demo.plantingRecommended = true;
   demo.recommendedPlantsNote = RECOMMENDED_NOTE;
   demo.careNote = CARE_NOTE;
-  // The door-1 bed keeps typed notes under switches the admin set to "no".
+  // The door-1 bed keeps typed notes under switches the admin set to "no",
+  // and is the empty pit: a tree recorded as not standing.
   const door1 = data.beds['BED-WH-1711']!;
+  door1.treePresent = false;
   door1.plantsPresent = false;
   door1.plantsNote = OFF_PLANTS_NOTE;
   door1.plantingRecommended = false;
   door1.recommendedPlantsNote = OFF_RECOMMENDED_NOTE;
-  // This one keeps the seeded profile — nothing recorded — and loses its tree.
-  data.beds['BED-WH-1712']!.treePresent = false;
 
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-about-'));
   await writeFile(path.join(dataDir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
@@ -118,9 +119,12 @@ describe('the profile, in both languages', () => {
     // The public identity: NYC's number, never our plate.
     expect(html).toContain('#15850293');
 
-    // The tree, present, named bilingually.
+    // The tree, named bilingually, and recorded as standing — the fact the
+    // admin entered, stated rather than left to the species line.
     expect(html).toContain('Willow oak');
     expect(html).toContain('Roble sauce');
+    expect(html).toContain(ABOUT.treeStanding.en);
+    expect(html).toContain(ABOUT.treeStanding.es);
 
     // The guard, as the admin set it: metal, in both languages.
     expect(html).toContain(ABOUT.guardMetal.en);
@@ -173,15 +177,20 @@ describe('the profile, in both languages', () => {
     expect(html).not.toContain(ABOUT.plantingLabel.en);
     expect(html).not.toContain(ABOUT.plantingNo.en);
     expect(html).not.toContain(ABOUT.plantingYes.en);
-    // What the page does still state: the tree, and the care line.
+    // The tree follows the same rule: neither statement until somebody says.
+    expect(html).not.toContain(ABOUT.treeStanding.en);
+    expect(html).not.toContain(ABOUT.noTree.en);
+    // What the page does still state: the species it is the bed for, and the
+    // care line.
     expect(html).toContain(ABOUT.treeLabel.en);
+    expect(html).toContain('Willow oak');
     expect(html).toContain(ABOUT.careNone.en);
   });
 
   it('names the species even where no tree is standing, so the doors are not contradicted', async () => {
     // Both doors one tap away headline the species. An empty pit says what is
     // missing beside the species rather than instead of it.
-    const html = await (await fetch(`${origin}/t/${UNRECORDED_TAG}/about`)).text();
+    const html = await (await fetch(`${origin}/t/${DOOR1_TAG}/about`)).text();
     expect(html).toContain('Willow oak');
     expect(html).toContain('Roble sauce');
     expect(html).toContain(ABOUT.noTree.en);

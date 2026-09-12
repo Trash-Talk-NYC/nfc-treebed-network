@@ -58,12 +58,12 @@ let slotError: Phrase | null = null;
 let submitted: {
   address: string;
   guard: GuardMaterial | null | undefined;
-  treePresent: boolean;
+  treePresent: boolean | null | undefined;
   plantsPresent: boolean | null | undefined;
   plantingRecommended: boolean | null | undefined;
-  plantsNote: string;
-  recommendedPlantsNote: string;
-  careNote: string;
+  plantsNote: string | undefined;
+  recommendedPlantsNote: string | undefined;
+  careNote: string | undefined;
   slots: Set<number>;
   addSlots: number;
   clearName: boolean;
@@ -81,14 +81,22 @@ if (Astro.request.method === 'POST') {
   // choice — the captain taking a fact back — and undefined is a form that
   // carried no radio at all, which keeps the guard as it stands.
   const guard = guardMaterialFrom(form.get('guard'));
-  const treePresent = form.get('tree-present') !== null;
-  // The profile's two three-way facts, read exactly like the guard above:
+  // The profile's three three-way facts, read exactly like the guard above:
   // null is the NOT RECORDED choice and undefined is a form with no radio.
+  // The tree is a radio group rather than a switch for that reason — an
+  // unchecked checkbox and a field that never arrived are the same bytes, so
+  // a stale page or a hand-built POST would publish "no tree" for a bed
+  // nobody has looked at.
+  const treePresent = bedFactFrom(form.get('tree-present'));
   const plantsPresent = bedFactFrom(form.get('plants-present'));
   const plantingRecommended = bedFactFrom(form.get('planting-recommended'));
-  const plantsNote = String(form.get('plants-note') ?? '');
-  const recommendedPlantsNote = String(form.get('recommended-plants-note') ?? '');
-  const careNote = String(form.get('care-note') ?? '');
+  // Same rule for the typed notes: a field the form did not carry keeps what
+  // stands, so nothing on the profile is blanked by a partial POST.
+  const notedFrom = (field: string): string | undefined =>
+    form.has(field) ? String(form.get(field) ?? '') : undefined;
+  const plantsNote = notedFrom('plants-note');
+  const recommendedPlantsNote = notedFrom('recommended-plants-note');
+  const careNote = notedFrom('care-note');
   // The bed-name removal switch (service.ts, `BlockSaveInput`): committed by
   // SAVE CHANGES like every other panel control, never on its own press.
   const clearBedName = form.get('clear-bed-name') !== null;
@@ -280,6 +288,10 @@ const openReport = selected?.openReport
 // make.
 const panelGuard =
   submitted?.guard !== undefined ? (submitted?.guard ?? null) : (selected?.bed.guard ?? null);
+const panelTree =
+  submitted?.treePresent !== undefined
+    ? (submitted?.treePresent ?? null)
+    : (selected?.bed.treePresent ?? null);
 const panelPlants =
   submitted?.plantsPresent !== undefined
     ? (submitted?.plantsPresent ?? null)
@@ -632,23 +644,50 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               <div class="blockmeta" {...bi(ADMIN.profileHint, lang)}>
                 {ADMIN.profileHint[lang]}
               </div>
-              <label class="toggle-row">
+              {/* Three-way, like the guard and the two rows below: a checkbox
+                  cannot tell "unchecked" from "not sent", and the public page
+                  must say nothing about the tree until somebody has stood at
+                  the bed and said. NOT RECORDED is the way back. */}
+              <div class="toggle-row choice-row">
                 <span>
-                  <span class="t-lbl">
+                  <span class="t-lbl" id="tree-present-label">
                     <span {...bi(ADMIN.treePresentToggle, lang)}>{ADMIN.treePresentToggle[lang]}</span>
+                    {panelTree === null && (
+                      <span class="unset-mark" {...bi(ADMIN.unsetMark, lang)}>
+                        {ADMIN.unsetMark[lang]}
+                      </span>
+                    )}
                   </span>
                   <span class="t-sub">
-                    <span {...bi(ADMIN.treePresentSub, lang)}>{ADMIN.treePresentSub[lang]}</span>
+                    {panelTree === null ? (
+                      <span {...bi(ADMIN.treePresentUnsetSub, lang)}>
+                        {ADMIN.treePresentUnsetSub[lang]}
+                      </span>
+                    ) : (
+                      <span {...bi(ADMIN.treePresentSub, lang)}>{ADMIN.treePresentSub[lang]}</span>
+                    )}
                   </span>
                 </span>
-                <input
-                  type="checkbox"
-                  class="sw"
-                  name="tree-present"
-                  value="1"
-                  checked={submitted ? submitted.treePresent : selected.bed.treePresent}
-                />
-              </label>
+                <span class="seg" role="radiogroup" aria-labelledby="tree-present-label">
+                  <label class="seg-opt">
+                    <input type="radio" name="tree-present" value="yes" checked={panelTree === true} />
+                    <span {...bi(ADMIN.treeOptYes, lang)}>{ADMIN.treeOptYes[lang]}</span>
+                  </label>
+                  <label class="seg-opt">
+                    <input type="radio" name="tree-present" value="no" checked={panelTree === false} />
+                    <span {...bi(ADMIN.treeOptNo, lang)}>{ADMIN.treeOptNo[lang]}</span>
+                  </label>
+                  <label class="seg-opt">
+                    <input
+                      type="radio"
+                      name="tree-present"
+                      value={UNRECORDED_CHOICE}
+                      checked={panelTree === null}
+                    />
+                    <span {...bi(ADMIN.optUnrecorded, lang)}>{ADMIN.optUnrecorded[lang]}</span>
+                  </label>
+                </span>
+              </div>
               {/* Three-way, like the guard: a bed nobody has recorded has no
                   radio checked and the public page stays silent about it,
                   rather than publishing "nothing planted yet" by default. */}
@@ -702,7 +741,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   name="plants-note"
                   rows="2"
                   maxlength={MAX_BED_NOTE_CHARS}
-                >{submitted ? submitted.plantsNote : selected.bed.plantsNote}</textarea>
+                >{submitted?.plantsNote ?? selected.bed.plantsNote}</textarea>
               </div>
               <div class="toggle-row choice-row">
                 <span>
@@ -772,7 +811,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   name="recommended-plants-note"
                   rows="2"
                   maxlength={MAX_BED_NOTE_CHARS}
-                >{submitted ? submitted.recommendedPlantsNote : selected.bed.recommendedPlantsNote}</textarea>
+                >{submitted?.recommendedPlantsNote ?? selected.bed.recommendedPlantsNote}</textarea>
               </div>
               <div class="note-field">
                 <label class="field-label" for="care-note" {...bi(ADMIN.careNoteLabel, lang)}>
@@ -784,7 +823,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   name="care-note"
                   rows="2"
                   maxlength={MAX_BED_NOTE_CHARS}
-                >{submitted ? submitted.careNote : selected.bed.careNote}</textarea>
+                >{submitted?.careNote ?? selected.bed.careNote}</textarea>
               </div>
 
               <div class="panel-title slots-head" {...bi(slotsFilledLabel(selected.stewards.length, panelSlots), lang)}>

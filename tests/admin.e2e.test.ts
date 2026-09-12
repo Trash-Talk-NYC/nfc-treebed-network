@@ -324,8 +324,11 @@ describe('the admin door', () => {
     // Seeded: nobody has recorded either fact, so the NOT RECORDED radio is
     // the one checked on each row and the panel says so in both languages.
     const before = await panel();
+    expect(before).toContain(ADMIN.treePresentUnsetSub.en);
     expect(before).toContain(ADMIN.plantsPresentUnsetSub.en);
     expect(before).toContain(ADMIN.plantingRecommendedUnsetSub.es);
+    expect(before).toMatch(/name="tree-present" value="unset"[^>]*checked/);
+    expect(before).not.toMatch(/name="tree-present" value="(yes|no)"[^>]*checked/);
     expect(before).toMatch(/name="plants-present" value="unset"[^>]*checked/);
     expect(before).toMatch(/name="planting-recommended" value="unset"[^>]*checked/);
     expect(before).not.toMatch(/name="plants-present" value="(yes|no)"[^>]*checked/);
@@ -340,20 +343,31 @@ describe('the admin door', () => {
       redirect: 'manual',
     });
     expect(untouched.status).toBe(303);
-    expect(await panel()).toContain(ADMIN.plantsPresentUnsetSub.en);
+    const kept = await panel();
+    expect(kept).toContain(ADMIN.plantsPresentUnsetSub.en);
+    // The tree is a radio for this reason: an unchecked checkbox and a field
+    // that never arrived are the same bytes, and "no tree" is not what a
+    // stale page or a hand-built POST gets to publish.
+    expect(kept).toContain(ADMIN.treePresentUnsetSub.en);
+    expect(kept).toMatch(/name="tree-present" value="unset"[^>]*checked/);
 
     const picked = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1714`, {
       method: 'POST',
       headers,
       body: new URLSearchParams({
         plate: 'BED-WH-1714',
+        'tree-present': 'no',
         'plants-present': 'yes',
         'planting-recommended': 'no',
+        'care-note': 'Water twice a week.',
       }),
       redirect: 'manual',
     });
     expect(picked.status).toBe(303);
     const after = await panel();
+    expect(after).not.toContain(ADMIN.treePresentUnsetSub.en);
+    expect(after).toMatch(/name="tree-present" value="no"[^>]*checked/);
+    expect(after).toContain('Water twice a week.');
     expect(after).not.toContain(ADMIN.plantsPresentUnsetSub.en);
     expect(after).not.toContain(ADMIN.plantingRecommendedUnsetSub.en);
     expect(after).toMatch(/name="plants-present" value="yes"[^>]*checked/);
@@ -366,6 +380,7 @@ describe('the admin door', () => {
       headers,
       body: new URLSearchParams({
         plate: 'BED-WH-1714',
+        'tree-present': 'unset',
         'plants-present': 'unset',
         'planting-recommended': 'unset',
       }),
@@ -373,6 +388,12 @@ describe('the admin door', () => {
     });
     expect(unrecorded.status).toBe(303);
     const back = await panel();
+    // The note the last save typed survives a submit that carried no
+    // textarea: keep-as-it-stands covers the whole profile, not just the
+    // radios.
+    expect(back).toContain('Water twice a week.');
+    expect(back).toContain(ADMIN.treePresentUnsetSub.en);
+    expect(back).toMatch(/name="tree-present" value="unset"[^>]*checked/);
     expect(back).toContain(ADMIN.plantsPresentUnsetSub.en);
     expect(back).toContain(ADMIN.plantingRecommendedUnsetSub.en);
     expect(back).toMatch(/name="plants-present" value="unset"[^>]*checked/);

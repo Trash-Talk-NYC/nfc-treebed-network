@@ -219,6 +219,15 @@ export const ABOUT = {
     en: 'No tree is standing here right now — this is the bed it belongs to.',
     es: 'Ahora mismo no hay ningún árbol en pie: este es el cantero que le corresponde.',
   },
+  /**
+   * `treePresent` on. Stated rather than left to the species line, so the
+   * page says what somebody entered: while the fact is NOT YET RECORDED
+   * neither line appears and the species stands alone.
+   */
+  treeStanding: {
+    en: 'This tree is standing in its bed.',
+    es: 'Este árbol está en pie en su cantero.',
+  },
   guardLabel: { en: 'Guard', es: 'Protector' },
   guardNone: { en: 'None', es: 'No hay' },
   guardWood: { en: 'Wood', es: 'De madera' },
@@ -412,9 +421,17 @@ export const ADMIN = {
   },
   treePresentToggle: { en: 'Tree in the bed', es: 'Árbol en el cantero' },
   treePresentSub: {
-    en: 'Off for a stump or an empty pit',
-    es: 'Apágalo si hay un tocón o el hoyo está vacío',
+    en: 'A stump or an empty pit is “No tree”',
+    es: 'Un tocón o un hoyo vacío es «Sin árbol»',
   },
+  /** The same row while nobody has recorded it — the guard's rule, applied here. */
+  treePresentUnsetSub: {
+    en: 'Not recorded yet — the public page says nothing about the tree until you pick one and save.',
+    es: 'Aún sin registrar: la página pública no dice nada del árbol hasta que elijas y guardes.',
+  },
+  /** The tree row's two answers — a three-way choice, like the guard's. */
+  treeOptYes: { en: 'Standing', es: 'En pie' },
+  treeOptNo: { en: 'No tree', es: 'Sin árbol' },
   plantsPresentToggle: { en: 'Plants in the bed', es: 'Plantas en el cantero' },
   plantsPresentSub: {
     en: 'Anything planted besides the tree',
