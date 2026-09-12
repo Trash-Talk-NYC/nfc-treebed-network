@@ -80,7 +80,7 @@
 //                                      Leaving it unread would cost heap nothing
 //                                      and could cost the caller this route's
 //                                      redirect.
-//   POST .../clear, .../photo          The same, behind session and steward
+//   POST .../clear                     The same, behind session and steward
 //                                      checks — the body is read on the same
 //                                      bounds before either is consulted, so an
 //                                      unauthenticated POST is bounded by the
@@ -126,8 +126,8 @@
 //                                      buffer.
 //   Any other method, any route        A route bounds only the method it
 //                                      exports; Astro answers the rest itself,
-//                                      body untouched. The four POST routes
-//                                      (report, applause, clear, photo) export
+//                                      body untouched. The three POST routes
+//                                      (report, applause, clear) export
 //                                      `ALL` (`postOnly`, tag-route.ts)
 //                                      so that answer is a 405 rather than a
 //                                      404 with a log line per request, and
@@ -779,7 +779,7 @@ export function refusalResponse(refusal: Refusal, subject: string): Response {
  * Read and drop the body of a form that carries no fields, and answer for it
  * if it turns out to carry one after all.
  *
- * Confirm, escalate, clear and the weekly photo are a single button each, so
+ * Applause and clear are a single button each, so
  * there is nothing to parse — but a body left unread is not the same as no
  * body: Node answers and then destroys the socket under a request it never
  * finished reading, which can cost the caller the redirect this route just

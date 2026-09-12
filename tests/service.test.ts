@@ -15,8 +15,6 @@ import {
   escalateReport,
   getBedView,
   hashPin,
-  hasPhotoThisWeek,
-  logPhoto,
   deriveUsername,
   logTap,
   reportProblem,
@@ -521,13 +519,6 @@ describe('concurrent taps', () => {
     expect((await getBedView(store, PLATE))?.openSlots).toBe(0);
   });
 
-  it('logs one photo per week even when the button is double-submitted', async () => {
-    await Promise.all([
-      logPhoto(store, { plate: PLATE, actorId: 'user-marisol' }),
-      logPhoto(store, { plate: PLATE, actorId: 'user-marisol' }),
-    ]);
-    expect(await store.getEvents(PLATE, 'photo')).toHaveLength(1);
-  });
 });
 
 describe('store contract', () => {
@@ -677,18 +668,6 @@ describe('sign in', () => {
     await expect(
       adoptBed(store, { plate: PLATE, input: adoptInput({ firstName: 'Tam' }) }),
     ).rejects.toMatchObject({ code: 'slots-full' });
-  });
-});
-
-describe('weekly photo log', () => {
-  it('tracks a photo event within the current NY week per user', async () => {
-    const monday = new Date('2026-08-10T16:00:00Z');
-    const friday = new Date('2026-08-14T16:00:00Z');
-    const nextMonday = new Date('2026-08-17T16:00:00Z');
-    await logPhoto(store, { plate: PLATE, actorId: 'user-a', now: monday });
-    expect(await hasPhotoThisWeek(store, PLATE, 'user-a', friday)).toBe(true);
-    expect(await hasPhotoThisWeek(store, PLATE, 'user-b', friday)).toBe(false);
-    expect(await hasPhotoThisWeek(store, PLATE, 'user-a', nextMonday)).toBe(false);
   });
 });
 

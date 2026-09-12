@@ -582,13 +582,10 @@ export const ADMIN = {
 /** The steward's own view of their bed. */
 export const MINE = {
   yourBed: { en: 'YOUR BED', es: 'TU CANTERO' },
-  streak: { en: 'week photo streak', es: 'semanas seguidas con foto' },
   points: { en: 'club points', es: 'puntos del club' },
   openReport: { en: 'SOMEONE REPORTED THIS', es: 'ALGUIEN LO REPORTÓ' },
   cleared: { en: 'CLEAR · YOU SORTED IT', es: 'RESUELTO · TÚ LO ARREGLASTE' },
   alsoSaid: { en: 'NEIGHBOURS ALSO SAID', es: 'LOS VECINOS TAMBIÉN DIJERON' },
   alsoReported: { en: 'reported this as', es: 'lo reportó como' },
   clearIt: { en: 'I SORTED IT — CLOSE THE REPORT', es: 'YA LO ARREGLÉ — CERRAR EL REPORTE' },
-  givePhoto: { en: "GIVE THIS WEEK'S PHOTO", es: 'SUBE LA FOTO DE ESTA SEMANA' },
-  photoIn: { en: 'PHOTO IN THIS WEEK ✓', es: 'FOTO DE ESTA SEMANA ✓' },
 } satisfies Record<string, Phrase>;
