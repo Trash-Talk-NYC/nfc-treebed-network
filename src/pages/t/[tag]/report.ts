@@ -4,7 +4,8 @@
 import type { APIRoute } from 'astro';
 import { randomUUID } from 'node:crypto';
 import { getPhotoBlobs, getStore } from '../../../lib/store';
-import { RuleError, reportPhotoCouldBeKept, reportProblem } from '../../../lib/service';
+import { RuleError, reportProblem } from '../../../lib/service';
+import { storeReportPhoto } from '../../../lib/report-photo';
 import { getActorId } from '../../../lib/session';
 import { noteFrom, problemsFrom, type ProblemCategory } from '../../../lib/problem';
 import {
@@ -115,8 +116,14 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
   // first (`reportPhotoCouldBeKept`), so an anonymous caller cannot spend
   // megabytes of photo storage on a write the rules were never going to keep.
   // The read is an optimization and never the gate — the transaction decides,
-  // and the delete below is still what covers a race.
-  const stored = await storePhoto(photo, plate, actor);
+  // and the delete below is still what covers a race. A failure on that whole
+  // path is answered as "no stored photo" rather than raised: an optional
+  // attachment must never cost the visitor the report they already typed.
+  const stored = await storeReportPhoto(getStore(), getPhotoBlobs(), {
+    photo,
+    plate,
+    actorId: actor,
+  });
   // The in-flight byte budget bounds the READ, and its reservation was already
   // released when the read finished. `photo.bytes` is a VIEW into the whole
   // buffered body, so holding it here would pin megabytes across the
@@ -153,23 +160,6 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
     throw err;
   }
 };
-
-/**
- * Write the attached photo under a fresh server-minted id, or nothing at all
- * when the rules are about to decline the press. Its own scope so the caller
- * can drop the body it was reading from as soon as this returns.
- */
-async function storePhoto(
-  photo: { bytes: Uint8Array; contentType: string } | null,
-  plate: string,
-  actorId: string,
-): Promise<{ id: string; contentType: string; bytes: number } | undefined> {
-  if (photo === null) return undefined;
-  if (!(await reportPhotoCouldBeKept(getStore(), { plate, actorId }))) return undefined;
-  const id = `photo-${randomUUID()}`;
-  await getPhotoBlobs().putPhotoBlob(id, photo.bytes);
-  return { id, contentType: photo.contentType, bytes: photo.bytes.byteLength };
-}
 
 /**
  * Best-effort removal of a blob whose row was never written. A failure leaves
