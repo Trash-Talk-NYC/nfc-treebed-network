@@ -348,6 +348,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     method="POST"
     action={langLink(Astro.url.search === '' ? base : `${base}${Astro.url.search}`, lang)}
     data-admin-form
+    data-dirty={submitted ? 'true' : undefined}
     class="admin-card"
   >
     {/* The form's DEFAULT button, deliberately first and carrying nothing:
@@ -1012,7 +1013,6 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               <div
                 class="save-state"
                 data-save-state
-                data-dirty={submitted ? 'true' : undefined}
                 data-unsaved-en={ADMIN.unsaved.en}
                 data-unsaved-es={ADMIN.unsaved.es}
                 {...bi(saveState, lang)}
@@ -1307,10 +1307,12 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     // browser asks first rather than the page saving on its own — committing
     // changes somebody was still deciding about is the worse of the two.
     // Disarmed by the form's own submit, so saving never prompts.
-    // An add-slot press and a refused save both come back dirty from the
-    // server with no client event to observe, so the flag starts from what
-    // the rendered line already says.
-    var changed = !!state && state.getAttribute('data-dirty') === 'true';
+    // An add-slot press, a refused save and a save that found its bed deleted
+    // all come back dirty from the server with no client event to observe,
+    // so the flag starts from what the server rendered. It is read off the
+    // form, not the line: the last of those lands in list mode, where no
+    // line renders but the address field still holds the uncommitted text.
+    var changed = form.getAttribute('data-dirty') === 'true';
     function touched() {
       changed = true;
       dirty();

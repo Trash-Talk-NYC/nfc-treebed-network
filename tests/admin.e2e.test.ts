@@ -215,6 +215,9 @@ describe('the admin door', () => {
     // And the page says so, in both languages.
     expect(drawn).toContain('Unsaved changes');
     expect(drawn).toContain('Hay cambios sin guardar');
+    // And the unsaved-changes guard starts armed: the flag rides the form,
+    // which is what the script seeds from.
+    expect(drawn).toMatch(/<form[^>]*data-dirty="true"/);
 
     const reloaded = await (
       await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1715`, { headers: { cookie } })
@@ -644,9 +647,16 @@ describe('deleting a bed', () => {
     // The typed address is in the field, one SAVE ADDRESS away from landing.
     expect(after).toContain(`value="${typed}"`);
     expect(after).toContain('SAVE ADDRESS');
-    // And it really was not written: a fresh load still shows the old address.
+    // This lands in list mode, where the save-state line does not render —
+    // so the unsaved-changes guard must find its flag on the form itself, or
+    // the address the page just said it kept is dropped by the next tap.
+    expect(after).not.toMatch(/<div[^>]*data-save-state/);
+    expect(after).toMatch(/<form[^>]*data-dirty="true"/);
+    // And it really was not written: a fresh load still shows the old address,
+    // and carries no dirty flag.
     const fresh = await (await fetch(`${origin}${BLOCK_PATH}`, { headers: { cookie } })).text();
     expect(fresh).not.toContain(`value="${typed}"`);
+    expect(fresh).not.toMatch(/<form[^>]*data-dirty/);
   });
 
   it('keeps the plain 404 for a block that does not exist — only the bed gets the screen', async () => {
