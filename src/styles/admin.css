@@ -114,6 +114,10 @@
   min-width: 0;
 }
 .admin-right {
+  /* The panel is the container its own controls measure against: on the desk
+     layout this pane is a fraction of the window, so a viewport query would
+     call a 350px pane wide. */
+  container: adminpanel / inline-size;
   padding: 22px;
   background: var(--theme-ground);
   min-width: 0;

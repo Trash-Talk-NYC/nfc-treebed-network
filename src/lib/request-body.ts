@@ -18,7 +18,8 @@
 //                                      buffer. A failed tap write is logged and
 //                                      the plaque still renders.
 //   GET  .../care, adopt, auth,        Same: no body, no buffer.
-//        thanks, adopted, too-large
+//        thanks, adopted, too-large,
+//        about
 //   GET  .../mine                      Same, behind a session check.
 //   Any method at those screens        Astro renders a page for a POST as
 //                                      readily as for a tap, and none of these

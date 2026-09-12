@@ -13,6 +13,8 @@ import {
 } from '../src/lib/i18n';
 import * as COPY from '../src/lib/copy';
 import {
+  confirmationsLabel,
+  openedLabel,
   relativeAge,
   sinceLabel,
   slotsAllTakenMessage,
@@ -310,5 +312,26 @@ describe('the strings that are formatted rather than looked up', () => {
     const since = sinceLabel(new Date('2026-05-02T14:00:00.000Z'));
     expect(since.en).toBe('since May 2026');
     expect(since.es).toBe('desde mayo de 2026');
+  });
+
+  it('says when a report was opened, in NY time and each language’s own format', () => {
+    const opened = openedLabel(new Date('2026-09-11T19:42:00.000Z'));
+    expect(opened.en).toBe('Opened Sep 11, 3:42 PM');
+    expect(opened.es).toBe('Abierto el 11 sept, 15:42');
+  });
+
+  it('counts the neighbours who added weight to a report', () => {
+    expect(confirmationsLabel(0)).toEqual({
+      en: 'No one else has reported it yet',
+      es: 'Nadie más lo ha reportado todavía',
+    });
+    expect(confirmationsLabel(1)).toEqual({
+      en: '1 neighbour also reported it',
+      es: '1 vecino más lo reportó',
+    });
+    expect(confirmationsLabel(3)).toEqual({
+      en: '3 neighbours also reported it',
+      es: '3 vecinos más lo reportaron',
+    });
   });
 });

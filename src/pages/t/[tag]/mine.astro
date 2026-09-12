@@ -8,7 +8,7 @@
 // steward of this bed (see clear.ts).
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
-import { getBedView, hasPhotoThisWeek } from '../../../lib/service';
+import { getBedView, getOpenReportConfirms, hasPhotoThisWeek } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { capitalizeFirst, relativeAge, sinceLabel } from '../../../lib/format';
 import { bi } from '../../../lib/bilingual';
@@ -55,20 +55,13 @@ const photoLogged = await hasPhotoThisWeek(store, plate, me.id);
 const openProblems = openReport ? openReport.categories.map(problemFor) : [];
 const openAge = openReport ? relativeAge(new Date(openReport.openedAt)) : null;
 
-// What the neighbours who added their weight to the open report said. The
-// report itself belongs to whoever filed it, so their categories and their
-// sentence live on the `confirm` events (service.ts, `reportProblem`) and this
-// is where a steward reads them. The join is the event's own `reportId`, not a
-// time window: `report → clear → report` is a supported loop, so only the id
-// says which lap a confirm belongs to. Events written before that field carry
-// null and match nothing, which shows a steward no neighbour rather than the
-// wrong one. Bounded by `MAX_CONFIRMATIONS`, so the list cannot run away.
-const alsoSaid = openReport
-  ? (await store.getEvents(plate, 'confirm'))
-      .filter((e) => e.reportId === openReport.id && (e.categories.length > 0 || e.note !== ''))
-      .reverse()
-      .map((e) => ({ problems: e.categories.map(problemFor), note: e.note }))
-  : [];
+// What the neighbours who added their weight to the open report said — the
+// same join the captain's panel reads (service.ts, `getOpenReportConfirms`),
+// written once so the two screens cannot drift on what a report says.
+const alsoSaid = (await getOpenReportConfirms(store, plate, openReport)).map((said) => ({
+  problems: said.categories.map(problemFor),
+  note: said.note,
+}));
 
 // Green "you sorted it" band: the most recent report was closed by me,
 // recently enough to still be news (12h).

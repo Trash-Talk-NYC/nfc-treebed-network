@@ -129,13 +129,13 @@ describe('the first steward names the bed', () => {
     expect((await store.getBed(plate))!.bedName).toHaveLength(MAX_BED_NAME_CHARS);
   });
 
-  it('strips control and bidi characters a hand-built POST can carry', async () => {
+  it('strips bidi characters a hand-built POST can carry, and keeps a control character as the gap it stood in', async () => {
     const plate = await offeredEmptyBed();
     await adoptBed(store, {
       plate,
       input: adoptInput({ bedName: '\u202eLa\nMadrina\u2069\u200f' }),
     });
-    expect((await store.getBed(plate))!.bedName).toBe('LaMadrina');
+    expect((await store.getBed(plate))!.bedName).toBe('La Madrina');
   });
 
   it('lets the first steward skip naming: the bed then simply has no name', async () => {
@@ -307,6 +307,19 @@ describe('what SEND IT is worth', () => {
     const outcome = await reportProblem(store, careInput({ categories: ['other'], note: long }));
     expect(outcome.report?.categories).toEqual(['other']);
     expect(outcome.report?.note).toHaveLength(MAX_NOTE_CHARS);
+  });
+
+  it('strips what a hand-built note could carry into a screen, like every typed field', async () => {
+    // The note is the most attacker-controllable string in the build and it
+    // renders as a leaf beside copy of ours — the steward's view, the admin
+    // panel, the too-large screen. It goes through the same sanitisation the
+    // admin's own fields do: the bidi overrides are dropped, control
+    // characters and whitespace runs collapse to one space.
+    const outcome = await reportProblem(
+      store,
+      careInput({ categories: ['other'], note: '  hay\u202e una\r\n\trata  muerta  ' }),
+    );
+    expect(outcome.report?.note).toBe('hay una rata muerta');
   });
 
   it('keeps the sentence when "something else" rides alongside another tile', async () => {

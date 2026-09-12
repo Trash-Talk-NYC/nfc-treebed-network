@@ -72,11 +72,23 @@ function normalizeBed(bed: Bed): void {
   // door screen did with it — so `offeredSlots = slots` records what was
   // already true rather than closing a bed nobody closed.
   bed.offeredSlots ??= bed.slots;
-  // Before the block admin, `guardInstalledAt` was a bare string: every bed
-  // that existed had its guard in. Nothing to fill for those; a bed written
-  // without the ordered date simply was never in the ordered state.
-  bed.guardOrderedAt ??= null;
-  bed.guardInstalledAt ??= null;
+  // The bed profile ("About this bed"). A record from before it reads as the
+  // seeded defaults: the guard NOT YET RECORDED (null) — never 'none', which
+  // would put "no guard" on a public screen for a bed whose tag rides one.
+  // The earlier ordered/installed dates stay in the stored row untouched
+  // (additive, lossless), but they never said what a guard is MADE of, so the
+  // material is the captain's to set on the admin page rather than a guess.
+  // The tree, the plants and the planting recommendation are NOT YET RECORDED
+  // for the same reason as the guard (never `false`, which would publish
+  // "nothing planted yet" — or "no tree" — for a bed nobody has looked at),
+  // and no notes.
+  bed.guard ??= null;
+  bed.treePresent ??= null;
+  bed.plantsPresent ??= null;
+  bed.plantsNote ??= '';
+  bed.plantingRecommended ??= null;
+  bed.recommendedPlantsNote ??= '';
+  bed.careNote ??= '';
   bed.blockId ??= null;
   bed.blockPosition ??= null;
   bed.nycSyncedAt ??= null;
@@ -187,14 +199,17 @@ function checkedInBlocks(): Block[] {
  * the corner willow oak (a bed wrapped around 255 Fort Washington Ave, on the
  * W 171st curb line) is past it.
  *
- * Five guards are ordered — one per willow oak — and none is installed; the
- * white oak has no guard coming (`guardOrderedAt: null`). No tag is bound to
- * any of these beds yet: tags go in with guards (tag-bindings.ts), so
- * `tagUid` is empty and every bed starts unoffered (`offeredSlots: 0`) until
- * the captain opens it on the admin page — which is the page's whole point.
+ * Five guards are ordered in the real world — one per willow oak, none for
+ * the white oak — and none is installed today, but every bed seeds
+ * `guard: null` (not yet recorded) rather than 'none': tags go in WITH the
+ * guards (tag-bindings.ts), so by the time anyone can tap a W 171st bed a
+ * guard is standing there, and the public screen must not say otherwise until
+ * the captain has recorded the material on the admin page. For the same
+ * reason `tagUid` is empty and every bed starts unoffered (`offeredSlots: 0`)
+ * until the captain opens it on the admin page — which is the page's whole
+ * point.
  */
 function w171Beds(): Bed[] {
-  const GUARDS_ORDERED_AT = '2026-09-09T00:00:00.000Z';
   const LOOKED_UP_AT = '2026-09-10T00:00:00.000Z';
   const bed = (args: {
     plate: string;
@@ -218,8 +233,13 @@ function w171Beds(): Bed[] {
     address: args.address,
     slots: 1,
     offeredSlots: 0,
-    guardOrderedAt: args.whiteOak ? null : GUARDS_ORDERED_AT,
-    guardInstalledAt: null,
+    guard: null,
+    treePresent: null,
+    plantsPresent: null,
+    plantsNote: '',
+    plantingRecommended: null,
+    recommendedPlantsNote: '',
+    careNote: '',
     blockId: W171_BLOCK_ID,
     blockPosition: args.position,
     nycSyncedAt: LOOKED_UP_AT,
@@ -366,8 +386,16 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
       address: '2300 Adam Clayton Powell Jr Blvd, New York, NY 10030',
       slots: 2,
       offeredSlots: 2,
-      guardOrderedAt: null,
-      guardInstalledAt: '2026-04-18T16:00:00.000Z',
+      // The mockup bed's guard is in (the tag rides it), material unrecorded
+      // anywhere real — not yet recorded, like every backfilled bed, until
+      // somebody who has stood at it sets the material on the admin page.
+      guard: null,
+      treePresent: null,
+      plantsPresent: null,
+      plantsNote: '',
+      plantingRecommended: null,
+      recommendedPlantsNote: '',
+      careNote: '',
       blockId: DEMO_BLOCK_ID,
       blockPosition: 1,
       nycSyncedAt: null,

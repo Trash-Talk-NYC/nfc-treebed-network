@@ -56,7 +56,7 @@ import { resolveTagParam } from '../../../lib/tag-bindings';
 import { abandonBody } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
 import { capitalizeFirst } from '../../../lib/format';
-import { COMMON, DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, UNBOUND } from '../../../lib/copy';
+import { ABOUT, COMMON, DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, UNBOUND } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../lib/presentation';
 import { publicHandle, publicInitials } from '../../../lib/types';
@@ -141,6 +141,7 @@ const engraved = engravedStewards(stewards);
 
 const care = langLink(`${base}/care`, lang);
 const adopt = langLink(`${base}/adopt`, lang);
+const about = langLink(`${base}/about`, lang);
 
 const title = bed
   ? `${capitalizeFirst(bed.treeType[lang])} · ${presentation.copy.wordmark}`
@@ -211,6 +212,11 @@ const title = bed
         <a class="btn btn-outline" href={care} {...bi(COMMON.needsCare, lang)}>
           {COMMON.needsCare[lang]}
         </a>
+        {/* A small text link, deliberately not a third big button: the door
+            keeps one clear question, and the profile is a read, not an act. */}
+        <a class="btn-ghost" href={about} {...bi(ABOUT.fromDoor, lang)}>
+          {ABOUT.fromDoor[lang]}
+        </a>
       </div>
     )
   }
@@ -271,6 +277,10 @@ const title = bed
             {DOOR_STEWARDED.joinThem[lang]}
           </a>
         )}
+        {/* Same small link as door 1 — never a third big button. */}
+        <a class="btn-ghost" href={about} {...bi(ABOUT.fromDoor, lang)}>
+          {ABOUT.fromDoor[lang]}
+        </a>
       </div>
     )
   }

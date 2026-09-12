@@ -193,6 +193,102 @@ export const UNBOUND = {
   tagLabel: { en: 'TAG', es: 'ETIQUETA' },
 } satisfies Record<string, Phrase>;
 
+/**
+ * "About this bed" — the bed's own profile, plus the network-wide FAQ below
+ * it (`ABOUT_FAQ`). The captain's ask, verbatim: "an about this bed page with
+ * resources almost like an FAQ", because "every tree is specialized".
+ *
+ * The profile VALUES that are free text (what's planted, what to plant, the
+ * care note) are the admin's own words, rendered as typed in both languages —
+ * these are only the labels and the fixed answers around them.
+ *
+ * DRAFT COPY: written for the captain to edit, like every sentence in this
+ * file — flagged in the PR that shipped it.
+ */
+export const ABOUT = {
+  /** The small text link under the door buttons — never a third big button. */
+  fromDoor: { en: 'About this bed →', es: 'Sobre este cantero →' },
+  title: { en: 'About this bed', es: 'Sobre este cantero' },
+  treeLabel: { en: 'Tree', es: 'Árbol' },
+  /**
+   * `treePresent` off: a stump or an empty pit. The species is still named
+   * above this line — it is what the bed is FOR, and the doors one tap away
+   * headline it — so this says what is missing without contradicting them.
+   */
+  noTree: {
+    en: 'No tree is standing here right now — this is the bed it belongs to.',
+    es: 'Ahora mismo no hay ningún árbol en pie: este es el cantero que le corresponde.',
+  },
+  /**
+   * `treePresent` on. Stated rather than left to the species line, so the
+   * page says what somebody entered: while the fact is NOT YET RECORDED
+   * neither line appears and the species stands alone.
+   */
+  treeStanding: {
+    en: 'This tree is standing in its bed.',
+    es: 'Este árbol está en pie en su cantero.',
+  },
+  guardLabel: { en: 'Guard', es: 'Protector' },
+  guardNone: { en: 'None', es: 'No hay' },
+  guardWood: { en: 'Wood', es: 'De madera' },
+  guardMetal: { en: 'Metal', es: 'De metal' },
+  plantsLabel: { en: 'Plants', es: 'Plantas' },
+  plantsYes: { en: 'Yes — this bed is planted.', es: 'Sí, este cantero está plantado.' },
+  plantsNo: { en: 'Nothing planted yet.', es: 'Todavía no hay nada plantado.' },
+  plantingLabel: { en: 'Planting here', es: 'Plantar aquí' },
+  plantingYes: {
+    en: 'Yes — Trash Talk recommends planting in this bed.',
+    es: 'Sí, Trash Talk recomienda plantar en este cantero.',
+  },
+  plantingNo: {
+    en: 'Not for now — check with Trash Talk before planting here.',
+    es: 'Por ahora no: consulta con Trash Talk antes de plantar aquí.',
+  },
+  careLabel: { en: 'Care it needs right now', es: 'Cuidados que necesita ahora' },
+  careNone: { en: 'Nothing noted right now.', es: 'Nada anotado por ahora.' },
+} satisfies Record<string, Phrase>;
+
+/**
+ * The FAQ under the profile — network-wide, the same on every bed, and kept
+ * here so the captain edits sentences rather than screens. Each answer sits
+ * beside its question so the pairs read as pairs; the screen builds the list.
+ */
+export const ABOUT_FAQ = {
+  head: { en: 'Questions neighbours ask', es: 'Preguntas de la vecindad' },
+  stewardQ: { en: 'How do I become a steward?', es: '¿Cómo puedo cuidar un cantero?' },
+  stewardA: {
+    en: 'Tap the tag on a bed that’s looking for a steward and press ADOPT THIS BED. Your name goes on it, and the block knows who to thank.',
+    es: 'Toca la etiqueta de un cantero que busque quien lo cuide y pulsa ADOPTA ESTE CANTERO. Tu nombre queda en él y la cuadra sabrá a quién agradecer.',
+  },
+  reportQ: { en: 'How do I report a problem?', es: '¿Cómo reporto un problema?' },
+  reportA: {
+    en: 'Tap the tag and press THIS BED NEEDS CARE. Pick what’s wrong — a photo is optional — and Trash Talk NYC sees the report, as does the bed’s steward if it has one.',
+    es: 'Toca la etiqueta y pulsa ESTE CANTERO NECESITA CUIDADO. Elige qué pasa —la foto es opcional— y Trash Talk NYC ve el reporte, igual que quien cuida el cantero, si lo tiene.',
+  },
+  plantsQ: {
+    en: 'I steward a bed — how do I update what’s planted?',
+    es: 'Cuido un cantero, ¿cómo actualizo lo que está plantado?',
+  },
+  plantsA: {
+    en: 'Tell Trash Talk what changed. For now the block admin updates this page, so it may take a little while to show.',
+    es: 'Cuéntale a Trash Talk qué cambió. Por ahora la administración de la cuadra actualiza esta página, así que puede tardar un poco en verse.',
+  },
+  whoQ: { en: 'What is Trash Talk NYC?', es: '¿Qué es Trash Talk NYC?' },
+  whoA: {
+    en: 'Neighbours keeping our street trees and their beds alive — tree by tree, block by block.',
+    es: 'Gente del barrio que mantiene vivos nuestros árboles y sus canteros, árbol a árbol, cuadra a cuadra.',
+  },
+  resourcesHead: { en: 'More resources', es: 'Más recursos' },
+  nycParksLink: {
+    en: 'NYC Parks on caring for street trees',
+    es: 'NYC Parks sobre el cuidado de los árboles de la calle',
+  },
+  nyc311Link: {
+    en: 'NYC 311 — city tree service requests',
+    es: 'NYC 311: solicitudes a la ciudad sobre árboles',
+  },
+} satisfies Record<string, Phrase>;
+
 /** Where a refused upload lands. */
 export const TOO_LARGE = {
   tabOverLimit: { en: 'Photo too large', es: 'Foto demasiado grande' },
@@ -283,12 +379,103 @@ export const ADMIN = {
   badgePaperShort: { en: 'PEN', es: 'PAPEL' },
   badgeOpen: { en: 'OPEN', es: 'EN ADOPCIÓN' },
   badgeClosed: { en: 'NOT OPEN', es: 'CERRADO' },
-  /** The bed list's small line: which guard state the bed is in. */
-  guardOrdered: { en: 'guard ordered', es: 'protector pedido' },
-  guardInstalled: { en: 'guard installed', es: 'protector instalado' },
+  /** The bed list's small line: what guard stands at the bed. */
   guardNone: { en: 'no guard', es: 'sin protector' },
-  guardToggle: { en: 'Guard installed', es: 'Protector instalado' },
-  guardToggleSub: { en: 'Marks the bed as protected', es: 'Marca el cantero como protegido' },
+  guardWood: { en: 'wood guard', es: 'protector de madera' },
+  guardMetal: { en: 'metal guard', es: 'protector de metal' },
+  /** The same line while nobody has recorded the guard yet (`Bed.guard` null). */
+  guardUnset: { en: 'guard not set', es: 'protector sin registrar' },
+  /**
+   * The panel's three-way guard choice — the captain's own framing: "guard
+   * there yes or no, and if there is a guard there, whether it wood or metal".
+   */
+  guardChoice: { en: 'Guard', es: 'Protector' },
+  guardChoiceSub: {
+    en: 'If there’s a guard, what it’s made of',
+    es: 'Si hay protector, de qué está hecho',
+  },
+  /**
+   * The mark beside any three-way row nobody has recorded yet — the guard and
+   * the two profile facts alike — and the guard's own sub-line, which replaces
+   * `guardChoiceSub` until the admin picks.
+   */
+  unsetMark: { en: 'NOT SET', es: 'SIN REGISTRAR' },
+  guardUnsetSub: {
+    en: 'Not recorded yet — the public page says nothing about the guard until you pick one and save.',
+    es: 'Aún sin registrar: la página pública no dice nada del protector hasta que elijas uno y guardes.',
+  },
+  guardOptNone: { en: 'None', es: 'Ninguno' },
+  /**
+   * The NOT RECORDED choice every three-way row offers, so a fact can be
+   * taken back: the captain records these one-handed on a sidewalk and a
+   * mis-tap must not publish something nobody verified for good.
+   */
+  optUnrecorded: { en: 'Not set', es: 'Sin registrar' },
+  guardOptWood: { en: 'Wood', es: 'Madera' },
+  guardOptMetal: { en: 'Metal', es: 'Metálico' },
+  /** The bed profile — what the public "About this bed" page states. */
+  profileHead: { en: 'About this bed', es: 'Sobre este cantero' },
+  profileHint: {
+    en: 'This feeds the public “About this bed” page: a fact left Not set says nothing there, each plants note shows only while its own choice reads yes, and the care note always shows.',
+    es: 'Esto alimenta la página pública “Sobre este cantero”: un dato en Sin registrar no dice nada allí, cada nota de plantas aparece solo mientras su propia opción dice que sí, y la nota de cuidado siempre aparece.',
+  },
+  treePresentToggle: { en: 'Tree in the bed', es: 'Árbol en el cantero' },
+  treePresentSub: {
+    en: 'A stump or an empty pit is “No tree”',
+    es: 'Un tocón o un hoyo vacío es “Sin árbol”',
+  },
+  /** The same row while nobody has recorded it — the guard's rule, applied here. */
+  treePresentUnsetSub: {
+    en: 'Not recorded yet — the public page says nothing about the tree until you pick one and save.',
+    es: 'Aún sin registrar: la página pública no dice nada del árbol hasta que elijas y guardes.',
+  },
+  /** The tree row's two answers — a three-way choice, like the guard's. */
+  treeOptYes: { en: 'Standing', es: 'En pie' },
+  treeOptNo: { en: 'No tree', es: 'Sin árbol' },
+  plantsPresentToggle: { en: 'Plants in the bed', es: 'Plantas en el cantero' },
+  plantsPresentSub: {
+    en: 'Anything planted besides the tree',
+    es: 'Cualquier cosa plantada además del árbol',
+  },
+  /** The same row while nobody has recorded it — the guard's rule, applied here. */
+  plantsPresentUnsetSub: {
+    en: 'Not recorded yet — the public page says nothing about plants until you pick one and save.',
+    es: 'Aún sin registrar: la página pública no dice nada de las plantas hasta que elijas y guardes.',
+  },
+  /** The plants row's two answers — a three-way choice, like the guard's. */
+  plantsOptYes: { en: 'Planted', es: 'Plantado' },
+  plantsOptNo: { en: 'Nothing', es: 'Nada' },
+  plantsNoteLabel: { en: 'What’s planted', es: 'Qué hay plantado' },
+  plantingRecommendedToggle: { en: 'Planting recommended', es: 'Se recomienda plantar' },
+  plantingRecommendedSub: {
+    en: 'Whether Trash Talk recommends planting here',
+    es: 'Si Trash Talk recomienda plantar aquí',
+  },
+  plantingRecommendedUnsetSub: {
+    en: 'Not recorded yet — the public page makes no recommendation until you pick one and save.',
+    es: 'Aún sin registrar: la página pública no recomienda nada hasta que elijas y guardes.',
+  },
+  plantingOptYes: { en: 'Recommended', es: 'Recomendado' },
+  plantingOptNo: { en: 'Not now', es: 'Ahora no' },
+  recommendedPlantsLabel: { en: 'What to plant', es: 'Qué plantar' },
+  careNoteLabel: {
+    en: 'Care this bed needs right now',
+    es: 'Cuidados que necesita ahora mismo',
+  },
+  /**
+   * The bed's open report, stated read-only in the panel: this is where a
+   * report filed at the tag is seen, which is what the public FAQ promises.
+   * Closing one stays the steward's act.
+   */
+  reportHead: { en: 'Open report', es: 'Reporte abierto' },
+  noOpenReport: {
+    en: 'No open report right now. What a neighbour reports at the tag shows here.',
+    es: 'No hay ningún reporte abierto ahora mismo. Lo que un vecino reporte en la etiqueta aparece aquí.',
+  },
+  reportPhoto: { en: 'Photo attached', es: 'Con foto' },
+  /** The confirming neighbours' own words, under the open report's band. */
+  reportAlsoSaid: { en: 'Neighbours also said', es: 'Los vecinos también dijeron' },
+  reportAlsoReported: { en: 'reported this as', es: 'lo reportó como' },
   /** `#<NYC id> · ours BED-…` — the one surface that shows our plate. */
   oursLabel: { en: 'ours', es: 'la nuestra' },
   /**
@@ -356,8 +543,8 @@ export const ADMIN = {
   },
   addBedTitle: { en: 'Add a bed', es: 'Añadir un cantero' },
   addBedBody: {
-    en: 'A new bed starts closed, with one slot, no guard and no NYC number — the NYC bed is matched from the city’s own data, never typed.',
-    es: 'Un cantero nuevo empieza cerrado, con un lugar, sin protector y sin número NYC: el cantero NYC se empareja con los datos de la ciudad, nunca se escribe a mano.',
+    en: 'A new bed starts closed, with one slot, its guard not yet recorded and no NYC number — the NYC bed is matched from the city’s own data, never typed.',
+    es: 'Un cantero nuevo empieza cerrado, con un lugar, el protector sin registrar y sin número NYC: el cantero NYC se empareja con los datos de la ciudad, nunca se escribe a mano.',
   },
   treeTypeEn: { en: 'Tree type (English)', es: 'Tipo de árbol (inglés)' },
   treeTypeEs: { en: 'Tree type (Spanish)', es: 'Tipo de árbol (español)' },

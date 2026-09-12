@@ -8,11 +8,12 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { boundFromEnv } from './bounds';
 import type { Store } from './store';
-import type { Adoption, Bed, BedEvent, Block, Report, Severity, User } from './types';
+import type { Adoption, Bed, BedEvent, Block, GuardMaterial, Report, Severity, User } from './types';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
 import { GENERIC_TREE, spanishSpeciesFor, tableSpeciesCasingFor } from './tree-species';
+import { capped } from './typed-text';
 
 export class RuleError extends Error {
   constructor(
@@ -285,7 +286,7 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
   if (categories.length === 0) {
     throw new RuleError('invalid-input', 'A report names at least one problem');
   }
-  const note = args.note.slice(0, MAX_NOTE_CHARS);
+  const note = capped(args.note, MAX_NOTE_CHARS);
   const now = args.now ?? new Date();
   return store.transaction(async (tx) => {
     const bed = await tx.getBed(plate);
@@ -466,19 +467,13 @@ export const MAX_TREE_TYPE_CHARS = 60;
  * for "La Madrina de la 171" and short enough that one line stays one line.
  */
 export const MAX_BED_NAME_CHARS = 40;
-
 /**
- * Control characters and the bidirectional-format overrides, which a hand-built
- * POST can carry into a field the browser's own input would never produce.
- * Every typed field lands on a screen as a leaf beside copy of ours, and an
- * embedded newline or a U+202E can visually scramble the text around it.
+ * The bed profile's three notes — what is planted, what to plant, what care
+ * is needed. Admin-typed, but rendered as leaves on a PUBLIC screen ("About
+ * this bed"), so they are bounded the same way every visitor-typed field is:
+ * long enough for a sentence, short enough that the screen stays a screen.
  */
-const UNRENDERABLE_RE = /[\p{Cc}\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
-
-/** Strip what cannot be rendered, trim, then bound: what every typed field goes through before it is stored. */
-function capped(raw: string, max: number): string {
-  return raw.replace(UNRENDERABLE_RE, '').trim().slice(0, max);
-}
+export const MAX_BED_NOTE_CHARS = 160;
 
 /**
  * What the approved adopt form collects, and nothing more.
@@ -826,15 +821,77 @@ export interface AdminBedView {
   bed: Bed;
   /** Active stewards, oldest first — the admin list is the click-through to contact details. */
   stewards: Array<{ adoption: Adoption; user: User }>;
+  /**
+   * The bed's one open report, read-only: the admin panel states what was
+   * picked, the note, when it was opened and how many neighbours added their
+   * weight. Closing it stays the steward's act on `mine.astro` (`/clear`).
+   *
+   * Resolved for the ONE bed the caller names (`openReportFor`) and null on
+   * every other, because only the opened bed's panel states it: a read per
+   * bed for a record the page discards grows with the block.
+   */
+  openReport: Report | null;
+  /**
+   * What the neighbours who added their weight to that open report said —
+   * their categories and their sentence, which ride on the `confirm` events
+   * because a second neighbour writes nothing else (`reportProblem`).
+   *
+   * The steward already reads these on `mine.astro`, and the public FAQ tells
+   * a visitor that Trash Talk NYC sees the report: the captain's own surface
+   * must not see less of one than the steward does. Joined by the event's own
+   * `reportId`, never a time window — `report → clear → report` is a supported
+   * loop — and bounded by `MAX_CONFIRMATIONS` like the confirmations
+   * themselves. Empty on every bed but the one the caller named.
+   */
+  openReportConfirms: Array<{ categories: ProblemCategory[]; note: string }>;
 }
 
-/** The block admin page's read: the block and its beds, in block order. */
+/** The block and its beds, in block order. */
 export interface BlockView {
   block: Block;
   beds: AdminBedView[];
 }
 
-export async function getBlockView(store: Store, blockId: string): Promise<BlockView | null> {
+/**
+ * What the neighbours who added their weight to an open report said.
+ *
+ * The report belongs to whoever filed it, so a confirming neighbour's own
+ * categories and sentence ride on their `confirm` event (`reportProblem`).
+ * The join is the event's own `reportId`, NEVER a time window:
+ * `report → clear → report` is a supported loop and only the id says which
+ * lap an event belongs to; events written before that field carry null and
+ * match nothing, which shows no neighbour rather than the wrong one.
+ * Bounded by `MAX_CONFIRMATIONS`, like the confirmations themselves.
+ *
+ * One helper rather than one per screen: the steward's own view and the
+ * captain's panel must not drift on what a report says, because the panel
+ * exists so the captain never sees less of one than the steward does.
+ */
+export async function getOpenReportConfirms(
+  store: Store,
+  plate: string,
+  openReport: Report | null,
+): Promise<Array<{ categories: ProblemCategory[]; note: string }>> {
+  if (!openReport) return [];
+  return (await store.getEvents(plate, 'confirm'))
+    .filter((e) => e.reportId === openReport.id && (e.categories.length > 0 || e.note !== ''))
+    .reverse()
+    .map((e) => ({ categories: e.categories, note: e.note }));
+}
+
+/**
+ * The block admin page's read.
+ *
+ * `openReportFor` is the plate of the bed the page has open, and the only one
+ * whose open report is read: the panel is the single place a report is stated,
+ * so resolving one per bed would cost a store read per bed for a record
+ * nothing renders.
+ */
+export async function getBlockView(
+  store: Store,
+  blockId: string,
+  openReportFor: string | null = null,
+): Promise<BlockView | null> {
   const block = await store.getBlock(blockId);
   if (!block) return null;
   const beds: AdminBedView[] = [];
@@ -845,7 +902,10 @@ export async function getBlockView(store: Store, blockId: string): Promise<Block
       const user = await store.getUser(adoption.userId);
       if (user) stewards.push({ adoption, user });
     }
-    beds.push({ bed, stewards });
+    const openReport =
+      bed.plate === openReportFor ? ((await store.getOpenReport(bed.plate)) ?? null) : null;
+    const openReportConfirms = await getOpenReportConfirms(store, bed.plate, openReport);
+    beds.push({ bed, stewards, openReport, openReportConfirms });
   }
   return { block, beds };
 }
@@ -858,7 +918,35 @@ export interface BlockSaveInput {
   /** The opened bed's controls, when a bed was open. */
   bed?: {
     plate: string;
-    guardInstalled: boolean;
+    /**
+     * The guard standing at the bed — the panel's three-way choice, never a
+     * flag plus a material: 'none', or a guard and what it is made of. Null
+     * is the panel's own NOT RECORDED choice, which takes the fact back to
+     * not-yet-recorded — a mis-tap on a street must be undoable, so absence
+     * of a radio is not what unrecords. Undefined is a form that carried no
+     * radio at all, which keeps the guard exactly as it stands.
+     */
+    guard: GuardMaterial | null | undefined;
+    /**
+     * The bed profile's three-way facts — what "About this bed" states — all
+     * read like `guard`: true, false, null for the NOT RECORDED choice that
+     * takes the fact back, and undefined for a form that carried no radio,
+     * which keeps it as it stands. One rule covers the whole profile: a field
+     * the form did not carry is never blanked.
+     */
+    treePresent: boolean | null | undefined;
+    plantsPresent: boolean | null | undefined;
+    plantingRecommended: boolean | null | undefined;
+    /**
+     * The profile's typed notes: what is planted, what to plant, what care
+     * the bed needs right now. Rendered as typed on the public about screen,
+     * so each goes through `capped` here like every other typed field —
+     * and undefined is the same keep-as-it-stands the facts above get, so a
+     * form with no textarea in it cannot blank the admin's words.
+     */
+    plantsNote: string | undefined;
+    recommendedPlantsNote: string | undefined;
+    careNote: string | undefined;
     /**
      * WHICH unfilled slots the captain left switched on, by slot number.
      *
@@ -889,18 +977,8 @@ export interface BlockSaveInput {
      */
     clearBedName?: boolean;
   };
-  now?: Date;
 }
 
-/**
- * Save the block admin page: the reference address, and the opened bed's
- * guard toggle, slot switches and added slot.
- *
- * One transaction for the whole press: the offered count is computed against
- * the adoptions as they stand INSIDE it, so a steward adopting between render
- * and save can never be switched away — a filled slot always counts as
- * offered, and the count is clamped to what physically exists.
- */
 /**
  * The offered count a set of switched-on slot numbers means, or a refusal.
  *
@@ -939,8 +1017,30 @@ function offeredSlotCount(numbers: number[], filled: number, slots: number): num
   return filled + chosen.size;
 }
 
+/**
+ * A profile note as submitted, or what stands when the form did not carry the
+ * field at all — the same keep-as-it-stands the three-way facts get, so one
+ * rule covers the whole profile and a partial POST blanks nothing.
+ */
+function keptNote(submitted: string | undefined, stored: string): string {
+  return submitted === undefined ? stored : capped(submitted, MAX_BED_NOTE_CHARS);
+}
+
+/**
+ * Save the block admin page: the reference address, and the opened bed's
+ * profile (the guard and the three facts as three-way radios, plus the three
+ * typed notes), slot switches, added slot and bed-name takedown.
+ *
+ * One transaction for the whole press: the offered count is computed against
+ * the adoptions as they stand INSIDE it, so a steward adopting between render
+ * and save can never be switched away — a filled slot always counts as
+ * offered, and the count is clamped to what physically exists.
+ *
+ * One rule covers the whole profile: a field the form did not carry keeps what
+ * stands — `undefined` rather than the NOT RECORDED choice's null, told apart
+ * with `=== undefined` — so a partial POST blanks nothing.
+ */
 export async function saveBlockSettings(store: Store, args: BlockSaveInput): Promise<void> {
-  const now = args.now ?? new Date();
   await store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
     if (!block) throw new RuleError('bed-not-found', `No block ${args.blockId}`);
@@ -963,10 +1063,16 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       slots,
       offeredSlots,
       bedName: args.bed.clearBedName ? null : bed.bedName,
-      // The toggle only moves the installed date; a guard toggled off keeps
-      // its ordered date, so "ordered" is never lost to a mis-tap. A guard
-      // already installed keeps its original date.
-      guardInstalledAt: args.bed.guardInstalled ? (bed.guardInstalledAt ?? now.toISOString()) : null,
+      guard: args.bed.guard === undefined ? bed.guard : args.bed.guard,
+      treePresent: args.bed.treePresent === undefined ? bed.treePresent : args.bed.treePresent,
+      plantsPresent: args.bed.plantsPresent === undefined ? bed.plantsPresent : args.bed.plantsPresent,
+      plantingRecommended:
+        args.bed.plantingRecommended === undefined
+          ? bed.plantingRecommended
+          : args.bed.plantingRecommended,
+      plantsNote: keptNote(args.bed.plantsNote, bed.plantsNote),
+      recommendedPlantsNote: keptNote(args.bed.recommendedPlantsNote, bed.recommendedPlantsNote),
+      careNote: keptNote(args.bed.careNote, bed.careNote),
     });
   });
 }
@@ -1096,7 +1202,7 @@ export async function addStewardByAdmin(
  * "+ ADD A BED" on the block admin page.
  *
  * The new bed starts the way the six seeded ones did: one slot, nothing
- * offered, no guard, no tag — and NO NYC identifiers. A planting space ID is
+ * offered, the guard not yet recorded, no tag — and NO NYC identifiers. A planting space ID is
  * resolved against NYC's own data or left null, never typed free-hand and
  * never generated: a fabricated identifier is indistinguishable from a real
  * one and wrong in a way nobody can see. The admin page prints the unresolved
@@ -1139,8 +1245,13 @@ export async function addBedByAdmin(
       address: block.referenceAddress,
       slots: 1,
       offeredSlots: 0,
-      guardOrderedAt: null,
-      guardInstalledAt: null,
+      guard: null,
+      treePresent: null,
+      plantsPresent: null,
+      plantsNote: '',
+      plantingRecommended: null,
+      recommendedPlantsNote: '',
+      careNote: '',
       blockId: args.blockId,
       blockPosition: position,
       nycSyncedAt: null,

@@ -121,14 +121,68 @@ export interface Bed {
    */
   offeredSlots: number;
   /**
-   * The guard, as two dates rather than a status enum, so flipping the admin
-   * page's "guard installed" toggle off loses nothing: a bed whose guard is
-   * ordered but not yet in has `guardOrderedAt` set and `guardInstalledAt`
-   * null, and a bed with no guard coming — the white oak on W 171st — has
-   * neither. Which word the admin page prints is derived (`guardStatus`).
+   * The guard standing at this bed, as the captain asked it: "guard there yes
+   * or no, and if there is a guard there, whether it wood or metal". One field
+   * answers both — `'none'` is no guard, and a material is a guard. Replaces
+   * the earlier ordered/installed date pair (whose values older stored rows
+   * still carry, untouched — normalization is additive).
+   *
+   * `null` is NOT YET RECORDED: nobody who has stood at the bed has said. A
+   * record from before this field, every seeded bed and a bed the admin adds
+   * all start here, because the old dates never said what a guard is made of
+   * and a tag may ride a guard the record knows nothing about. The public
+   * screen omits the guard entirely while unset rather than asserting a fact
+   * nobody entered; the admin panel shows it as not set until the admin picks.
    */
-  guardOrderedAt: string | null;
-  guardInstalledAt: string | null;
+  guard: GuardMaterial | null;
+  // The rest of the bed's own profile, with `guard` above — what a passer-by
+  // reading "About this bed" is told, because every bed is different (the
+  // captain: "every tree is specialized"). The four facts are the admin page's
+  // three-way radios; the three notes are admin-typed free text, rendered AS
+  // TYPED in both languages (a plant list is not translated), each its own leaf
+  // on the screen and bounded by `MAX_BED_NOTE_CHARS` (service.ts) like every
+  // other typed field.
+  /**
+   * Whether a tree currently stands in this bed — stumps and empty pits are
+   * real states. Three-way like `guard`: `null` is NOT YET RECORDED, which is
+   * what every seeded bed and every backfilled row starts at. A checkbox
+   * cannot tell "unchecked" from "not sent", so this is a radio group at the
+   * panel and its absence from a POST keeps the fact as it stands rather than
+   * publishing "no tree" for a bed nobody has looked at.
+   */
+  treePresent: boolean | null;
+  /**
+   * Whether anything is planted in the bed besides the tree.
+   *
+   * `null` is NOT YET RECORDED, exactly like `guard`: a public screen states
+   * what somebody entered, never a default, so every seeded bed, every
+   * backfilled row and every bed the admin adds starts here rather than at
+   * `false` — which would tell a whole block's worth of visitors "nothing
+   * planted yet" before anyone had stood at the bed.
+   */
+  plantsPresent: boolean | null;
+  /**
+   * What is planted — admin-typed, shown as typed, and shown ONLY while
+   * `plantsPresent` is on (never while it is unrecorded). The note is kept in
+   * the record whichever way the switch stands, so flipping it off and back on
+   * restores the words; the switch decides whether the public screen states
+   * them.
+   */
+  plantsNote: string;
+  /**
+   * Whether Trash Talk recommends planting in this bed. `null` is NOT YET
+   * RECORDED, like `plantsPresent` and `guard`: the About page omits the row
+   * entirely rather than publishing a recommendation nobody made.
+   */
+  plantingRecommended: boolean | null;
+  /**
+   * What to plant — admin-typed, shown as typed, and shown ONLY while
+   * `plantingRecommended` is on; kept in the record either way, like
+   * `plantsNote`, so the switch never costs the words.
+   */
+  recommendedPlantsNote: string;
+  /** The care this bed needs right now — admin-typed, shown as typed. */
+  careNote: string;
   /**
    * The block this bed belongs to and where it stands in it, or null for a
    * bed outside any block. Admin-only grouping — see `Block`.
@@ -328,12 +382,50 @@ export function publicInitials(user: User): string {
   return parts.join(' ');
 }
 
-/** What the admin page says about a bed's guard, derived from the two dates. */
-export type GuardStatus = 'installed' | 'ordered' | 'none';
+/**
+ * What stands at the bed: no guard, or a guard and its material. One value
+ * rather than a flag plus a material, so "wood guard with the material
+ * unset" is not a state anything can hold. `Bed.guard` is additionally
+ * nullable — null is "not yet recorded", which is a different thing from
+ * "none" and is never one of these.
+ */
+export const GUARD_MATERIALS = ['none', 'wood', 'metal'] as const;
+export type GuardMaterial = (typeof GUARD_MATERIALS)[number];
 
-export function guardStatus(bed: Bed): GuardStatus {
-  if (bed.guardInstalledAt !== null) return 'installed';
-  return bed.guardOrderedAt !== null ? 'ordered' : 'none';
+/**
+ * The radio value the panel's own NOT RECORDED choice submits.
+ *
+ * An absent radio cannot mean "take this fact back": the panel always draws
+ * the three-way rows, so a form that carries no radio at all is a hand-built
+ * POST or a stale page, and either is kept as it stands. Unrecording is an
+ * act the captain performs, so it travels as a value of its own.
+ */
+export const UNRECORDED_CHOICE = 'unset';
+
+/**
+ * Narrow a form value to the guard's three-way choice: a material, null for
+ * the panel's NOT RECORDED choice, and undefined for anything else — a form
+ * that carried no radio, which keeps the guard as it stands.
+ */
+export function guardMaterialFrom(value: unknown): GuardMaterial | null | undefined {
+  if (value === UNRECORDED_CHOICE) return null;
+  return (GUARD_MATERIALS as readonly unknown[]).includes(value)
+    ? (value as GuardMaterial)
+    : undefined;
+}
+
+/**
+ * Narrow a form value to one of the profile's three-way facts (`treePresent`,
+ * `plantsPresent`, `plantingRecommended`), exactly like the guard above: 'yes' or 'no', null for
+ * the NOT RECORDED choice — the same value NOT YET RECORDED has on the record,
+ * so it means the same thing at both ends — and undefined for anything else,
+ * which keeps the fact as it stands.
+ */
+export function bedFactFrom(value: unknown): boolean | null | undefined {
+  if (value === 'yes') return true;
+  if (value === 'no') return false;
+  if (value === UNRECORDED_CHOICE) return null;
+  return undefined;
 }
 
 /** Admin-only. Never render this on a public screen. */

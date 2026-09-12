@@ -17,6 +17,7 @@ import {
 } from '../src/lib/store-dataset';
 import {
   MAX_ADDRESS_CHARS,
+  MAX_BED_NOTE_CHARS,
   MAX_BED_SLOTS,
   MAX_NAME_CHARS,
   addBedByAdmin,
@@ -24,14 +25,35 @@ import {
   adoptBed,
   getBedView,
   getBlockView,
+  reportProblem,
   saveBlockSettings,
   validateAdminStewardInput,
 } from '../src/lib/service';
-import { guardStatus } from '../src/lib/types';
-
+import { UNRECORDED_CHOICE, bedFactFrom, guardMaterialFrom } from '../src/lib/types';
 function freshStore(): LocalStore {
   const dir = mkdtempSync(path.join(tmpdir(), 'treebed-admin-test-'));
   return new LocalStore(path.join(dir, 'store.json'));
+}
+
+type BedSave = NonNullable<Parameters<typeof saveBlockSettings>[1]['bed']>;
+
+/** One opened-bed save, with the panel's controls defaulted to untouched. */
+function bedSave(overrides: Partial<BedSave> = {}): BedSave {
+  return {
+    plate: W171_PLATE,
+    // Every profile field defaults to "the form did not carry it", which is
+    // the save's keep-as-it-stands: a test says what it means to change.
+    guard: undefined,
+    treePresent: undefined,
+    plantsPresent: undefined,
+    plantingRecommended: undefined,
+    plantsNote: undefined,
+    recommendedPlantsNote: undefined,
+    careNote: undefined,
+    offeredSlotNumbers: [],
+    addSlots: 0,
+    ...overrides,
+  };
 }
 
 function stewardInput(overrides: Partial<Parameters<typeof validateAdminStewardInput>[0]> = {}) {
@@ -73,11 +95,22 @@ describe('the six real beds on W 171st', () => {
     expect(new Set(globals).size).toBe(6);
   });
 
-  it('orders five guards — none for the white oak — and installs none', async () => {
+  it('seeds every bed with the profile defaults: nothing recorded at all', async () => {
+    // Guards are ordered in the real world and tags go in with them, so the
+    // profile asserts nothing about the guard — null, never 'none' — until
+    // the captain records the material on the admin page. The tree, the
+    // plants and the planting recommendation follow the same rule: null,
+    // never false, so the public page publishes "nothing planted yet" — or
+    // "no tree" — only once somebody has stood at the bed and said so.
     const view = await getBlockView(freshStore(), W171_BLOCK_ID);
     for (const { bed } of view!.beds) {
-      expect(bed.guardInstalledAt).toBeNull();
-      expect(guardStatus(bed), bed.plate).toBe(bed.treeType.en === 'White oak' ? 'none' : 'ordered');
+      expect(bed.guard, bed.plate).toBeNull();
+      expect(bed.treePresent, bed.plate).toBeNull();
+      expect(bed.plantsPresent, bed.plate).toBeNull();
+      expect(bed.plantingRecommended, bed.plate).toBeNull();
+      expect(bed.plantsNote, bed.plate).toBe('');
+      expect(bed.recommendedPlantsNote, bed.plate).toBe('');
+      expect(bed.careNote, bed.plate).toBe('');
     }
   });
 
@@ -116,8 +149,17 @@ describe('the block reaches a store seeded before it existed', () => {
     delete demo.blockId;
     delete demo.blockPosition;
     delete demo.offeredSlots;
-    delete demo.guardOrderedAt;
     delete demo.plantingSpaceGlobalId;
+    // A live row from before the bed profile: no guard field, no facts, no
+    // notes — and the earlier build's guard dates still on it, which stay.
+    delete demo.guard;
+    delete demo.treePresent;
+    delete demo.plantsPresent;
+    delete demo.plantsNote;
+    delete demo.plantingRecommended;
+    delete demo.recommendedPlantsNote;
+    delete demo.careNote;
+    demo.guardInstalledAt = '2026-04-18T16:00:00.000Z';
 
     const normalized = normalizeData(data);
     expect(Object.keys(normalized.blocks)).toContain(W171_BLOCK_ID);
@@ -126,8 +168,23 @@ describe('the block reaches a store seeded before it existed', () => {
     ).toHaveLength(6);
     // The pre-existing bed keeps its meaning: every unfilled slot was
     // implicitly up for adoption before the switches existed.
-    expect(normalized.beds['BED-HRL-0847']!.offeredSlots).toBe(2);
-    expect(normalized.beds['BED-HRL-0847']!.blockId).toBe(DEMO_BLOCK_ID);
+    const bed = normalized.beds['BED-HRL-0847']!;
+    expect(bed.offeredSlots).toBe(2);
+    expect(bed.blockId).toBe(DEMO_BLOCK_ID);
+    // The profile backfills to its defaults — the old dates never said what a
+    // guard is MADE of, so the guard is not yet recorded rather than 'none',
+    // which would publicly deny the guard the old date says went in — and
+    // the legacy date survives untouched: additive and lossless.
+    expect(bed.guard).toBeNull();
+    expect(bed.treePresent).toBeNull();
+    expect(bed.plantsPresent).toBeNull();
+    expect(bed.plantingRecommended).toBeNull();
+    expect(bed.plantsNote).toBe('');
+    expect(bed.recommendedPlantsNote).toBe('');
+    expect(bed.careNote).toBe('');
+    expect((bed as unknown as Record<string, unknown>).guardInstalledAt).toBe(
+      '2026-04-18T16:00:00.000Z',
+    );
   });
 
   it('reads a single-category report and event from before multi-select, losslessly', async () => {
@@ -192,6 +249,90 @@ describe('the block reaches a store seeded before it existed', () => {
   });
 });
 
+describe('the panel’s three-way radios, as form values', () => {
+  it('reads a pick, the NOT RECORDED choice, and a form with no radio apart', () => {
+    // Three outcomes, because two of them are different acts: unrecording is
+    // something the captain chooses, and an absent radio is a stale page.
+    expect(guardMaterialFrom('metal')).toBe('metal');
+    expect(guardMaterialFrom(UNRECORDED_CHOICE)).toBeNull();
+    expect(guardMaterialFrom(null)).toBeUndefined();
+    expect(guardMaterialFrom('brick')).toBeUndefined();
+
+    expect(bedFactFrom('yes')).toBe(true);
+    expect(bedFactFrom('no')).toBe(false);
+    expect(bedFactFrom(UNRECORDED_CHOICE)).toBeNull();
+    expect(bedFactFrom(null)).toBeUndefined();
+    expect(bedFactFrom('maybe')).toBeUndefined();
+  });
+});
+
+describe('the admin sees a bed’s open report', () => {
+  const report = (store: LocalStore, actorId: string, categories: Array<'litter' | 'other'>, note = '') =>
+    reportProblem(store, { plate: W171_PLATE, actorId, categories, note, photoAttached: false });
+  const openedBed = async (store: LocalStore) =>
+    (await getBlockView(store, W171_BLOCK_ID, W171_PLATE))!.beds.find(
+      (b) => b.bed.plate === W171_PLATE,
+    )!;
+  const opened = async (store: LocalStore) => (await openedBed(store)).openReport;
+
+  it('carries the open report — what was picked, the note, and the weight added to it', async () => {
+    const store = freshStore();
+    expect(await opened(store)).toBeNull();
+
+    await report(store, 'visitor-a', ['litter', 'other'], 'bolsas en la esquina');
+    const filed = await opened(store);
+    expect(filed?.categories).toEqual(['litter', 'other']);
+    expect(filed?.note).toBe('bolsas en la esquina');
+    expect(filed?.confirmedBy).toEqual([]);
+
+    // A second neighbour adds weight rather than a second report, and the
+    // panel reads the same one with their weight on it.
+    await report(store, 'visitor-b', ['litter']);
+    const weighted = await opened(store);
+    expect(weighted?.id).toBe(filed?.id);
+    expect(weighted?.confirmedBy).toEqual(['visitor-b']);
+  });
+
+  it('carries what the confirming neighbours said, joined by the report id', async () => {
+    // The steward reads these on their own view and the public FAQ says we
+    // see the report: the captain's surface must not see less of one.
+    const store = freshStore();
+    await report(store, 'visitor-a', ['litter'], 'bolsas en la esquina');
+    await report(store, 'visitor-b', ['other'], 'the guard is loose');
+    expect((await openedBed(store)).openReportConfirms).toEqual([
+      { categories: ['other'], note: 'the guard is loose' },
+    ]);
+
+    // A later lap is its own report, so the earlier lap's words never ride on it.
+    const open = (await opened(store))!;
+    await store.transaction(async (tx) => {
+      await tx.updateReport({ ...open, closedAt: new Date().toISOString(), closedBy: 'steward' });
+    });
+    await report(store, 'visitor-c', ['litter']);
+    expect((await openedBed(store)).openReportConfirms).toEqual([]);
+  });
+
+  it('resolves the open report only for the bed the page has open', async () => {
+    const store = freshStore();
+    await report(store, 'visitor-a', ['litter'], 'bolsas');
+    const unopened = (await getBlockView(store, W171_BLOCK_ID, null))!.beds.find(
+      (b) => b.bed.plate === W171_PLATE,
+    )!;
+    expect(unopened.openReport).toBeNull();
+    expect(unopened.openReportConfirms).toEqual([]);
+  });
+
+  it('reads nothing once the report is closed, and never touches it', async () => {
+    const store = freshStore();
+    const { report: filed } = await report(store, 'visitor-a', ['litter']);
+    await store.transaction(async (tx) => {
+      await tx.updateReport({ ...filed!, closedAt: new Date().toISOString(), closedBy: 'steward' });
+    });
+    expect(await opened(store)).toBeNull();
+    expect((await store.getReports(W171_PLATE)).map((r) => r.id)).toEqual([filed!.id]);
+  });
+});
+
 describe('offered slots are a rule, not a display state', () => {
   it('refuses adoption on a bed the captain has not offered', async () => {
     const store = freshStore();
@@ -208,7 +349,7 @@ describe('offered slots are a rule, not a display state', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [1], addSlots: 0 }),
     });
     await adoptBed(store, {
       plate: W171_PLATE,
@@ -235,7 +376,7 @@ describe('the visitor screens read the same bound the rules do', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [1], addSlots: 0 }),
     });
     expect((await getBedView(store, W171_PLATE))!.openSlots).toBe(1);
   });
@@ -247,13 +388,13 @@ describe('saving the block admin page', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlots: 1 },
+      bed: bedSave({ offeredSlotNumbers: [], addSlots: 1 }),
     });
     await expect(
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [2], addSlots: 0 },
+        bed: bedSave({ offeredSlotNumbers: [2], addSlots: 0 }),
       }),
     ).rejects.toMatchObject({ code: 'invalid-input' });
     // Nothing was written, address included.
@@ -262,7 +403,7 @@ describe('saving the block admin page', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1, 2], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [1, 2], addSlots: 0 }),
     });
     expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(2);
   });
@@ -275,7 +416,7 @@ describe('saving the block admin page', () => {
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [9], addSlots: 0 },
+        bed: bedSave({ offeredSlotNumbers: [9], addSlots: 0 }),
       }),
     ).rejects.toMatchObject({ code: 'slot-out-of-range' });
   });
@@ -299,24 +440,185 @@ describe('saving the block admin page', () => {
     expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toBe('710 W 171st St');
   });
 
-  it('toggles the guard without losing the ordered date, and keeps the original install date', async () => {
+  it('saves the guard as one of three states, and back to none without losing anything else', async () => {
     const store = freshStore();
-    const save = (guardInstalled: boolean) =>
+    const save = (guard: 'none' | 'wood' | 'metal' | null | undefined) =>
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled, offeredSlotNumbers: [], addSlots: 0 },
+        bed: bedSave({ guard, careNote: 'Water on hot weeks.' }),
       });
-    await save(true);
-    const installed = (await store.getBed(W171_PLATE))!.guardInstalledAt;
-    expect(installed).not.toBeNull();
-    // Saving again does not move the date; toggling off keeps "ordered".
-    await save(true);
-    expect((await store.getBed(W171_PLATE))!.guardInstalledAt).toBe(installed);
-    await save(false);
+    // A form that carried no radio on a bed nobody has recorded keeps it so.
+    await save(undefined);
+    expect((await store.getBed(W171_PLATE))!.guard).toBeNull();
+    await save('wood');
+    expect((await store.getBed(W171_PLATE))!.guard).toBe('wood');
+    // A form that omits the radio never blanks a material on record.
+    await save(undefined);
+    expect((await store.getBed(W171_PLATE))!.guard).toBe('wood');
+    // The panel's own NOT RECORDED choice does take it back, so a mis-tap on
+    // the street is undoable rather than published for good.
+    await save(null);
+    expect((await store.getBed(W171_PLATE))!.guard).toBeNull();
+    await save('metal');
+    expect((await store.getBed(W171_PLATE))!.guard).toBe('metal');
+    await save('none');
     const off = (await store.getBed(W171_PLATE))!;
-    expect(off.guardInstalledAt).toBeNull();
-    expect(guardStatus(off)).toBe('ordered');
+    expect(off.guard).toBe('none');
+    // The rest of the press rode along: the guard choice never costs a note.
+    expect(off.careNote).toBe('Water on hot weeks.');
+  });
+
+  it('keeps a typed note on the record when its switch is turned off, so switching back restores it', async () => {
+    const store = freshStore();
+    const save = (plantsPresent: boolean | null, plantingRecommended: boolean | null) =>
+      saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: bedSave({
+          plantsPresent,
+          plantingRecommended,
+          plantsNote: 'Daffodils and a hosta',
+          recommendedPlantsNote: 'Swamp milkweed',
+        }),
+      });
+    await save(true, true);
+    await save(false, false);
+    const off = (await store.getBed(W171_PLATE))!;
+    expect(off.plantsPresent).toBe(false);
+    expect(off.plantingRecommended).toBe(false);
+    expect(off.plantsNote).toBe('Daffodils and a hosta');
+    expect(off.recommendedPlantsNote).toBe('Swamp milkweed');
+  });
+
+  it('keeps the profile facts as they stand when a form carried no radio', async () => {
+    // The guard's rule, applied to the two facts that read the same way: a
+    // seeded bed nobody has recorded stays not-yet-recorded, and a fact on
+    // record is never blanked by a form that omitted the radio.
+    const store = freshStore();
+    const save = (
+      plantsPresent: boolean | null | undefined,
+      plantingRecommended: boolean | null | undefined,
+    ) =>
+      saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: bedSave({ plantsPresent, plantingRecommended }),
+      });
+    await save(undefined, undefined);
+    const untouched = (await store.getBed(W171_PLATE))!;
+    expect(untouched.plantsPresent).toBeNull();
+    expect(untouched.plantingRecommended).toBeNull();
+
+    await save(true, false);
+    await save(undefined, undefined);
+    const kept = (await store.getBed(W171_PLATE))!;
+    expect(kept.plantsPresent).toBe(true);
+    expect(kept.plantingRecommended).toBe(false);
+  });
+
+  it('takes a recorded profile fact back to not-yet-recorded on the NOT RECORDED choice', async () => {
+    // Every three-way row offers it, because the captain records these
+    // one-handed on a sidewalk: a mis-tap must not publish an unverified
+    // fact for good, and the absence of a radio is already spoken for.
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plantsPresent: true, plantingRecommended: true }),
+    });
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plantsPresent: null, plantingRecommended: null }),
+    });
+    const unrecorded = (await store.getBed(W171_PLATE))!;
+    expect(unrecorded.plantsPresent).toBeNull();
+    expect(unrecorded.plantingRecommended).toBeNull();
+  });
+
+  it('keeps every profile field a form did not carry, rather than blanking it', async () => {
+    // One rule for the whole profile: a stale page or a hand-built POST that
+    // carries no radio and no textarea changes nothing. The facts already
+    // read `undefined` as keep-as-it-stands; the notes and the tree — which a
+    // checkbox could not tell "unchecked" from "not sent" — do too.
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        treePresent: true,
+        plantsPresent: true,
+        plantingRecommended: true,
+        plantsNote: 'Daffodils along the guard side.',
+        recommendedPlantsNote: 'Swamp milkweed.',
+        careNote: 'Water twice a week.',
+      }),
+    });
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave(),
+    });
+    const bed = (await store.getBed(W171_PLATE))!;
+    expect(bed.treePresent).toBe(true);
+    expect(bed.plantsPresent).toBe(true);
+    expect(bed.plantingRecommended).toBe(true);
+    expect(bed.plantsNote).toBe('Daffodils along the guard side.');
+    expect(bed.recommendedPlantsNote).toBe('Swamp milkweed.');
+    expect(bed.careNote).toBe('Water twice a week.');
+  });
+
+  it('takes the tree back to NOT RECORDED on the choice, like the guard', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ treePresent: false }),
+    });
+    expect((await store.getBed(W171_PLATE))!.treePresent).toBe(false);
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ treePresent: null }),
+    });
+    expect((await store.getBed(W171_PLATE))!.treePresent).toBeNull();
+  });
+
+  it('saves the bed profile — the switches and the typed notes, capped and stripped', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        treePresent: false,
+        plantsPresent: true,
+        plantingRecommended: true,
+        // Typed fields go through `capped`: the bidi overrides are stripped,
+        // control characters and whitespace runs — the CRLF a textarea submits
+        // for Enter included — collapse to one space, then the bound cuts what
+        // remains.
+        plantsNote: `  Daffodils and‮ a hosta  `,
+        recommendedPlantsNote: 'x'.repeat(500),
+        careNote: 'Litter pickup\r\nafter\tweekends.\n\nRake in fall.',
+      }),
+    });
+    const bed = (await store.getBed(W171_PLATE))!;
+    expect(bed.treePresent).toBe(false);
+    expect(bed.plantsPresent).toBe(true);
+    expect(bed.plantingRecommended).toBe(true);
+    expect(bed.plantsNote).toBe('Daffodils and a hosta');
+    expect(bed.recommendedPlantsNote).toHaveLength(MAX_BED_NOTE_CHARS);
+    expect(bed.careNote).toBe('Litter pickup after weekends. Rake in fall.');
+
+    // A submitted-but-empty textarea still clears: keep-as-it-stands is about
+    // a field that never arrived, not one the captain emptied on purpose.
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ careNote: '' }),
+    });
+    expect((await store.getBed(W171_PLATE))!.careNote).toBe('');
   });
 
   it('adds a slot up to the bound, and clamps what is offered to what exists', async () => {
@@ -327,12 +629,10 @@ describe('saving the block admin page', () => {
       await saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: {
-          plate: W171_PLATE,
-          guardInstalled: false,
+        bed: bedSave({
           offeredSlotNumbers: Array.from({ length: slots }, (_, n) => n + 1),
           addSlots: 1,
-        },
+        }),
       });
     }
     const bed = (await store.getBed(W171_PLATE))!;
@@ -344,22 +644,22 @@ describe('saving the block admin page', () => {
     // The page drew both switches on an empty bed and the captain flipped
     // both. A neighbour adopted slot 1 in between, so the save arrives naming
     // a slot that is now filled — which must not cost the captain the whole
-    // press, guard toggle and address included.
+    // press, guard choice and address included.
     const store = freshStore();
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 1 },
+      bed: bedSave({ offeredSlotNumbers: [1], addSlots: 1 }),
     });
     await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '712 W 171st St',
-      bed: { plate: W171_PLATE, guardInstalled: true, offeredSlotNumbers: [1, 2], addSlots: 0 },
+      bed: bedSave({ guard: 'wood', offeredSlotNumbers: [1, 2], addSlots: 0 }),
     });
     const bed = (await store.getBed(W171_PLATE))!;
     expect(bed.offeredSlots).toBe(2);
-    expect(bed.guardInstalledAt).not.toBeNull();
+    expect(bed.guard).toBe('wood');
     expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toBe('712 W 171st St');
   });
 
@@ -369,7 +669,7 @@ describe('saving the block admin page', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [], addSlots: 0 }),
     });
     expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(1);
   });
@@ -381,7 +681,7 @@ describe('the admin takes a bed’s name down', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [1], addSlots: 0 }),
     });
     await adoptBed(store, {
       plate: W171_PLATE,
@@ -401,7 +701,7 @@ describe('the admin takes a bed’s name down', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: true, offeredSlotNumbers: [1], addSlots: 0 },
+      bed: bedSave({ guard: 'wood', offeredSlotNumbers: [1], addSlots: 0 }),
     });
     expect((await store.getBed(W171_PLATE))!.bedName).toBe('La Madrina');
   });
@@ -412,13 +712,7 @@ describe('the admin takes a bed’s name down', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: {
-        plate: W171_PLATE,
-        guardInstalled: false,
-        offeredSlotNumbers: [1],
-        addSlots: 0,
-        clearBedName: true,
-      },
+      bed: bedSave({ offeredSlotNumbers: [1], clearBedName: true }),
     });
     const view = (await getBedView(store, W171_PLATE))!;
     // Unnamed again — and the steward, the slot and the bed are untouched:
@@ -523,9 +817,10 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: '  willow   oak ', es: '' },
     });
-    // The English name stays exactly what was typed (trimmed by the route,
-    // capped here); the Spanish resolves through the table's tolerant match.
-    expect(bed.treeType.en).toBe('willow   oak');
+    // The English name is what was typed, through `capped` — whitespace runs
+    // collapse to one space; the Spanish resolves through the table's tolerant
+    // match, which tolerates the run either way.
+    expect(bed.treeType.en).toBe('willow oak');
     expect(bed.treeType.es).toBe('roble sauce');
   });
 
