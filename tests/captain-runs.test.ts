@@ -23,20 +23,23 @@ import {
   seedData,
 } from '../src/lib/store-dataset';
 
+// The N run creates seven FRESH beds: 8NHFW171 and 9NHFW171 are the
+// captain's names for two beds this network already held (BED-WH-1713 and
+// BED-WH-1712 — his 2026-09-12 rename), covered further down.
 const RUNS = [
   { block: HAVEN_EAST_RUN_BLOCK_ID, name: 'E170171HFW', count: 6 },
   { block: SOUTH_RUN_BLOCK_ID, name: 'SHFW171', count: 7 },
-  { block: NORTH_RUN_BLOCK_ID, name: 'NHFW171', count: 9 },
+  { block: NORTH_RUN_BLOCK_ID, name: 'NHFW171', count: 7 },
 ] as const;
 
 const RUN_PLATES = RUNS.flatMap(({ name, count }) =>
   Array.from({ length: count }, (_, i) => `${i + 1}${name}`),
 );
 
-describe('the 22 run beds in the seed', () => {
+describe('the 20 fresh run beds in the seed', () => {
   it('exist under the captain’s ids, each open for adoption', () => {
     const { beds } = seedData();
-    expect(RUN_PLATES).toHaveLength(22);
+    expect(RUN_PLATES).toHaveLength(20);
     for (const plate of RUN_PLATES) {
       const bed = beds[plate];
       expect(bed, plate).toBeDefined();
@@ -60,8 +63,12 @@ describe('the 22 run beds in the seed', () => {
       expect(bed.plantingSpaceGlobalId, plate).toBeNull();
       expect(bed.treeId, plate).toBe('');
       expect(bed.treePresent, plate).toBeNull();
-      expect(bed.plantsPresent, plate).toBeNull();
-      expect(bed.plantingRecommended, plate).toBeNull();
+      // 2SHFW171 and 5SHFW171 carry the plant facts the captain stated —
+      // exactly those, held by their own test below — and no others.
+      if (plate !== '2SHFW171' && plate !== '5SHFW171') {
+        expect(bed.plantsPresent, plate).toBeNull();
+        expect(bed.plantingRecommended, plate).toBeNull();
+      }
       expect(bed.bedName, plate).toBeNull();
       // His street numbers are loose cluster references, not locators — so
       // no address is asserted at all.
@@ -95,15 +102,46 @@ describe('the 22 run beds in the seed', () => {
     expect(data.blocks[HAVEN_EAST_RUN_BLOCK_ID]!.referenceAddress).toContain('Haven Ave');
   });
 
-  it('touches neither the six earlier W 171st beds nor the demo bed', () => {
+  it('records the captain’s stated plant facts on 2S and 5S — and only what he said', () => {
     const { beds } = seedData();
-    for (let n = 1; n <= 6; n++) {
+    // "say 2S has plants" — and nothing about recommending or naming them.
+    expect(beds['2SHFW171']!.plantsPresent).toBe(true);
+    expect(beds['2SHFW171']!.plantingRecommended).toBeNull();
+    expect(beds['2SHFW171']!.plantsNote).toBe('');
+    // "say 5S doesn't and that we don't recommend planting".
+    expect(beds['5SHFW171']!.plantsPresent).toBe(false);
+    expect(beds['5SHFW171']!.plantingRecommended).toBe(false);
+    expect(beds['5SHFW171']!.recommendedPlantsNote).toBe('');
+  });
+
+  it('renames — never duplicates — the two existing beds the captain identified', () => {
+    const { beds } = seedData();
+    // No fresh 8NHFW171/9NHFW171 rows exist: those ids are the EXISTING beds
+    // BED-WH-1713 and BED-WH-1712 (tag-bindings.ts), which keep their real
+    // NYC identities and species and gain what the captain said — open for
+    // adoption, "no plants and don't recommend planting".
+    expect(beds['8NHFW171']).toBeUndefined();
+    expect(beds['9NHFW171']).toBeUndefined();
+    for (const plate of ['BED-WH-1712', 'BED-WH-1713']) {
+      const bed = beds[plate]!;
+      expect(bed.plantingSpaceId, plate).not.toBeNull();
+      expect(bed.treeType, plate).toEqual({ en: 'willow oak', es: 'roble sauce' });
+      expect(bed.offeredSlots, plate).toBe(1);
+      expect(bed.plantsPresent, plate).toBe(false);
+      expect(bed.plantingRecommended, plate).toBe(false);
+    }
+  });
+
+  it('touches the other four earlier W 171st beds and the demo bed not at all', () => {
+    const { beds } = seedData();
+    for (const n of [1, 4, 5, 6]) {
       const bed = beds[`BED-WH-171${n}`];
       expect(bed).toBeDefined();
       expect(bed!.blockId).toBe(W171_BLOCK_ID);
       // Still unoffered, still species-recorded — exactly as they seeded.
       expect(bed!.offeredSlots).toBe(0);
       expect(bed!.treeType).not.toBeNull();
+      expect(bed!.plantsPresent).toBeNull();
     }
     expect(beds['BED-HRL-0847']!.blockId).toBe(DEMO_BLOCK_ID);
   });

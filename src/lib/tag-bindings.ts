@@ -79,7 +79,18 @@ export const TAG_BINDINGS: readonly TagBinding[] = [
   // (src/pages/t/[tag]/[suffix].ts).
   ...runBindings('E170171HFW', 6),
   ...runBindings('SHFW171', 7),
-  ...runBindings('NHFW171', 9),
+  ...runBindings('NHFW171', 7),
+  // 8NHFW171 and 9NHFW171 are NOT fresh beds: the captain identified them as
+  // two beds this network already held (2026-09-12, verbatim: "Can you
+  // change …/t/1hc0t9cj for the end to be 9NHFW171 and then …/t/729v19w4
+  // change to 8NHFW171"). The named id binds to the EXISTING plate, beside
+  // the original opaque tag — two active tags for one site is legal (one tag
+  // may never have two bindings; one bed may have many tags), and the old
+  // URLs stay live deliberately: he asked for those links days apart and may
+  // already have handed them out. Retiring the opaque rows is his later
+  // call, never a side effect of the rename.
+  { tagId: '9nhfw171', sitePlate: 'BED-WH-1712', boundAt: '2026-09-12T14:00:00.000Z', retiredAt: null },
+  { tagId: '8nhfw171', sitePlate: 'BED-WH-1713', boundAt: '2026-09-12T14:00:00.000Z', retiredAt: null },
 ];
 
 /** One run of the captain's scheme: `1<RUN>` … `<count><RUN>`, minted 2026-09-12. */

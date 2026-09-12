@@ -130,6 +130,16 @@ export function w171Beds(): Bed[] {
     treeId: string;
     whiteOak?: boolean;
     address: string;
+    /**
+     * The two beds the captain identified as his named N-run ids carry what
+     * he said about them — open for adoption and his plant facts — while the
+     * other four keep the original not-yet-opened, nothing-recorded seed.
+     * On the LIVE store these two rows already exist, so this reaches only
+     * fresh stores; the live rows were opened by the captain in the admin,
+     * and their plant facts travel by the captain-facts remediation script
+     * (scripts/seed-captain-facts.mjs), never by overwriting a stored row.
+     */
+    captainNamed?: boolean;
   }): Bed => ({
     plate: args.plate,
     plantingSpaceId: args.plantingSpaceId,
@@ -143,12 +153,12 @@ export function w171Beds(): Bed[] {
     crossStreets: 'W 171 St × Fort Washington Ave & Haven Ave',
     address: args.address,
     slots: 1,
-    offeredSlots: 0,
+    offeredSlots: args.captainNamed ? 1 : 0,
     guard: null,
     treePresent: null,
-    plantsPresent: null,
+    plantsPresent: args.captainNamed ? false : null,
     plantsNote: '',
-    plantingRecommended: null,
+    plantingRecommended: args.captainNamed ? false : null,
     recommendedPlantsNote: '',
     careNote: '',
     blockId: W171_BLOCK_ID,
@@ -171,20 +181,32 @@ export function w171Beds(): Bed[] {
       address: '718 W 171st St, New York, NY 10032',
     }),
     bed({
+      // The bed the captain named 9NHFW171 (2026-09-12): tag `9nhfw171`
+      // binds here beside the original `1hc0t9cj`, both live — he may
+      // already have shared the old URL, and retiring it is his later call.
+      // His N-side id on a bed the NYC-data analysis had fitted to the south
+      // curb: his word wins over the fit; the header's side inference stands
+      // corrected for this bed and BED-WH-1713 below. Open for adoption and
+      // "no plants, don't recommend planting" — his words, `captainNamed`.
       plate: 'BED-WH-1712',
       position: 2,
       plantingSpaceId: '2332470',
       plantingSpaceGlobalId: '7653DC67-36C3-4909-91A4-392CD6CE3371',
       treeId: '2135719',
       address: '718 W 171st St, New York, NY 10032',
+      captainNamed: true,
     }),
     bed({
+      // The bed the captain named 8NHFW171 (2026-09-12): tag `8nhfw171`
+      // binds here beside the original `729v19w4`, both live — the same
+      // story as BED-WH-1712 above.
       plate: 'BED-WH-1713',
       position: 3,
       plantingSpaceId: '2332469',
       plantingSpaceGlobalId: '8CF6E9E0-C9CA-4025-AC77-2C3BFAD1AC41',
       treeId: '2135718',
       address: '708 W 171st St, New York, NY 10032',
+      captainNamed: true,
     }),
     bed({
       plate: 'BED-WH-1714',
@@ -298,12 +320,33 @@ export function captainRunBeds(): Bed[] {
         guard: metalPositions.includes(i + 1) ? 'metal' : undefined,
       }),
     );
-  return [
+  const beds = [
     ...run('E170171HFW', 6, HAVEN_EAST_RUN_BLOCK_ID, 'Haven Ave × W 170 St & W 171 St'),
     ...run('SHFW171', 7, SOUTH_RUN_BLOCK_ID, 'W 171 St × Fort Washington Ave & Haven Ave'),
     // 1N and 2N are the captain's two metal-guard beds — see the header.
-    ...run('NHFW171', 9, NORTH_RUN_BLOCK_ID, 'W 171 St × Fort Washington Ave & Haven Ave', [1, 2]),
+    // The N run creates SEVEN fresh beds, not nine: the captain identified
+    // 8NHFW171 and 9NHFW171 as two beds this network already held
+    // (2026-09-12, verbatim: "Can you change …/t/1hc0t9cj for the end to be
+    // 9NHFW171 and then …/t/729v19w4 change to 8NHFW171") — so those two
+    // named ids bind to the existing records BED-WH-1713 and BED-WH-1712 in
+    // `w171Beds` above (tag-bindings.ts carries the rows), and creating them
+    // here as fresh beds would duplicate two real beds with real NYC
+    // identities. Their `blockPosition` stays where the earlier record put
+    // them; moving them between admin blocks is the captain's act, not a
+    // seed's.
+    ...run('NHFW171', 7, NORTH_RUN_BLOCK_ID, 'W 171 St × Fort Washington Ave & Haven Ave', [1, 2]),
   ];
+  // The bed facts the captain stated himself (2026-09-12, verbatim: "say 2S
+  // has plants say 5S doesn't and that we don't recommend planting") —
+  // recorded because he said them, exactly as far as he said them: 2S gets
+  // no planting recommendation and neither gets a note, because he gave
+  // neither. His "with 8 and 9N say no plants and don't recommend planting"
+  // lands on the two EXISTING beds those ids name, in `w171Beds` above.
+  const captainFacts: Record<string, Partial<Bed>> = {
+    '2SHFW171': { plantsPresent: true },
+    '5SHFW171': { plantsPresent: false, plantingRecommended: false },
+  };
+  return beds.map((bed) => ({ ...bed, ...captainFacts[bed.plate] }));
 }
 
 /**

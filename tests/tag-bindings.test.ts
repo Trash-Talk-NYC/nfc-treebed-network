@@ -37,18 +37,19 @@ describe('the shipped registry', () => {
 });
 
 describe('the captain’s named runs (2026-09-12)', () => {
-  const named = [
+  /** The 20 named ids that ARE the plate of a fresh run bed. */
+  const freshNamed = [
     ...[1, 2, 3, 4, 5, 6].map((n) => `${n}E170171HFW`),
     ...[1, 2, 3, 4, 5, 6, 7].map((n) => `${n}SHFW171`),
-    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${n}NHFW171`),
+    ...[1, 2, 3, 4, 5, 6, 7].map((n) => `${n}NHFW171`),
   ];
 
-  it('binds all 22 named ids, each to the bed of the same name', () => {
+  it('binds the 20 fresh named ids, each to the bed of the same name', () => {
     // The id IS the bed id (the captain: "it's supposed to be the url
     // actually and the bed id"): the tag is the plate's own lowercase
     // canonical, so what a chip encoder reads here and what the admin says
     // out loud are the same string.
-    for (const plate of named) {
+    for (const plate of freshNamed) {
       const tagId = plate.toLowerCase();
       expect(resolveTagParam(tagId)).toEqual({ state: 'bound', tag: tagId, plate });
     }
@@ -67,13 +68,47 @@ describe('the captain’s named runs (2026-09-12)', () => {
     });
   });
 
-  it('leaves the six earlier W 171st beds on their existing tags, untouched', () => {
-    // The captain has not said which of the 22 the six older beds are, so no
-    // named id points at a BED-WH plate: the carry (steward-carry.ts) is the
-    // path for that day, not a guessed binding.
+  it('binds 8NHFW171 and 9NHFW171 to the existing beds the captain identified', () => {
+    // His words: "Can you change …/t/1hc0t9cj for the end to be 9NHFW171 and
+    // then …/t/729v19w4 change to 8NHFW171" — a rename of two beds this
+    // network already held, never two fresh records beside them.
+    expect(resolveTagParam('9NHFW171')).toEqual({
+      state: 'bound',
+      tag: '9nhfw171',
+      plate: 'BED-WH-1712',
+    });
+    expect(resolveTagParam('8NHFW171')).toEqual({
+      state: 'bound',
+      tag: '8nhfw171',
+      plate: 'BED-WH-1713',
+    });
+  });
+
+  it('keeps the old tags of the renamed beds live beside the named ids', () => {
+    // The captain asked for these links before the rename and may already
+    // have handed them out: both URLs must keep opening the same bed.
+    // Retiring the old rows is his later call, never a rename side effect.
+    expect(resolveTagParam('1hc0t9cj')).toEqual({
+      state: 'bound',
+      tag: '1hc0t9cj',
+      plate: 'BED-WH-1712',
+    });
+    expect(resolveTagParam('729v19w4')).toEqual({
+      state: 'bound',
+      tag: '729v19w4',
+      plate: 'BED-WH-1713',
+    });
+  });
+
+  it('leaves the other four earlier W 171st beds on their opaque tags alone', () => {
+    // The captain has named only these two; which run beds the other four
+    // are stays unknown, so no other named id points at a BED-WH plate — the
+    // carry (steward-carry.ts) plus a binding is the path for that day.
+    const renamedPlates = new Set(['BED-WH-1712', 'BED-WH-1713']);
     for (const binding of TAG_BINDINGS) {
-      if (binding.sitePlate.startsWith('BED-WH-')) {
-        expect(named.map((p) => p.toLowerCase())).not.toContain(binding.tagId);
+      if (binding.sitePlate.startsWith('BED-WH-') && !renamedPlates.has(binding.sitePlate)) {
+        expect(freshNamed.map((p) => p.toLowerCase())).not.toContain(binding.tagId);
+        expect(binding.tagId).toHaveLength(8);
       }
     }
     expect(resolveTagParam('jjhq9gfj')).toEqual({

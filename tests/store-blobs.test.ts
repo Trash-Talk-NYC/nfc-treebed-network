@@ -21,6 +21,7 @@ import { BlobsServer } from '@netlify/blobs/server';
 import { BlobsStore } from '../src/lib/store-blobs';
 import { rewriteStoredSpeciesCasing } from '../scripts/species-casing-rewrite.mjs';
 import { CarryRefusal, carryStoredSteward } from '../scripts/steward-carry-apply.mjs';
+import { fillStoredCaptainFacts } from '../scripts/captain-facts-apply.mjs';
 import { runInRequestContext } from '../src/lib/request-context';
 import { consumeSignInToken, reportProblem, requestSignInLink } from '../src/lib/service';
 import type { BedEvent } from '../src/lib/types';
@@ -392,6 +393,77 @@ describe('the species casing remediation', () => {
     expect(dry.committed).toBeNull();
     expect(await revisionKeys()).toEqual(keys);
     expect((await instance().getBed(PLATE))!.treeType!.es).toBe('Roble sauce');
+  });
+});
+
+describe('the captain-facts remediation', () => {
+  // scripts/seed-captain-facts.mjs → captain-facts-apply.mjs, against the
+  // same wire protocol the pilot store speaks: the captain's "with 8 and 9N
+  // say no plants and don't recommend planting" reaching the two LIVE rows
+  // his named ids landed on (BED-WH-1712 / BED-WH-1713), which the
+  // insert-only seed can never touch.
+  const RENAMED = ['BED-WH-1712', 'BED-WH-1713'] as const;
+
+  /** The live store's shape: the rows persisted BEFORE the facts were stated. */
+  async function storeWithUnrecordedFacts(): Promise<void> {
+    const store = instance();
+    await store.transaction(async (tx) => {
+      for (const plate of RENAMED) {
+        const bed = await tx.getBed(plate);
+        await tx.updateBed({ ...bed!, plantsPresent: null, plantingRecommended: null });
+      }
+    });
+  }
+
+  it('fills the stated facts as one forward revision, deleting nothing', async () => {
+    await storeWithUnrecordedFacts();
+    const before = await revisionKeys();
+
+    const { changes, committed } = await fillStoredCaptainFacts(client(), { commit: true });
+
+    expect(committed).not.toBeNull();
+    expect(changes).toHaveLength(4);
+    const after = await revisionKeys();
+    for (const key of before) expect(after).toContain(key);
+    for (const plate of RENAMED) {
+      const bed = await instance().getBed(plate);
+      expect(bed!.plantsPresent, plate).toBe(false);
+      expect(bed!.plantingRecommended, plate).toBe(false);
+    }
+  });
+
+  it('never overwrites a value somebody has set, and a dry run writes nothing', async () => {
+    await storeWithUnrecordedFacts();
+    // The captain has since said 1712 IS planted: that answer must survive.
+    const store = instance();
+    await store.transaction(async (tx) => {
+      const bed = await tx.getBed('BED-WH-1712');
+      await tx.updateBed({ ...bed!, plantsPresent: true });
+    });
+    const keys = await revisionKeys();
+
+    const dry = await fillStoredCaptainFacts(client());
+    expect(dry.committed).toBeNull();
+    expect(await revisionKeys()).toEqual(keys);
+
+    const { changes, kept } = await fillStoredCaptainFacts(client(), { commit: true });
+    expect(changes.map(({ plate, field }) => `${plate}.${field}`)).not.toContain(
+      'BED-WH-1712.plantsPresent',
+    );
+    expect(kept.some(({ plate, field }) => plate === 'BED-WH-1712' && field === 'plantsPresent')).toBe(
+      true,
+    );
+    expect((await instance().getBed('BED-WH-1712'))!.plantsPresent).toBe(true);
+    expect((await instance().getBed('BED-WH-1712'))!.plantingRecommended).toBe(false);
+  });
+
+  it('does nothing at all on a store the seed already carried the facts into', async () => {
+    await instance().getBed(PLATE); // fresh seed: the facts are already there
+    const keys = await revisionKeys();
+    const { changes, committed } = await fillStoredCaptainFacts(client(), { commit: true });
+    expect(changes).toEqual([]);
+    expect(committed).toBeNull();
+    expect(await revisionKeys()).toEqual(keys);
   });
 });
 
