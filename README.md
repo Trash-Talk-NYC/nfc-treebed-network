@@ -119,8 +119,10 @@ NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/carry-steward.mjs \
   --user marisol_r --from BED-WH-1711 --to 5SHFW171        # add --commit to write
 ```
 
-Two of these passes are owed by THIS branch's deploy, because seeding is insert-only and the captain's rename arrived after PR #29 had already written to the live store.
-Run them in this order, dry first:
+These passes have all RUN against the live pilot store, on 2026-09-12, dry run first and then `--commit`, each landing as a forward revision: `rev/224` (`seed-captain-facts.mjs` — 7 fields across the four plates, `2SHFW171`'s planting recommendation left alone), `rev/225` (`retire-orphan-run-beds.mjs` — the two blank PR #29 rows, their tap events kept on the tombstones, no adoption found on either) and `rev/226` (`rewrite-species-casing.mjs` — 12 fields across the six W 171st beds, the demo bed left as typed).
+Nothing here is owed.
+Every one of them is idempotent — fill-only-where-null, already-conforming rows kept, and a change that comes out a no-op skips the commit — so re-running any of them is safe.
+Should either of the two below have to be run again, that is still the order, dry first:
 
 ```sh
 NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/seed-captain-facts.mjs       # add --commit to write
