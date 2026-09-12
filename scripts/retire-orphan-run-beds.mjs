@@ -14,12 +14,15 @@
 //
 // It RETIRES (`Bed.retiredAt`), never deletes: the row, the plate and any
 // history stay, the bed drops off the street list, and the admin's own
-// RESTORE puts it back if this was wrong. And it retires a row ONLY while
-// that row is still exactly the blank fresh seed — an adoption, a report, a
-// bed name or any profile edit means a person touched it (somebody may have
-// adopted the blank duplicate through the live URLs before the rename), and
-// that row is reported and left alone for a human to carry the steward off
-// with scripts/carry-steward.mjs and then decide. The store side lives in
+// RESTORE puts it back if this was wrong. One thing refuses the retire — an
+// ACTIVE adoption, a person still standing on the record (somebody may have
+// adopted the blank duplicate through the live URLs before the rename); that
+// row is reported and left alone for a human to carry the steward off with
+// scripts/carry-steward.mjs and then decide, and the carry's own leftovers —
+// a RELEASED adoption keyed to the plate — deliberately do not refuse the
+// re-run, or the instructed recovery could never finish. Anything else a row
+// still carries (a bed name, reports, events, a profile edit) is kept by the
+// retire and named in its report line. The store side lives in
 // orphan-run-beds-apply.mjs, where the tests drive it against the emulated
 // Blobs server.
 //

@@ -527,25 +527,43 @@ describe('the orphan run-bed remediation', () => {
     expect(await revisionKeys()).toEqual(keys);
   });
 
-  it('refuses a row somebody adopted, and reports it instead', async () => {
+  it('refuses a row somebody adopted, then retires it once the steward is carried off', async () => {
     await storeWithOrphanRows();
     const [adopted, blank] = ORPHAN_RUN_PLATES;
     // A neighbour adopted the blank duplicate while PR #29 was live.
-    await adoptBed(instance(), {
+    const steward = await adoptBed(instance(), {
       plate: adopted!,
       input: { firstName: 'Ana', lastName: 'Lopez', email: 'ana@example.invalid', phone: '' },
     });
 
-    const { changes, kept } = await retireStoredOrphanRunBeds(client(), { commit: true });
+    const first = await retireStoredOrphanRunBeds(client(), { commit: true });
 
-    expect(changes.map(({ plate }) => plate)).toEqual([blank]);
-    expect(kept.find(({ plate }) => plate === adopted)!.reason).toMatch(/adoption/);
+    expect(first.changes.map(({ plate }) => plate)).toEqual([blank]);
+    expect(first.kept.find(({ plate }) => plate === adopted)!.reason).toMatch(
+      /active adoption.*carry-steward/,
+    );
     // Left byte-for-byte: the person's bed is still live and still theirs.
     expect((await instance().getBed(adopted!))!.retiredAt).toBeNull();
     expect((await instance().getBed(blank!))!.retiredAt).not.toBeNull();
+
+    // The instructed recovery: carry the steward off, then re-run. The carry
+    // leaves its released adoption keyed to the plate it was written on, and
+    // that must not refuse the retire a second time.
+    await carryStoredSteward(
+      client(),
+      { user: steward.id, from: adopted!, to: PLATE },
+      { commit: true },
+    );
+
+    const second = await retireStoredOrphanRunBeds(client(), { commit: true });
+    expect(second.changes.map(({ plate }) => plate)).toEqual([adopted]);
+    // And the report names what the tombstone still holds, so nobody has to
+    // guess that a released adoption and its events went with it.
+    expect(second.changes[0]!.carries.join(', ')).toMatch(/released adoption/);
+    expect((await instance().getBed(adopted!))!.retiredAt).not.toBeNull();
   });
 
-  it('refuses a row somebody edited, and writes nothing at all in a dry run', async () => {
+  it('retires a row somebody edited, naming the edit, and writes nothing in a dry run', async () => {
     await storeWithOrphanRows();
     const [edited] = ORPHAN_RUN_PLATES;
     const store = instance();
@@ -557,7 +575,8 @@ describe('the orphan run-bed remediation', () => {
 
     const dry = await retireStoredOrphanRunBeds(client());
     expect(dry.committed).toBeNull();
-    expect(dry.kept.find(({ plate }) => plate === edited)!.reason).toMatch(/guard/);
+    // An edit is kept by the retire, not a refusal — it is disclosed instead.
+    expect(dry.changes.find(({ plate }) => plate === edited)!.carries.join(', ')).toMatch(/guard/);
     expect(await revisionKeys()).toEqual(keys);
     for (const plate of ORPHAN_RUN_PLATES) {
       expect((await instance().getBed(plate))!.retiredAt, plate).toBeNull();
