@@ -980,15 +980,6 @@ export interface BlockSaveInput {
 }
 
 /**
- * Save the block admin page: the reference address, and the opened bed's
- * guard toggle, slot switches and added slot.
- *
- * One transaction for the whole press: the offered count is computed against
- * the adoptions as they stand INSIDE it, so a steward adopting between render
- * and save can never be switched away — a filled slot always counts as
- * offered, and the count is clamped to what physically exists.
- */
-/**
  * The offered count a set of switched-on slot numbers means, or a refusal.
  *
  * `offeredSlots` covers slots 1..n, so the only selections it can hold are
@@ -1035,6 +1026,20 @@ function keptNote(submitted: string | undefined, stored: string): string {
   return submitted === undefined ? stored : capped(submitted, MAX_BED_NOTE_CHARS);
 }
 
+/**
+ * Save the block admin page: the reference address, and the opened bed's
+ * profile (the guard and the three facts as three-way radios, plus the three
+ * typed notes), slot switches, added slot and bed-name takedown.
+ *
+ * One transaction for the whole press: the offered count is computed against
+ * the adoptions as they stand INSIDE it, so a steward adopting between render
+ * and save can never be switched away — a filled slot always counts as
+ * offered, and the count is clamped to what physically exists.
+ *
+ * One rule covers the whole profile: a field the form did not carry keeps what
+ * stands — `undefined` rather than the NOT RECORDED choice's null, told apart
+ * with `=== undefined` — so a partial POST blanks nothing.
+ */
 export async function saveBlockSettings(store: Store, args: BlockSaveInput): Promise<void> {
   await store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);

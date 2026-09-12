@@ -135,14 +135,13 @@ export interface Bed {
    * nobody entered; the admin panel shows it as not set until the admin picks.
    */
   guard: GuardMaterial | null;
-  /**
-   * The bed's own profile — what a passer-by reading "About this bed" is told,
-   * because every bed is different (the captain: "every tree is specialized").
-   * The four facts are the admin page's switches; the three notes are
-   * admin-typed free text, rendered AS TYPED in both languages (a plant list
-   * is not translated), each its own leaf on the screen and bounded by
-   * `MAX_BED_NOTE_CHARS` (service.ts) like every other typed field.
-   */
+  // The rest of the bed's own profile, with `guard` above — what a passer-by
+  // reading "About this bed" is told, because every bed is different (the
+  // captain: "every tree is specialized"). The four facts are the admin page's
+  // three-way radios; the three notes are admin-typed free text, rendered AS
+  // TYPED in both languages (a plant list is not translated), each its own leaf
+  // on the screen and bounded by `MAX_BED_NOTE_CHARS` (service.ts) like every
+  // other typed field.
   /**
    * Whether a tree currently stands in this bed — stumps and empty pits are
    * real states. Three-way like `guard`: `null` is NOT YET RECORDED, which is

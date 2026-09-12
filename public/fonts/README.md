@@ -34,7 +34,8 @@ U+2190, U+2192, U+2713, U+2715, U+FF0B
 The accented range is not optional: **every screen exists in Spanish** (`design-record.md`, constraint 11), so `á é í ó ú ü ñ` and the opening `¿ ¡` are as load-bearing as the ASCII.
 Adding a screen whose Spanish needs a character outside this set means re-subsetting, not falling back — a glyph served from a system font in the middle of a Londrina Solid headline is visible from across the street.
 
-The one thing this set cannot cover is the bed's given name (`Bed.bedName`), which is visitor free text set in Londrina Solid: a name typed with a character outside the subset falls back per glyph, by design — the alternative is refusing a neighbour's own name for its spelling.
+The one thing this set cannot cover is typed free text: the bed's given name (`Bed.bedName`), which the visitor writes and which is set in Londrina Solid, and the admin's own bed-profile notes (`plantsNote`, `recommendedPlantsNote`, `careNote`, in Barlow).
+A character outside the subset falls back per glyph there, by design — the alternative is refusing a neighbour's own name, or the captain's own note, for its spelling.
 The subset is sized for the Spanish this block speaks, and widening it further is a size decision, not a correctness one.
 
 Neither family contains `✓ ✕ ← → ＋` glyphs; those characters intentionally render from system fallback fonts, exactly as they did in the approved screens.

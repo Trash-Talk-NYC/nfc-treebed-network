@@ -15,9 +15,10 @@ Which bed the tag speaks for is a server-side fact (`src/lib/tag-bindings.ts`); 
 Behind a key at `/admin` is the block admin: the one surface where full names, emails and phone numbers render.
 It is where a block's beds are opened for adoption one slot at a time (`Bed.offeredSlots` is a rule the adopt flow enforces, not a display state), where a steward signed up on the sidewalk is written in by hand, and where a bed's given name is taken down if it has to be.
 Adding a bed there asks only for the English species name: the Spanish one defaults from a checked-in table (`src/lib/tree-species.ts`), a typed Spanish name wins over it, and a species the table doesn't know falls back to the generic "árbol" rather than a guess — nobody has to go and look a translation up.
-It is also where each bed's profile is kept: the guard (none, wood or metal — or not yet recorded, which is where every bed starts and what the public page then says nothing about), whether a tree and plants are present, whether Trash Talk recommends planting, and the admin's typed notes on what is planted, what to plant and what care the bed needs.
+It is also where each bed's profile is kept: the guard (none, wood or metal), whether a tree and plants are present, whether Trash Talk recommends planting, and the admin's typed notes on what is planted, what to plant and what care the bed needs.
+Each of those four facts is three-way — every bed starts at not yet recorded, the public page then says nothing about it, and a NOT RECORDED choice beside the answers is how a mis-tap goes back.
 That profile is what the public "About this bed" page (`/t/<tag>/about`, a small text link under either door's buttons) states, above a network-wide FAQ and links to NYC Parks and 311.
-The same panel states the bed's open report read-only — what was picked, the note, when it was opened and how many neighbours added their weight — so a report filed at the tag is seen there; closing it stays the steward's act.
+The same panel states the bed's open report read-only — what was picked, the note, when it was opened, how many neighbours added their weight and what each of them picked and typed — so a report filed at the tag is seen there in full; closing it stays the steward's act.
 
 ## Run it
 
