@@ -15,7 +15,8 @@ feature branch -> dev -> qa -> stage -> prod
    That is the only branch feature work merges into.
 
 A clone made before `dev` became the default still caches `main` in `remote.origin.HEAD`, and that cached pointer — not the remote — is what `gh` and other tooling offer as the base branch.
-Run `git remote set-head origin -a` once in such a checkout; `git ls-remote --symref origin HEAD` shows what the remote actually says.
+`npm install` corrects that pointer for you (the `postinstall` script runs `git remote set-head origin --auto`, and stays quiet and non-fatal where there is no remote to ask).
+Run `git remote set-head origin -a` by hand in a checkout that has not been installed into; `git ls-remote --symref origin HEAD` shows what the remote actually says.
 
 ## Promoting a release
 

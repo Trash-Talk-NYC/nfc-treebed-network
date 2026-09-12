@@ -6,7 +6,7 @@ The bed's plate (`BED-HRL-0847`) is an INTERNAL join key and is never rendered �
 
 **Every feature-work pull request is opened against `dev`, never against `main`** — `dev` is the default branch and `main` mirrors `prod`.
 This is repeated here, at the top, because automation that picks a base by the conventional name `main` fails the promotion-chain check, and by then the base is already wrong; see "Branching model" below for the whole chain and for the retarget that clears it.
-A checkout made before `dev` became the default still caches `main` in `remote.origin.HEAD`, which is what base-picking tooling reads, so run `git remote set-head origin -a` in any clone that offers `main` — `git ls-remote --symref origin HEAD` is the read-only check.
+A checkout made before `dev` became the default still caches `main` in `remote.origin.HEAD`, which is what base-picking tooling reads, so `npm install` now repairs it (`postinstall` runs `git remote set-head origin --auto`) and `git remote set-head origin -a` is the manual form for a clone that offers `main` — `git ls-remote --symref origin HEAD` is the read-only check.
 
 Source-of-truth documents live in the firstmate repo:
 - `data/tap-flow-decision/approved-screens.html` — the approved screens, iterated on directly by the captain across roughly forty rounds. Authoritative for visuals, copy and flow. **Open it in a browser before changing a screen.**
