@@ -17,16 +17,44 @@ on:
     # been corrected. Running on every PR keeps the check a live answer about the
     # current base rather than a stale one.
 
-permissions: {}
+# Reading the pull request is what lets the check answer about the base the PR
+# has NOW rather than the one its event payload was built with; see below.
+permissions:
+  pull-requests: read
 
 jobs:
   check-promotion-source:
     name: PR source matches promotion chain
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve the pull request's current base branch
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PAYLOAD_BASE: ${{ github.base_ref }}
+        run: |
+          set -eu -o pipefail
+
+          # `github.base_ref` is the base the PR had when the RUN was created, and
+          # a re-run replays that same payload. Retargeting a mis-based PR to `dev`
+          # is the documented fix for this check, so a check that trusts the payload
+          # stays red on a PR that has since been corrected -- the same staleness the
+          # unfiltered `on:` trigger above exists to avoid. Ask the API what the base
+          # is now, and fall back to the payload only if that call fails.
+          base="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref || true)"
+          if [ -z "$base" ]; then
+            base="$PAYLOAD_BASE"
+            echo "Could not read the live base branch; falling back to the event payload's '$base'."
+          fi
+
+          echo "Base branch: '$base'."
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
       - name: Assert head branch is a valid source for the base branch
         env:
-          BASE: ${{ github.base_ref }}
+          BASE: ${{ steps.base.outputs.base }}
           HEAD: ${{ github.head_ref }}
         run: |
           # -f keeps the glob patterns in $valid_heads from being expanded against
