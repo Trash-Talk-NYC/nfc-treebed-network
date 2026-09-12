@@ -9,9 +9,13 @@
 //  - everything else seeds UNASSERTED: NYC identifiers null, the species and
 //    every three-way profile fact NOT YET RECORDED — he will fill records in
 //    from NYC Parks' data — with the one deliberate exception of the two
-//    metal guards he named himself (1NHFW171, 2NHFW171);
-//  - the six earlier W 171st beds and the seeded demo bed are untouched, and
-//    an already-seeded store gains the runs additively, insert-only.
+//    metal guards he named himself (1NHFW171, 2NHFW171) and the plant facts
+//    he stated for 2SHFW171 and 5SHFW171;
+//  - the two beds he renamed onto 8N/9N keep their NYC identities and species
+//    and gain only what he said (open for adoption, no plants, no planting
+//    recommended), the other four earlier W 171st beds and the seeded demo bed
+//    are untouched, and an already-seeded store gains the runs additively,
+//    insert-only.
 
 import { describe, expect, it } from 'vitest';
 

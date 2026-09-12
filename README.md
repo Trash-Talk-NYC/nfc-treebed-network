@@ -111,7 +111,7 @@ NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/rewrite-species-casing.m
 NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/rewrite-species-casing.mjs --commit   # writes the revision
 ```
 
-`scripts/carry-steward.mjs` is the same shape for the day the captain says which named-run bed one of the six older W 171st records actually is: it releases the adoption on the old plate and recreates it on the new one keeping its original `adoptedAt`, moves nothing else — reports, events and the bed's given name stay keyed where they were written — and is reversible by swapping `--from` and `--to`.
+`scripts/carry-steward.mjs` is the same shape for the day the captain says which named-run bed one of the four remaining older W 171st records actually is, if a steward has meanwhile landed on a duplicate: it releases the adoption on the old plate and recreates it on the new one keeping its original `adoptedAt`, moves nothing else — reports, events and the bed's given name stay keyed where they were written — and is reversible by swapping `--from` and `--to`.
 It applies the checked-in records first, so a run bed no commit has persisted yet is still found.
 
 ```sh

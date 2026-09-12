@@ -3,7 +3,8 @@
 // resolves to the same bed screen without the app reading it, a bed whose
 // species is not yet recorded renders whole sentences in both languages on
 // both doors and the About page, and the six earlier W 171st beds still
-// answer on their old tags, untouched.
+// answer on their old opaque tags — including the two the captain renamed
+// onto 8N/9N, which now answer on both their old tag and their named one.
 //
 // Slow by nature (a build plus a server), so it lives in the e2e suite.
 

@@ -23,8 +23,9 @@
 // Either door withholds the adoption invitation while the bed has no offered
 // slot (`openSlots`, which the admin page opens): door 1 says "isn't open for
 // adoption yet" (DOOR_NOT_OFFERED) and offers care alone, door 2 drops "join
-// them". That is a normal state, not a screen to fix — the six W 171st beds
-// seed unoffered, so the tags on them open the not-yet-open door today.
+// them". That is a normal state, not a screen to fix — four of the six
+// W 171st beds seed unoffered, so the tags on them open the not-yet-open
+// door today.
 //
 // One clear question per screen. There is deliberately no third state for "a
 // report is already open": a neighbour who taps a bed somebody else has just
@@ -164,10 +165,10 @@ const care = langLink(`${base}/care`, lang);
 const adopt = langLink(`${base}/adopt`, lang);
 const about = langLink(`${base}/about`, lang);
 
-// A bed whose species is NOT YET RECORDED (the captain-run beds seed that
-// way) degrades to the generic tree inside the door frames, which stay whole
-// sentences in both languages — never a broken headline, never a guessed
-// species (format.ts, `speciesShown`).
+// A bed whose species is NOT YET RECORDED (the 20 fresh captain-run beds seed
+// that way) degrades to the generic tree inside the door frames, which stay
+// whole sentences in both languages — never a broken headline, never a
+// guessed species (format.ts, `speciesShown`).
 const species = bed ? speciesShown(bed.treeType) : null;
 
 const title = species
