@@ -457,5 +457,30 @@ describe('the bed’s earlier photos', () => {
     expect(drawnPhotos(all)).toBe(earlier);
     expect(all.match(/delete-photo\?photo=/g) ?? []).toHaveLength(earlier);
     expect(all).not.toContain('Show older photos');
+
+    // The reveal survives the whole delete round-trip: moderating a long
+    // history must not collapse back to the capped few between one photo and
+    // the next.
+    const revealed = all.match(/delete-photo\?photo=([^"&]+)&amp;photos=all/);
+    expect(revealed).not.toBeNull();
+    const olderId = revealed![1]!;
+    const confirm = await (
+      await fetch(`${origin}${DEMO_BLOCK_PATH}/delete-photo?photo=${olderId}&photos=all`, {
+        headers: { cookie },
+      })
+    ).text();
+    // The backlink, the cancel (both the bed link) and the form's own action
+    // all keep it, so no way out of this page collapses the reveal.
+    expect(confirm).toContain(`${DEMO_BLOCK_PATH}?bed=${PLATE}&amp;photos=all`);
+    expect(confirm).toContain(`delete-photo?photo=${olderId}&amp;photos=all`);
+
+    const posted = await fetch(
+      `${origin}${DEMO_BLOCK_PATH}/delete-photo?photo=${olderId}&photos=all`,
+      { method: 'POST', headers: { cookie, origin }, redirect: 'manual' },
+    );
+    expect(posted.status).toBe(303);
+    expect(posted.headers.get('location')).toBe(
+      `${DEMO_BLOCK_PATH}?bed=${PLATE}&photodeleted=1&photos=all`,
+    );
   });
 });

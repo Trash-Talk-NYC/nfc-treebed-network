@@ -19,9 +19,16 @@ interface Props {
   photos: ReportPhoto[];
   /** The block page these photos belong to — where the delete link points. */
   base: string;
+  /**
+   * Whether the panel this grid is drawn in has the older-photo history
+   * revealed: the delete link carries it so the round-trip lands back on the
+   * same view rather than collapsing to the capped six.
+   */
+  showAllPhotos: boolean;
   lang: Lang;
 }
-const { photos, base, lang } = Astro.props;
+const { photos, base, showAllPhotos, lang } = Astro.props;
+const revealParam = showAllPhotos ? '&photos=all' : '';
 ---
 
 <div class="photo-grid">
@@ -50,7 +57,7 @@ const { photos, base, lang } = Astro.props;
             <span {...bi(sent, lang)}>{sent[lang]}</span>
             <a
               class="photo-delete"
-              href={langLink(`${base}/delete-photo?photo=${photo.id}`, lang)}
+              href={langLink(`${base}/delete-photo?photo=${photo.id}${revealParam}`, lang)}
               {...bi(ADMIN.deletePhotoLink, lang)}
             >
               {ADMIN.deletePhotoLink[lang]}

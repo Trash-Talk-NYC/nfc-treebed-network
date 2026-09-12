@@ -699,7 +699,12 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                       attached" means now that photos are kept. Admin-only:
                       this panel is the one surface that renders them. */}
                   {openReportPhotos.length > 0 && (
-                    <AdminPhotoGrid photos={openReportPhotos} base={base} lang={lang} />
+                    <AdminPhotoGrid
+                      photos={openReportPhotos}
+                      base={base}
+                      showAllPhotos={showAllPhotos}
+                      lang={lang}
+                    />
                   )}
                   {openReport.alsoSaid.length > 0 && (
                     <div class="report-also">
@@ -746,7 +751,12 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   <div class="blockmeta" {...bi(ADMIN.photosEarlierNote, lang)}>
                     {ADMIN.photosEarlierNote[lang]}
                   </div>
-                  <AdminPhotoGrid photos={earlierPhotos} base={base} lang={lang} />
+                  <AdminPhotoGrid
+                    photos={earlierPhotos}
+                    base={base}
+                    showAllPhotos={showAllPhotos}
+                    lang={lang}
+                  />
                   {olderPhotosHidden > 0 && (
                     <a
                       class="photos-older"

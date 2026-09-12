@@ -37,6 +37,10 @@ const store = getStore();
 const blockId = Astro.params.block ?? '';
 const photoId = Astro.url.searchParams.get('photo') ?? '';
 const base = `/admin/blocks/${blockId}`;
+// The panel's own older-photo reveal, carried in on the delete link: every way
+// back out of this page restores it, so moderating a long history never
+// collapses to the capped six between one delete and the next.
+const revealParam = Astro.url.searchParams.get('photos') === 'all' ? '&photos=all' : '';
 
 if (photoId === '') {
   return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
@@ -56,7 +60,8 @@ if (bed.blockId !== blockId) {
   return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
 }
 
-const bedLink = langLink(`${base}?bed=${photo.bedPlate}`, lang);
+const bedLink = langLink(`${base}?bed=${photo.bedPlate}${revealParam}`, lang);
+const deletedLink = langLink(`${base}?bed=${photo.bedPlate}&photodeleted=1${revealParam}`, lang);
 
 if (Astro.request.method === 'POST') {
   // The press carries no fields — the photo is named by the URL this page
@@ -74,11 +79,11 @@ if (Astro.request.method === 'POST') {
   } catch (err) {
     if (err instanceof RuleError && err.code === 'photo-not-found') {
       // Deleted from another tab between the render and the press.
-      return Astro.redirect(langLink(`${base}?bed=${photo.bedPlate}&photodeleted=1`, lang), 303);
+      return Astro.redirect(deletedLink, 303);
     }
     throw err;
   }
-  return Astro.redirect(langLink(`${base}?bed=${photo.bedPlate}&photodeleted=1`, lang), 303);
+  return Astro.redirect(deletedLink, 303);
 }
 
 const presentation = presentationFor(bed);
@@ -123,7 +128,10 @@ const sent = sentLabel(new Date(photo.uploadedAt));
       )
     }
     <p class="body-copy" {...bi(ADMIN.deletePhotoBody, lang)}>{ADMIN.deletePhotoBody[lang]}</p>
-    <form method="POST" action={langLink(`${base}/delete-photo?photo=${photo.id}`, lang)}>
+    <form
+      method="POST"
+      action={langLink(`${base}/delete-photo?photo=${photo.id}${revealParam}`, lang)}
+    >
       <button class="btn btn-tall btn-alert" type="submit" {...bi(ADMIN.deletePhotoSubmit, lang)}>
         {ADMIN.deletePhotoSubmit[lang]}
       </button>
