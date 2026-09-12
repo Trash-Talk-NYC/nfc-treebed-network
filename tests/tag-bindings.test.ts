@@ -36,6 +36,54 @@ describe('the shipped registry', () => {
   });
 });
 
+describe('the captain’s named runs (2026-09-12)', () => {
+  const named = [
+    ...[1, 2, 3, 4, 5, 6].map((n) => `${n}E170171HFW`),
+    ...[1, 2, 3, 4, 5, 6, 7].map((n) => `${n}SHFW171`),
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${n}NHFW171`),
+  ];
+
+  it('binds all 22 named ids, each to the bed of the same name', () => {
+    // The id IS the bed id (the captain: "it's supposed to be the url
+    // actually and the bed id"): the tag is the plate's own lowercase
+    // canonical, so what a chip encoder reads here and what the admin says
+    // out loud are the same string.
+    for (const plate of named) {
+      const tagId = plate.toLowerCase();
+      expect(resolveTagParam(tagId)).toEqual({ state: 'bound', tag: tagId, plate });
+    }
+  });
+
+  it('resolves the id exactly as the captain spells it — uppercase, off the guard', () => {
+    expect(resolveTagParam('1NHFW171')).toEqual({
+      state: 'bound',
+      tag: '1nhfw171',
+      plate: '1NHFW171',
+    });
+    expect(resolveTagParam('4E170171HFW')).toEqual({
+      state: 'bound',
+      tag: '4e170171hfw',
+      plate: '4E170171HFW',
+    });
+  });
+
+  it('leaves the six earlier W 171st beds on their existing tags, untouched', () => {
+    // The captain has not said which of the 22 the six older beds are, so no
+    // named id points at a BED-WH plate: the carry (steward-carry.ts) is the
+    // path for that day, not a guessed binding.
+    for (const binding of TAG_BINDINGS) {
+      if (binding.sitePlate.startsWith('BED-WH-')) {
+        expect(named.map((p) => p.toLowerCase())).not.toContain(binding.tagId);
+      }
+    }
+    expect(resolveTagParam('jjhq9gfj')).toEqual({
+      state: 'bound',
+      tag: 'jjhq9gfj',
+      plate: 'BED-WH-1711',
+    });
+  });
+});
+
 describe('the binding the site root redirects to', () => {
   const boundAt = '2026-08-26T12:00:00.000Z';
   const real: TagBinding = { tagId: 'jjhq9gfj', sitePlate: 'BED-WH-1711', boundAt, retiredAt: null };

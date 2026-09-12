@@ -31,7 +31,7 @@ import type { Bed, DigestCadence, Report, User } from './types';
 import type { Lang } from './i18n';
 import { langLink } from './i18n';
 import { DIGEST_MAIL } from './copy';
-import { capitalizeFirst, escapeHtml } from './format';
+import { capitalizeFirst, escapeHtml, speciesShown } from './format';
 import { TAG_BINDINGS, type TagBinding } from './tag-bindings';
 import { defaultPresentation } from './presentation';
 import { problemFor } from './problem';
@@ -152,7 +152,7 @@ export function buildDigestMail(content: DigestContent, origin: string): MailMes
     // Spanish value is lowercase for the door frame's mid-sentence use.
     const bedTitle = [
       bed.bedName,
-      capitalizeFirst(bed.treeType[lang]),
+      capitalizeFirst(speciesShown(bed.treeType)[lang]),
       bed.plantingSpaceId ? `#${bed.plantingSpaceId}` : null,
     ]
       .filter((part): part is string => part !== null && part !== '')

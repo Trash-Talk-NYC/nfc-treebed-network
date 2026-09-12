@@ -30,16 +30,20 @@ import { AUTH, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
 import { ourPlaqueLink } from '../../../lib/plaque-url';
-import { refuseWithBody, requireBoundTagForForm } from '../../../lib/tag-route';
+import { refuseMissingBedScreen, requireBoundTagForForm } from '../../../lib/tag-route';
 
 const { bound, refused: notBound } = await requireBoundTagForForm(Astro.params.tag, Astro.request);
 if (notBound) return notBound;
 const { plate, base } = bound;
 const store = getStore();
 const view = await getBedView(store, plate);
-if (!view) {
-  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
-}
+// A retired bed goes to the door screen like every other sub-page — the calm
+// "not assigned" screen lives there and answers 404 itself. The token does
+// NOT ride along: a GET spends nothing, so what is in this URL is a live
+// credential, and `tag-route.ts` strips it out of the hop rather than putting
+// it in a `location` header, a platform access log, and then the address bar
+// of a screen that sets no `no-store`.
+if (!view) return await refuseMissingBedScreen(Astro.request, base);
 
 const lang = resolveLang(Astro.url, Astro.cookies);
 const presentation = presentationFor(view.bed);

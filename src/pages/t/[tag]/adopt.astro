@@ -45,7 +45,7 @@ import {
 import { setSessionUser } from '../../../lib/session';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
-import { capitalizeFirst, slotsAllTakenMessage, slotsJustFilledMessage } from '../../../lib/format';
+import { capitalizeFirst, slotsAllTakenMessage, slotsJustFilledMessage, speciesShown } from '../../../lib/format';
 import { ADOPT, ADOPT_ERRORS, COMMON } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { presentationFor } from '../../../lib/presentation';
@@ -132,14 +132,18 @@ if (Astro.request.method === 'POST') {
   }
 }
 
+// The generic tree where the species is not yet recorded (format.ts): this
+// label stands beside the bed's number, so the generic word still names what
+// the visitor is adopting.
+const species = speciesShown(bed.treeType);
 const treeTypeLabel = {
-  en: capitalizeFirst(bed.treeType.en),
-  es: capitalizeFirst(bed.treeType.es),
+  en: capitalizeFirst(species.en),
+  es: capitalizeFirst(species.es),
 };
 ---
 
 <Screen
-  title={`${ADOPT.title[lang]} · ${capitalizeFirst(bed.treeType[lang])}`}
+  title={`${ADOPT.title[lang]} · ${capitalizeFirst(species[lang])}`}
   lang={lang}
   presentation={presentation}
   url={Astro.url}

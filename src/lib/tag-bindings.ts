@@ -62,7 +62,35 @@ export const TAG_BINDINGS: readonly TagBinding[] = [
   { tagId: '1hc0t9cj', sitePlate: 'BED-WH-1712', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
   { tagId: '729v19w4', sitePlate: 'BED-WH-1713', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
   { tagId: 'jpv8bksx', sitePlate: 'BED-WH-1714', boundAt: '2026-09-10T19:00:00.000Z', retiredAt: null },
+  // The captain's NAMED bed ids (2026-09-12), one per bed of the three runs
+  // seeded in store-dataset.ts (`captainRunBeds`). The id IS the bed id, by
+  // his decision — see tag-id.ts for the override this records — so the tag
+  // id is the plate's own lowercase canonical, and whoever encodes a chip
+  // writes exactly `/t/<tagId>`. Like the four W 171st rows above, these are
+  // MINTED HERE ahead of any hardware: this table is the SOURCE for what goes
+  // on the chips, not a record of chips that exist.
+  //
+  // The two metal-guard beds (1NHFW171, 2NHFW171 — `guard: 'metal'` in the
+  // seed) get `/t/<tagId>/m` encoded on their chips: the `/m` suffix is
+  // DECORATION ONLY, a marker legible to a human reading the tag. The route
+  // redirects it to the bare bed URL and the app never reads it to decide
+  // anything — the bed's `guard` field is the single source of truth for
+  // material, or the two would drift the day a guard is replaced
+  // (src/pages/t/[tag]/[suffix].ts).
+  ...runBindings('E170171HFW', 6),
+  ...runBindings('SHFW171', 7),
+  ...runBindings('NHFW171', 9),
 ];
+
+/** One run of the captain's scheme: `1<RUN>` … `<count><RUN>`, minted 2026-09-12. */
+function runBindings(run: string, count: number): TagBinding[] {
+  return Array.from({ length: count }, (_, i) => ({
+    tagId: `${i + 1}${run}`.toLowerCase(),
+    sitePlate: `${i + 1}${run}`,
+    boundAt: '2026-09-12T12:00:00.000Z',
+    retiredAt: null,
+  }));
+}
 
 /**
  * The binding that currently speaks for `tagId`, or null. Takes a canonical

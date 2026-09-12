@@ -18,12 +18,18 @@ import type {
   SignInToken,
   User,
 } from './types';
-import type { Lang } from './i18n';
+import type { Lang, Phrase } from './i18n';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
 import { signingSecret } from './signing-secret';
-import { GENERIC_TREE, spanishSpeciesFor, tableSpeciesCasingFor } from './tree-species';
+import { CarryRefusal, carrySteward } from './steward-carry';
+import {
+  englishSpeciesFor,
+  GENERIC_TREE,
+  spanishSpeciesFor,
+  tableSpeciesCasingFor,
+} from './tree-species';
 import { capped } from './typed-text';
 
 export class RuleError extends Error {
@@ -493,8 +499,10 @@ async function checkAdoptPreconditions(store: Store, plate: string): Promise<voi
   // the captain has actually OFFERED on the admin page (`Bed.offeredSlots`).
   // A bed with a slot built but not offered refuses exactly like a full one —
   // the admin switch is a rule here, not a display state, because anything
-  // enforced only by a screen is editable in devtools (spec §7). No bound tag
-  // points at an unoffered bed today, so no approved screen changes meaning.
+  // enforced only by a screen is editable in devtools (spec §7). The four
+  // opaque W 171st tags point at unoffered beds today, so their doors withhold
+  // the invitation rather than offering a form this would then refuse; the
+  // captain's 22 named-run beds each open with their one slot offered.
   if (active.length >= Math.min(bed.slots, bed.offeredSlots)) {
     throw new RuleError('slots-full', `${plate} has no offered slot open`);
   }
@@ -1132,6 +1140,15 @@ export interface BlockSaveInput {
      */
     guard: GuardMaterial | null | undefined;
     /**
+     * The species, as the panel's two text fields carried it — the English
+     * name and the optional Spanish one, resolved by `resolveSpecies` like
+     * the add-bed form's. Undefined is the same keep-as-it-stands every row
+     * below gets, and a blank English name is the way back to NOT YET
+     * RECORDED: the doors then headline the generic tree again, which is
+     * what a bed nobody has walked reads as anyway.
+     */
+    treeType: { en: string; es: string } | undefined;
+    /**
      * The bed profile's three-way facts — what "About this bed" states — all
      * read like `guard`: true, false, null for the NOT RECORDED choice that
      * takes the fact back, and undefined for a form that carried no radio,
@@ -1232,8 +1249,9 @@ function keptNote(submitted: string | undefined, stored: string): string {
 
 /**
  * Save the block admin page: the reference address, and the opened bed's
- * profile (the guard and the three facts as three-way radios, plus the three
- * typed notes), slot switches, added slot and bed-name takedown.
+ * profile (the species, the guard and the three facts as three-way radios,
+ * plus the three typed notes), slot switches, added slot and bed-name
+ * takedown.
  *
  * One transaction for the whole press: the offered count is computed against
  * the adoptions as they stand INSIDE it, so a steward adopting between render
@@ -1284,6 +1302,10 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       slots: pending.slots,
       offeredSlots: pending.offeredSlots,
       bedName: wanted.clearBedName ? null : bed.bedName,
+      treeType:
+        wanted.treeType === undefined
+          ? bed.treeType
+          : resolveSpecies(wanted.treeType, bed.treeType),
       guard: wanted.guard === undefined ? bed.guard : wanted.guard,
       treePresent: wanted.treePresent === undefined ? bed.treePresent : wanted.treePresent,
       plantsPresent: wanted.plantsPresent === undefined ? bed.plantsPresent : wanted.plantsPresent,
@@ -1442,6 +1464,92 @@ export async function addStewardByAdmin(
 }
 
 /**
+ * Carry a steward from one bed's record to another's — the correction for a
+ * record that sits on the wrong bed, not a street action.
+ *
+ * The rule itself lives in steward-carry.ts — a leaf module, because the
+ * live-store remediation script (`scripts/carry-steward.mjs`) has to load it
+ * under bare `node` and cannot resolve this file's extension-free imports.
+ * Its header carries the whole story: why the captain's 2026-09-12 named
+ * bed ids make the carry necessary, what moves (the adoption, with its
+ * original `adoptedAt`), what stays (reports, events, the bed's name — sites
+ * own history), and why running it again with the plates swapped reverses
+ * it. This wrapper is the in-app/tests path: the same rule inside a store
+ * transaction, refusals translated to this layer's RuleError codes.
+ */
+export async function carryStewardByAdmin(
+  store: Store,
+  args: { userId: string; fromPlate: string; toPlate: string; now?: Date },
+): Promise<Adoption> {
+  try {
+    return await store.transaction((tx) => carrySteward(tx, args));
+  } catch (err) {
+    if (err instanceof CarryRefusal) throw new RuleError(err.code, err.message);
+    throw err;
+  }
+}
+
+/**
+ * A typed species as it is STORED, or null for a species nobody has recorded.
+ *
+ * One function, because two screens write a species — "+ ADD A BED" and the
+ * bed panel's species row — and a second copy of these rules is how the two
+ * would come to disagree about what a blank Spanish field means.
+ *
+ * The Spanish name resolves in this order: what the admin typed (the table is
+ * a default, never a lock), then the checked-in species table, then the
+ * generic "árbol" — the same wording `speciesShown` gives a bed with no tree
+ * type at all. Never the English name and never a guess: the word renders
+ * inside a Spanish sentence on the neighbour's own street, where a wrong or
+ * English species name is worse than a generic one (tree-species.ts).
+ *
+ * A blank English name is NO species rather than a blank one: the screens
+ * already read sensibly for a bed nobody has recorded (`Bed.treeType` null),
+ * and storing an empty string would print an empty word inside the door
+ * frame. Whether that is a refusal (adding a bed) or the way back to
+ * not-yet-recorded (the panel) is the caller's call.
+ *
+ * `stored` is what the bed holds today, and it exists for the one form that
+ * PRE-FILLS both fields — the bed panel's species row. There, a Spanish field
+ * the admin never touched still arrives filled, which without this would read
+ * as a human's name and pin the old species' Spanish to a corrected English
+ * one ("red maple" / "roble sauce" on the neighbour's own street). So a typed
+ * Spanish name that is exactly what THIS function gave the OLD English name
+ * — the table's name, or the generic "árbol" where the table had none — is
+ * our own answer, not a person's, and re-derives from the new name; anything
+ * a human actually wrote survives the correction untouched.
+ */
+export function resolveSpecies(
+  typed: { en: string; es: string },
+  stored?: Phrase | null,
+): Phrase | null {
+  // Casing comes from the table or from the typist, never from a transform:
+  // a species the table knows is stored the way it authored it, mid-sentence
+  // ("willow oak", but "Norway maple"), and one it does not know is stored
+  // exactly as typed, because only the person at the tree knows whether its
+  // name carries a proper noun.
+  const typedEn = capped(typed.en, MAX_TREE_TYPE_CHARS);
+  if (typedEn === '') return null;
+  const en = englishSpeciesFor(typedEn) ?? typedEn;
+  const typedEs = capped(typed.es, MAX_TREE_TYPE_CHARS);
+  // What we ourselves would have written for the species the bed holds —
+  // the table's name, or the generic word where the table has none. Both are
+  // ours, so neither is a human's translation to protect.
+  const carriedOwnDefault =
+    typedEs !== '' &&
+    stored != null &&
+    typedEs.toLowerCase() === (spanishSpeciesFor(stored.en) ?? GENERIC_TREE.es).toLowerCase();
+  // A typed name that is the table's own modulo casing is the table's, so it
+  // is stored the way the door frame needs it; anything else is a name and
+  // keeps every character the admin typed.
+  const es =
+    typedEs !== '' && !carriedOwnDefault
+      ? (tableSpeciesCasingFor(en, typedEs) ?? typedEs)
+      : (spanishSpeciesFor(en) ?? GENERIC_TREE.es);
+  return { en, es };
+}
+
+/**
  * "+ ADD A BED" on the block admin page.
  *
  * The new bed starts the way the six seeded ones did: one slot, nothing
@@ -1455,22 +1563,8 @@ export async function addBedByAdmin(
   store: Store,
   args: { blockId: string; treeType: { en: string; es: string }; now?: Date },
 ): Promise<Bed> {
-  const en = capped(args.treeType.en, MAX_TREE_TYPE_CHARS);
-  // The Spanish name resolves in this order: what the admin typed (the table
-  // is a default, never a lock), then the checked-in species table, then the
-  // generic "árbol" — the same wording `normalizeData` gives a bed with no
-  // tree type at all. Never the English name and never a guess: the word
-  // renders inside a Spanish sentence on the neighbour's own street, where a
-  // wrong or English species name is worse than a generic one
-  // (tree-species.ts).
-  const typedEs = capped(args.treeType.es, MAX_TREE_TYPE_CHARS);
-  // A typed name that is the table's own modulo casing is the table's, so it
-  // is stored the way the door frame needs it; anything else is a name and
-  // keeps every character the admin typed.
-  const es = typedEs
-    ? (tableSpeciesCasingFor(en, typedEs) ?? typedEs)
-    : (spanishSpeciesFor(en) ?? GENERIC_TREE.es);
-  if (en === '') throw new RuleError('invalid-input', 'treeType');
+  const species = resolveSpecies(args.treeType);
+  if (!species) throw new RuleError('invalid-input', 'treeType');
   return store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
     if (!block) throw new RuleError('block-not-found', `No block ${args.blockId}`);
@@ -1482,7 +1576,7 @@ export async function addBedByAdmin(
       plate: await nextPlate(tx, siblings),
       plantingSpaceId: null,
       plantingSpaceGlobalId: null,
-      treeType: { en, es },
+      treeType: species,
       treeId: '',
       bedName: null,
       tagUid: '',

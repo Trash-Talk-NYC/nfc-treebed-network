@@ -9,6 +9,9 @@ import path from 'node:path';
 import { LocalStore } from '../src/lib/store-local';
 import {
   DEMO_BLOCK_ID,
+  HAVEN_EAST_RUN_BLOCK_ID,
+  NORTH_RUN_BLOCK_ID,
+  SOUTH_RUN_BLOCK_ID,
   W171_BLOCK_ID,
   ensureCheckedInBlocks,
   normalizeData,
@@ -21,6 +24,7 @@ import {
   MAX_BED_NOTE_CHARS,
   MAX_BED_SLOTS,
   MAX_NAME_CHARS,
+  MAX_TREE_TYPE_CHARS,
   addBedByAdmin,
   addStewardByAdmin,
   adoptBed,
@@ -47,6 +51,7 @@ function bedSave(overrides: Partial<BedSave> = {}): BedSave {
     plate: W171_PLATE,
     // Every profile field defaults to "the form did not carry it", which is
     // the save's keep-as-it-stands: a test says what it means to change.
+    treeType: undefined,
     guard: undefined,
     treePresent: undefined,
     plantsPresent: undefined,
@@ -81,9 +86,9 @@ describe('the six real beds on W 171st', () => {
     expect(view!.block.referenceAddress).toBe('708 W 171st St');
     expect(view!.block.demo).toBe(false);
     expect(view!.beds.map((b) => b.bed.blockPosition)).toEqual([1, 2, 3, 4, 5, 6]);
-    const species = view!.beds.map((b) => b.bed.treeType.en);
-    expect(species.filter((s) => s === 'Willow oak')).toHaveLength(5);
-    expect(species.filter((s) => s === 'White oak')).toHaveLength(1);
+    const species = view!.beds.map((b) => b.bed.treeType!.en);
+    expect(species.filter((s) => s === 'willow oak')).toHaveLength(5);
+    expect(species.filter((s) => s === 'white oak')).toHaveLength(1);
   });
 
   it('carries a resolved NYC planting space on every bed, each a distinct record', async () => {
@@ -135,9 +140,17 @@ describe('the six real beds on W 171st', () => {
     expect(demo!.beds.map((b) => b.bed.plate)).toEqual(['BED-HRL-0847']);
   });
 
-  it('lists the real block above the demo one, whatever the ids alphabetise to', async () => {
+  it('lists the real blocks above the demo one, whatever the ids alphabetise to', async () => {
     const blocks = await freshStore().getBlocks();
-    expect(blocks.map((b) => b.id)).toEqual([W171_BLOCK_ID, DEMO_BLOCK_ID]);
+    // Every real street — the captain's original block and the three named
+    // runs — sits above the DEMO-badged one, in stable id order.
+    expect(blocks.map((b) => b.id)).toEqual([
+      HAVEN_EAST_RUN_BLOCK_ID,
+      W171_BLOCK_ID,
+      NORTH_RUN_BLOCK_ID,
+      SOUTH_RUN_BLOCK_ID,
+      DEMO_BLOCK_ID,
+    ]);
   });
 });
 
@@ -1025,6 +1038,189 @@ describe('restoring a deleted bed', () => {
   });
 });
 
+describe('the panel’s species row', () => {
+  // The 22 named-run beds seed with no species at all (checked-in-beds.ts,
+  // "i will update it to match NYC parks"), so this row is the only way the
+  // captain records one — and it must read like the add-bed form, because
+  // both go through `resolveSpecies`.
+  const RUN_PLATE = '5SHFW171';
+
+  it('records a species on a bed that had none, filling the Spanish from the table', async () => {
+    const store = freshStore();
+    expect((await store.getBed(RUN_PLATE))!.treeType).toBeNull();
+
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Willow oak', es: '' } }),
+    });
+    const bed = await store.getBed(RUN_PLATE);
+    // Stored for its commonest use, mid-sentence in the door frame, so the
+    // English name's leading capital comes off the same way the Spanish's does.
+    expect(bed!.treeType).toEqual({ en: 'willow oak', es: 'roble sauce' });
+  });
+
+  it('re-derives a Spanish name the table gave when the English name is corrected', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Willow oak', es: '' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('roble sauce');
+
+    // The row arrives PRE-FILLED, so correcting only the English name posts
+    // the OLD species' Spanish back untouched. It is the table's answer, not
+    // a person's, so it follows the new name rather than pinning "roble
+    // sauce" to a red maple on the neighbour's own street.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Red maple', es: 'roble sauce' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      en: 'red maple',
+      es: 'arce rojo',
+    });
+
+    // And an unknown species degrades to the generic word rather than keeping
+    // the table's answer for a species this bed no longer is.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Dragon tree', es: 'arce rojo' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('árbol');
+  });
+
+  it('re-derives the generic Spanish word when an unknown species is corrected', async () => {
+    const store = freshStore();
+    // Honeylocust is deliberately absent from the table (its accepted Spanish
+    // names are feminine), so the bed stores the generic word.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Honeylocust', es: '' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      // A species the table has never heard of is stored exactly as typed:
+      // only the person at the tree knows how its name is spelled.
+      en: 'Honeylocust',
+      es: 'árbol',
+    });
+
+    // "árbol" is our own word, not a person's, so the pre-filled field must
+    // not pin the generic wording to a species the table does know.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Willow oak', es: 'árbol' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      en: 'willow oak',
+      es: 'roble sauce',
+    });
+  });
+
+  it('keeps a human-typed Spanish name across an English correction', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        plate: RUN_PLATE,
+        treeType: { en: 'Willow oak', es: 'el roble de la esquina' },
+      }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('el roble de la esquina');
+
+    // Nothing the table owns, so it is a person's words: re-deriving would
+    // lose a real translation and make them type it again.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        plate: RUN_PLATE,
+        treeType: { en: 'Red maple', es: 'el roble de la esquina' },
+      }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      en: 'red maple',
+      es: 'el roble de la esquina',
+    });
+  });
+
+  it('lets a typed Spanish name win, and stores the table’s own name lowercase', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Pin oak', es: 'Mi roble favorito' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('Mi roble favorito');
+
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Willow oak', es: 'Roble Sauce' } }),
+    });
+    // Mid-sentence in the door frame, so the table's own name is stored
+    // the way that sentence needs it.
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('roble sauce');
+  });
+
+  it('degrades an unknown species to the generic wording rather than guessing', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Dragon tree', es: '' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      en: 'Dragon tree',
+      es: 'árbol',
+    });
+  });
+
+  it('keeps the species a form did not carry, and takes it back on a cleared name', async () => {
+    const store = freshStore();
+    const before = (await store.getBed(W171_PLATE))!.treeType;
+    expect(before).not.toBeNull();
+
+    // A partial POST blanks nothing — the same rule as every profile field.
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ guard: 'wood' }),
+    });
+    expect((await store.getBed(W171_PLATE))!.treeType).toEqual(before);
+
+    // A cleared English name is the way back to NOT YET RECORDED, never an
+    // empty word inside the door frame.
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ treeType: { en: '   ', es: 'roble sauce' } }),
+    });
+    expect((await store.getBed(W171_PLATE))!.treeType).toBeNull();
+  });
+
+  it('caps a typed species like every other typed field', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        plate: RUN_PLATE,
+        treeType: { en: 'x'.repeat(200), es: 'y'.repeat(200) },
+      }),
+    });
+    const bed = await store.getBed(RUN_PLATE);
+    expect(bed!.treeType!.en).toHaveLength(MAX_TREE_TYPE_CHARS);
+    expect(bed!.treeType!.es).toHaveLength(MAX_TREE_TYPE_CHARS);
+  });
+});
+
 describe('adding a bed', () => {
   it('continues the block’s own plate sequence and starts closed, with no NYC identifiers', async () => {
     const store = freshStore();
@@ -1040,7 +1236,7 @@ describe('adding a bed', () => {
     expect(bed.plantingSpaceId).toBeNull();
     expect(bed.plantingSpaceGlobalId).toBeNull();
     // Nobody looked anything up: the species table supplied the Spanish.
-    expect(bed.treeType.es).toBe('roble palustre');
+    expect(bed.treeType!.es).toBe('roble palustre');
   });
 
   it('fills the Spanish name from the species table when the admin leaves it blank', async () => {
@@ -1051,8 +1247,8 @@ describe('adding a bed', () => {
     // The English name is what was typed, through `capped` — whitespace runs
     // collapse to one space; the Spanish resolves through the table's tolerant
     // match, which tolerates the run either way.
-    expect(bed.treeType.en).toBe('willow oak');
-    expect(bed.treeType.es).toBe('roble sauce');
+    expect(bed.treeType!.en).toBe('willow oak');
+    expect(bed.treeType!.es).toBe('roble sauce');
   });
 
   it('degrades an unknown species to the generic wording rather than guessing', async () => {
@@ -1060,10 +1256,10 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: 'Dragon tree', es: '' },
     });
-    expect(bed.treeType.en).toBe('Dragon tree');
+    expect(bed.treeType!.en).toBe('Dragon tree');
     // Never the English name and never a transliteration: "árbol" is the
     // same wording normalizeData gives a bed with no tree type at all.
-    expect(bed.treeType.es).toBe('árbol');
+    expect(bed.treeType!.es).toBe('árbol');
   });
 
   it('lets an explicitly supplied Spanish name win over the table', async () => {
@@ -1071,7 +1267,7 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: 'Pin oak', es: 'Roble de los pantanos' },
     });
-    expect(bed.treeType.es).toBe('Roble de los pantanos');
+    expect(bed.treeType!.es).toBe('Roble de los pantanos');
   });
 
   it('normalizes a typed name that is the table’s own shouted, so the door sentence reads', async () => {
@@ -1080,7 +1276,7 @@ describe('adding a bed', () => {
       treeType: { en: 'Willow oak', es: 'Roble Sauce' },
     });
     // "El cantero de este roble sauce…" — mid-sentence, so lowercase.
-    expect(bed.treeType.es).toBe('roble sauce');
+    expect(bed.treeType!.es).toBe('roble sauce');
   });
 
   it('stores a genuinely different typed name byte-for-byte, casing included', async () => {
@@ -1088,7 +1284,7 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: 'Willow oak', es: 'Mi roble favorito' },
     });
-    expect(bed.treeType.es).toBe('Mi roble favorito');
+    expect(bed.treeType!.es).toBe('Mi roble favorito');
   });
 
   it('keeps the siblings’ zero padding, so a block’s plates stay one series', async () => {

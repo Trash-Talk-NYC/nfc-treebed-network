@@ -20,6 +20,7 @@ import { getStore as getBlobClientStore, type Store as BlobsClientStore } from '
 import { BlobsServer } from '@netlify/blobs/server';
 import { BlobsStore } from '../src/lib/store-blobs';
 import { rewriteStoredSpeciesCasing } from '../scripts/species-casing-rewrite.mjs';
+import { CarryRefusal, carryStoredSteward } from '../scripts/steward-carry-apply.mjs';
 import { runInRequestContext } from '../src/lib/request-context';
 import { consumeSignInToken, reportProblem, requestSignInLink } from '../src/lib/service';
 import type { BedEvent } from '../src/lib/types';
@@ -307,7 +308,7 @@ describe('pruning', () => {
   });
 });
 
-describe('the Spanish species casing remediation', () => {
+describe('the species casing remediation', () => {
   // scripts/rewrite-species-casing.mjs, against the same wire protocol the
   // pilot store speaks. The rewrite rule itself is held in
   // tests/species-casing.test.ts; what these hold is the store side of it —
@@ -316,19 +317,28 @@ describe('the Spanish species casing remediation', () => {
     const store = instance();
     await store.transaction(async (tx) => {
       const bed = await tx.getBed(PLATE);
-      await tx.updateBed({ ...bed!, treeType: { ...bed!.treeType, es: 'Roble sauce' } });
+      await tx.updateBed({ ...bed!, treeType: { en: 'Willow oak', es: 'Roble sauce' } });
     });
   }
 
-  it('appends a forward revision that lowercases the seeded name, keeping the old ones', async () => {
+  it('appends a forward revision that corrects both seeded names, keeping the old ones', async () => {
     await storeSeededCapitalized();
     const before = await revisionKeys();
-    expect((await instance().getBed(PLATE))!.treeType.es).toBe('Roble sauce');
+    expect((await instance().getBed(PLATE))!.treeType).toEqual({
+      en: 'Willow oak',
+      es: 'Roble sauce',
+    });
 
     const { changes, committed } = await rewriteStoredSpeciesCasing(client(), { commit: true });
 
-    expect(changes).toEqual([{ plate: PLATE, from: 'Roble sauce', to: 'roble sauce' }]);
-    expect((await instance().getBed(PLATE))!.treeType.es).toBe('roble sauce');
+    expect(changes).toEqual([
+      { plate: PLATE, field: 'en', from: 'Willow oak', to: 'willow oak' },
+      { plate: PLATE, field: 'es', from: 'Roble sauce', to: 'roble sauce' },
+    ]);
+    expect((await instance().getBed(PLATE))!.treeType).toEqual({
+      en: 'willow oak',
+      es: 'roble sauce',
+    });
     // Nothing is wiped: every revision that was there still is, plus the new one.
     const after = await revisionKeys();
     for (const key of before) expect(after).toContain(key);
@@ -349,10 +359,109 @@ describe('the Spanish species casing remediation', () => {
     await storeSeededCapitalized();
     const keys = await revisionKeys();
     const dry = await rewriteStoredSpeciesCasing(client());
-    expect(dry.changes).toHaveLength(1);
+    expect(dry.changes).toHaveLength(2);
+    expect(dry.kept.length).toBeGreaterThan(0);
     expect(dry.committed).toBeNull();
     expect(await revisionKeys()).toEqual(keys);
-    expect((await instance().getBed(PLATE))!.treeType.es).toBe('Roble sauce');
+    expect((await instance().getBed(PLATE))!.treeType!.es).toBe('Roble sauce');
+  });
+});
+
+describe('the steward carry remediation', () => {
+  // scripts/carry-steward.mjs → steward-carry-apply.mjs, against the same
+  // wire protocol the pilot store speaks. The rule itself is held in
+  // tests/steward-carry.test.ts; what these hold is the store side — it
+  // appends a forward revision, deletes nothing, and reverses cleanly. The
+  // seeded store already holds a real adoption (marisol on the demo bed), so
+  // this is the captain's own scenario shape end to end.
+  const SEEDED_ADOPTED_AT = '2026-05-02T14:00:00.000Z';
+  const NAMED_PLATE = '3NHFW171';
+
+  it('carries the seeded steward to a named-run bed and back, one forward revision each way', async () => {
+    await instance().getBed(PLATE); // first contact seeds the store
+    const before = await revisionKeys();
+
+    const carried = await carryStoredSteward(
+      client(),
+      { user: 'marisol_r', from: PLATE, to: NAMED_PLATE },
+      { commit: true },
+    );
+    expect(carried.committed).not.toBeNull();
+    // Nothing is wiped: every revision that was there still is.
+    const after = await revisionKeys();
+    for (const key of before) expect(after).toContain(key);
+
+    // A fresh instance — another function — sees the adoption whole on the
+    // named bed: same person, same adoptedAt, and the old bed released.
+    const moved = await instance().getActiveAdoptions(NAMED_PLATE);
+    expect(moved).toHaveLength(1);
+    expect(moved[0]!.userId).toBe('user-marisol');
+    expect(moved[0]!.adoptedAt).toBe(SEEDED_ADOPTED_AT);
+    expect(await instance().getActiveAdoptions(PLATE)).toHaveLength(0);
+
+    // Swapping --from and --to is the documented reversal.
+    await carryStoredSteward(
+      client(),
+      { user: 'marisol_r', from: NAMED_PLATE, to: PLATE },
+      { commit: true },
+    );
+    const restored = await instance().getActiveAdoptions(PLATE);
+    expect(restored).toHaveLength(1);
+    expect(restored[0]!.adoptedAt).toBe(SEEDED_ADOPTED_AT);
+    expect(await instance().getActiveAdoptions(NAMED_PLATE)).toHaveLength(0);
+  });
+
+  it('finds a run bed the live store has not persisted yet', async () => {
+    // The day-one shape: the pilot store was seeded before the named runs
+    // existed, so its newest revision holds none of the 22 — they are
+    // checked-in records every load would insert, and a commit is what
+    // finally persists them. The script applies that same insert-only pass,
+    // so the captain's own target is found rather than refused as a typo.
+    await instance().getBed(PLATE); // first contact seeds the store
+    const legacy = (await client().get('rev/1', { type: 'json' })) as {
+      beds: Record<string, unknown>;
+    };
+    for (const plate of Object.keys(legacy.beds)) {
+      if (plate !== PLATE) delete legacy.beds[plate];
+    }
+    await client().set('rev/2', JSON.stringify(legacy));
+    await client().set('head', '2');
+
+    const carried = await carryStoredSteward(
+      client(),
+      { user: 'marisol_r', from: PLATE, to: NAMED_PLATE },
+      { commit: true },
+    );
+    expect(carried.committed).toBe(3);
+    const moved = await instance().getActiveAdoptions(NAMED_PLATE);
+    expect(moved).toHaveLength(1);
+    expect(moved[0]!.adoptedAt).toBe(SEEDED_ADOPTED_AT);
+    // Insert-only, exactly what the next load would have written: the bed
+    // the revision already held is untouched.
+    const committed = (await client().get('rev/3', { type: 'json' })) as {
+      beds: Record<string, { plate: string }>;
+    };
+    expect(committed.beds[NAMED_PLATE]!.plate).toBe(NAMED_PLATE);
+    expect(committed.beds[PLATE]).toBeDefined();
+  });
+
+  it('writes nothing on a dry run, and nothing on a refusal', async () => {
+    await instance().getBed(PLATE);
+    const keys = await revisionKeys();
+
+    const dry = await carryStoredSteward(client(), { user: 'marisol_r', from: PLATE, to: NAMED_PLATE });
+    expect(dry.committed).toBeNull();
+    expect(await revisionKeys()).toEqual(keys);
+    expect(await instance().getActiveAdoptions(PLATE)).toHaveLength(1);
+
+    // An unknown steward, an unknown bed: the rule refuses before any write.
+    await expect(
+      carryStoredSteward(client(), { user: 'nobody', from: PLATE, to: NAMED_PLATE }, { commit: true }),
+    ).rejects.toBeInstanceOf(CarryRefusal);
+    await expect(
+      carryStoredSteward(client(), { user: 'marisol_r', from: PLATE, to: 'BED-XX-0000' }, { commit: true }),
+    ).rejects.toBeInstanceOf(CarryRefusal);
+    expect(await revisionKeys()).toEqual(keys);
   });
 });
 

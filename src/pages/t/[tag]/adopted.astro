@@ -21,6 +21,7 @@ import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { getBedView } from '../../../lib/service';
 import { bi } from '../../../lib/bilingual';
+import { speciesShown } from '../../../lib/format';
 import { ADOPTED_TAKEOVER, BOOKMARK } from '../../../lib/copy';
 import { getSessionUserId } from '../../../lib/session';
 import { langLink, resolveLang } from '../../../lib/i18n';
@@ -44,6 +45,9 @@ const bed = view.bed;
 const sessionUserId = getSessionUserId(Astro.cookies);
 const isOwnSteward =
   sessionUserId !== null && view.stewards.some((s) => s.user.id === sessionUserId);
+// The generic tree where the species is not yet recorded — the frame stays a
+// whole sentence in both languages (format.ts, `speciesShown`).
+const species = speciesShown(bed.treeType);
 ---
 
 <Screen
@@ -59,7 +63,7 @@ const isOwnSteward =
         textContent, so no bilingual node may have children. */}
     <p class="sub takeover-sub">
       <span {...bi(ADOPTED_TAKEOVER.subBefore, lang)}>{ADOPTED_TAKEOVER.subBefore[lang]}</span>
-      <span {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+      <span {...bi(species, lang)}>{species[lang]}</span>
       <span {...bi(ADOPTED_TAKEOVER.subAfter, lang)}>{ADOPTED_TAKEOVER.subAfter[lang]}</span>
     </p>
   </div>

@@ -231,6 +231,15 @@ export const ABOUT = {
   title: { en: 'About this bed', es: 'Sobre este cantero' },
   treeLabel: { en: 'Tree', es: 'Árbol' },
   /**
+   * `Bed.treeType` null — the species is NOT YET RECORDED (the 22 captain-run
+   * beds seed that way, until he fills them in from NYC Parks' data). Stated
+   * here rather than degraded to the generic "tree": this row asserts what
+   * the species IS, and "Tree" under the label "Tree" would read as an
+   * answer nobody gave. The door frames one tap away degrade to the generic
+   * instead, because there the word sits inside a sentence (`speciesShown`).
+   */
+  treeUnknown: { en: 'Species not recorded yet', es: 'Especie aún no registrada' },
+  /**
    * `treePresent` off: a stump or an empty pit. The species is still named
    * above this line — it is what the bed is FOR, and the doors one tap away
    * headline it — so this says what is missing without contradicting them.
@@ -538,6 +547,22 @@ export const ADMIN = {
     en: 'This feeds the public “About this bed” page: a fact left Not set says nothing there, each plants note shows only while its own choice reads yes, and the care note always shows.',
     es: 'Esto alimenta la página pública “Sobre este cantero”: un dato en Sin registrar no dice nada allí, cada nota de plantas aparece solo mientras su propia opción dice que sí, y la nota de cuidado siempre aparece.',
   },
+  /**
+   * The panel's species row. Typed rather than three-way, because a species
+   * is a name and not a yes/no: a bed whose species nobody has recorded (the
+   * 22 named-run beds seed that way — "i will update it to match NYC parks")
+   * shows the NOT SET mark and both doors keep their generic tree until the
+   * captain types it here. Clearing the English field is what takes it back.
+   */
+  speciesHead: { en: 'Tree species', es: 'Especie del árbol' },
+  speciesUnsetSub: {
+    en: 'Not recorded yet — the screens say “this tree” until you name the species and save. Clearing the English name takes it back to not recorded.',
+    es: 'Aún sin registrar: las pantallas dicen “este árbol” hasta que nombres la especie y guardes. Si borras el nombre en inglés, vuelve a quedar sin registrar.',
+  },
+  speciesSub: {
+    en: 'What both doors headline, and what “About this bed” states. Clearing the English name takes it back to not recorded.',
+    es: 'Lo que encabezan ambas puertas y lo que indica “Sobre este cantero”. Si borras el nombre en inglés, vuelve a quedar sin registrar.',
+  },
   treePresentToggle: { en: 'Tree in the bed', es: 'Árbol en el cantero' },
   treePresentSub: {
     en: 'A stump or an empty pit is “No tree”',
@@ -751,6 +776,16 @@ export const ADMIN = {
   treeTypeEsAuto: {
     en: 'optional — known species fill it in on their own',
     es: 'opcional: las especies conocidas se completan solas',
+  },
+  /**
+   * The same field on the bed panel, where it arrives PRE-FILLED, so the
+   * add-bed note above ("fills itself in") would promise what a filled field
+   * cannot do. What the row actually does: a Spanish name the table gave is
+   * re-derived when the English name changes, and one a human wrote is kept.
+   */
+  treeTypeEsStored: {
+    en: 'optional — a known species follows the English name; a name you type is kept',
+    es: 'opcional: una especie conocida sigue al nombre en inglés; un nombre que escribas se conserva',
   },
   addBedSubmit: { en: 'ADD THE BED', es: 'AÑADIR EL CANTERO' },
   treeTypeMissing: { en: 'Name the tree.', es: 'Dinos el árbol.' },
