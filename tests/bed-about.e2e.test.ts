@@ -17,6 +17,8 @@ import { ABOUT, ABOUT_FAQ } from '../src/lib/copy';
 const TAG = '2mq2amhv';
 /** A real W 171st tag (tag-bindings.ts) — its bed seeds unoffered, so door 1. */
 const DOOR1_TAG = 'jjhq9gfj';
+/** Another real W 171st tag, whose bed keeps the seeded profile: nothing recorded. */
+const UNRECORDED_TAG = '1hc0t9cj';
 
 /** What the admin typed onto the demo bed's profile for this run. */
 const PLANTS_NOTE = 'Daffodils and a hosta along the guard side.';
@@ -48,12 +50,14 @@ beforeAll(async () => {
   demo.plantingRecommended = true;
   demo.recommendedPlantsNote = RECOMMENDED_NOTE;
   demo.careNote = CARE_NOTE;
-  // The door-1 bed keeps typed notes under switches that are OFF.
+  // The door-1 bed keeps typed notes under switches the admin set to "no".
   const door1 = data.beds['BED-WH-1711']!;
   door1.plantsPresent = false;
   door1.plantsNote = OFF_PLANTS_NOTE;
   door1.plantingRecommended = false;
   door1.recommendedPlantsNote = OFF_RECOMMENDED_NOTE;
+  // This one keeps the seeded profile — nothing recorded — and loses its tree.
+  data.beds['BED-WH-1712']!.treePresent = false;
 
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-about-'));
   await writeFile(path.join(dataDir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
@@ -146,17 +150,42 @@ describe('the profile, in both languages', () => {
     expect(html).toContain(ABOUT.title.es);
   });
 
-  it('answers the profile defaults honestly on an untouched bed', async () => {
-    // The W 171st beds seed with the defaults: guard not yet recorded, a tree
-    // standing, nothing planted, no recommendation, no notes.
-    const html = await (await fetch(`${origin}/t/${DOOR1_TAG}/about`)).text();
-    // Nobody has recorded the guard, so the page says NOTHING about it —
+  it('states a recorded "no" plainly, and nothing at all about what nobody recorded', async () => {
+    // The door-1 bed has both facts recorded as "no" by the admin, so the
+    // page says so — and the guard, which nobody has recorded, is absent:
     // neither a material nor "none", which would deny a guard the tag rides.
+    const html = await (await fetch(`${origin}/t/${DOOR1_TAG}/about`)).text();
     expect(html).not.toContain(ABOUT.guardLabel.en);
     expect(html).not.toContain(ABOUT.guardNone.en);
     expect(html).toContain(ABOUT.plantsNo.en);
     expect(html).toContain(ABOUT.plantingNo.es);
     expect(html).toContain(ABOUT.careNone.en);
+  });
+
+  it('says nothing about a bed nobody has recorded rather than answering for it', async () => {
+    // The seeded default is NOT YET RECORDED for the plants and the planting
+    // recommendation, exactly as for the guard: a whole block reading "nothing
+    // planted yet" and "check with Trash Talk before planting here" on the day
+    // it goes live would be the page asserting facts nobody entered.
+    const html = await (await fetch(`${origin}/t/${UNRECORDED_TAG}/about`)).text();
+    expect(html).not.toContain(ABOUT.plantsLabel.en);
+    expect(html).not.toContain(ABOUT.plantsNo.en);
+    expect(html).not.toContain(ABOUT.plantingLabel.en);
+    expect(html).not.toContain(ABOUT.plantingNo.en);
+    expect(html).not.toContain(ABOUT.plantingYes.en);
+    // What the page does still state: the tree, and the care line.
+    expect(html).toContain(ABOUT.treeLabel.en);
+    expect(html).toContain(ABOUT.careNone.en);
+  });
+
+  it('names the species even where no tree is standing, so the doors are not contradicted', async () => {
+    // Both doors one tap away headline the species. An empty pit says what is
+    // missing beside the species rather than instead of it.
+    const html = await (await fetch(`${origin}/t/${UNRECORDED_TAG}/about`)).text();
+    expect(html).toContain('Willow oak');
+    expect(html).toContain('Roble sauce');
+    expect(html).toContain(ABOUT.noTree.en);
+    expect(html).toContain(ABOUT.noTree.es);
   });
 
   it('shows a typed note only under the switch it describes', async () => {

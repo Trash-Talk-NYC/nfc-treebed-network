@@ -19,6 +19,7 @@
 
 import type { Phrase } from './i18n';
 import type { ThemeColors } from './presentation';
+import { capped } from './typed-text';
 
 export type ProblemCategory = 'thirsty' | 'litter' | 'guard' | 'other';
 
@@ -112,13 +113,17 @@ export function problemsFrom(raw: Iterable<unknown>): ProblemCategory[] {
 }
 
 /**
- * A submitted note, trimmed and capped.
+ * A submitted note, sanitised and capped.
  *
  * Only `other` carries one; anything else arriving with a note keeps it,
  * because a visitor who typed a sentence and then changed tile has still said
  * something worth passing on.
+ *
+ * It goes through `capped` like every other typed field: this is the most
+ * attacker-controllable string in the build and it renders as a leaf beside
+ * copy of ours on the admin panel and the too-large screen.
  */
 export function noteFrom(raw: unknown): string {
   if (typeof raw !== 'string') return '';
-  return raw.trim().slice(0, MAX_NOTE_CHARS);
+  return capped(raw, MAX_NOTE_CHARS);
 }

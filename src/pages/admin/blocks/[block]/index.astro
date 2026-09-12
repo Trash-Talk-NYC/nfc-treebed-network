@@ -32,6 +32,7 @@ import {
 import { getStore } from '../../../../lib/store';
 import {
   GUARD_MATERIALS,
+  bedFactFrom,
   guardMaterialFrom,
   publicHandle,
   publicInitials,
@@ -56,8 +57,8 @@ let submitted: {
   address: string;
   guard: GuardMaterial | null;
   treePresent: boolean;
-  plantsPresent: boolean;
-  plantingRecommended: boolean;
+  plantsPresent: boolean | null;
+  plantingRecommended: boolean | null;
   plantsNote: string;
   recommendedPlantsNote: string;
   careNote: string;
@@ -79,8 +80,11 @@ if (Astro.request.method === 'POST') {
   // keeps as it stands rather than reading as a material or as no guard.
   const guard = guardMaterialFrom(form.get('guard'));
   const treePresent = form.get('tree-present') !== null;
-  const plantsPresent = form.get('plants-present') !== null;
-  const plantingRecommended = form.get('planting-recommended') !== null;
+  // The profile's two three-way facts, read exactly like the guard above:
+  // nothing arrives while nobody has recorded one and the admin left it so,
+  // and null keeps it as it stands rather than reading as "no".
+  const plantsPresent = bedFactFrom(form.get('plants-present'));
+  const plantingRecommended = bedFactFrom(form.get('planting-recommended'));
   const plantsNote = String(form.get('plants-note') ?? '');
   const recommendedPlantsNote = String(form.get('recommended-plants-note') ?? '');
   const careNote = String(form.get('care-note') ?? '');
@@ -169,7 +173,7 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const view = await getBlockView(store, blockId);
+const view = await getBlockView(store, blockId, Astro.url.searchParams.get('bed'));
 if (!view) {
   return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
 }
@@ -252,6 +256,16 @@ const openReportLines = (report: Report) => ({
   photo: report.photoAttached,
 });
 const openReport = selected?.openReport ? openReportLines(selected.openReport) : null;
+
+// What the panel's three-way rows stand at right now: the pick a refused save
+// left on the page, otherwise the record. The badge, the sub-line and the
+// radios all read this one value, so the panel never says NOT SET beside a
+// radio the captain has just checked.
+const panelGuard = submitted ? submitted.guard : (selected?.bed.guard ?? null);
+const panelPlants = submitted ? submitted.plantsPresent : (selected?.bed.plantsPresent ?? null);
+const panelPlanting = submitted
+  ? submitted.plantingRecommended
+  : (selected?.bed.plantingRecommended ?? null);
 
 // `submitted` is set by a refused save and by an add-slot press alike, and
 // both leave something on the page the store does not have yet.
@@ -513,30 +527,34 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   says so in its sub-line until the admin picks one. */}
               <div class="toggle-row guard-row">
                 <span>
-                  <span class="t-lbl">
+                  <span class="t-lbl" id="guard-choice-label">
                     <span {...bi(ADMIN.guardChoice, lang)}>{ADMIN.guardChoice[lang]}</span>
-                    {selected.bed.guard === null && (
-                      <span class="guard-unset" {...bi(ADMIN.guardUnsetMark, lang)}>
-                        {ADMIN.guardUnsetMark[lang]}
+                    {panelGuard === null && (
+                      <span class="unset-mark" {...bi(ADMIN.unsetMark, lang)}>
+                        {ADMIN.unsetMark[lang]}
                       </span>
                     )}
                   </span>
                   <span class="t-sub">
-                    {selected.bed.guard === null ? (
+                    {panelGuard === null ? (
                       <span {...bi(ADMIN.guardUnsetSub, lang)}>{ADMIN.guardUnsetSub[lang]}</span>
                     ) : (
                       <span {...bi(ADMIN.guardChoiceSub, lang)}>{ADMIN.guardChoiceSub[lang]}</span>
                     )}
                   </span>
                 </span>
-                <span class="seg">
+                {/* The group's own name reaches assistive tech through the
+                    label beside it: without it three radios announce as
+                    "None"/"Wood"/"Metal" with nothing saying what they set.
+                    Markup only — the submit stays a plain scriptless POST. */}
+                <span class="seg" role="radiogroup" aria-labelledby="guard-choice-label">
                   {GUARD_MATERIALS.map((material) => (
                     <label class="seg-opt">
                       <input
                         type="radio"
                         name="guard"
                         value={material}
-                        checked={(submitted ? submitted.guard : selected.bed.guard) === material}
+                        checked={panelGuard === material}
                       />
                       <span {...bi(GUARD_OPTION[material], lang)}>{GUARD_OPTION[material][lang]}</span>
                     </label>
@@ -570,23 +588,40 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   checked={submitted ? submitted.treePresent : selected.bed.treePresent}
                 />
               </label>
-              <label class="toggle-row">
+              {/* Three-way, like the guard: a bed nobody has recorded has no
+                  radio checked and the public page stays silent about it,
+                  rather than publishing "nothing planted yet" by default. */}
+              <div class="toggle-row">
                 <span>
-                  <span class="t-lbl">
+                  <span class="t-lbl" id="plants-present-label">
                     <span {...bi(ADMIN.plantsPresentToggle, lang)}>{ADMIN.plantsPresentToggle[lang]}</span>
+                    {panelPlants === null && (
+                      <span class="unset-mark" {...bi(ADMIN.unsetMark, lang)}>
+                        {ADMIN.unsetMark[lang]}
+                      </span>
+                    )}
                   </span>
                   <span class="t-sub">
-                    <span {...bi(ADMIN.plantsPresentSub, lang)}>{ADMIN.plantsPresentSub[lang]}</span>
+                    {panelPlants === null ? (
+                      <span {...bi(ADMIN.plantsPresentUnsetSub, lang)}>
+                        {ADMIN.plantsPresentUnsetSub[lang]}
+                      </span>
+                    ) : (
+                      <span {...bi(ADMIN.plantsPresentSub, lang)}>{ADMIN.plantsPresentSub[lang]}</span>
+                    )}
                   </span>
                 </span>
-                <input
-                  type="checkbox"
-                  class="sw"
-                  name="plants-present"
-                  value="1"
-                  checked={submitted ? submitted.plantsPresent : selected.bed.plantsPresent}
-                />
-              </label>
+                <span class="seg" role="radiogroup" aria-labelledby="plants-present-label">
+                  <label class="seg-opt">
+                    <input type="radio" name="plants-present" value="yes" checked={panelPlants === true} />
+                    <span {...bi(ADMIN.plantsOptYes, lang)}>{ADMIN.plantsOptYes[lang]}</span>
+                  </label>
+                  <label class="seg-opt">
+                    <input type="radio" name="plants-present" value="no" checked={panelPlants === false} />
+                    <span {...bi(ADMIN.plantsOptNo, lang)}>{ADMIN.plantsOptNo[lang]}</span>
+                  </label>
+                </span>
+              </div>
               <div class="note-field">
                 <label class="field-label" for="plants-note" {...bi(ADMIN.plantsNoteLabel, lang)}>
                   {ADMIN.plantsNoteLabel[lang]}
@@ -599,27 +634,51 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   maxlength={MAX_BED_NOTE_CHARS}
                 >{submitted ? submitted.plantsNote : selected.bed.plantsNote}</textarea>
               </div>
-              <label class="toggle-row">
+              <div class="toggle-row">
                 <span>
-                  <span class="t-lbl">
+                  <span class="t-lbl" id="planting-recommended-label">
                     <span {...bi(ADMIN.plantingRecommendedToggle, lang)}>
                       {ADMIN.plantingRecommendedToggle[lang]}
                     </span>
+                    {panelPlanting === null && (
+                      <span class="unset-mark" {...bi(ADMIN.unsetMark, lang)}>
+                        {ADMIN.unsetMark[lang]}
+                      </span>
+                    )}
                   </span>
                   <span class="t-sub">
-                    <span {...bi(ADMIN.plantingRecommendedSub, lang)}>
-                      {ADMIN.plantingRecommendedSub[lang]}
-                    </span>
+                    {panelPlanting === null ? (
+                      <span {...bi(ADMIN.plantingRecommendedUnsetSub, lang)}>
+                        {ADMIN.plantingRecommendedUnsetSub[lang]}
+                      </span>
+                    ) : (
+                      <span {...bi(ADMIN.plantingRecommendedSub, lang)}>
+                        {ADMIN.plantingRecommendedSub[lang]}
+                      </span>
+                    )}
                   </span>
                 </span>
-                <input
-                  type="checkbox"
-                  class="sw"
-                  name="planting-recommended"
-                  value="1"
-                  checked={submitted ? submitted.plantingRecommended : selected.bed.plantingRecommended}
-                />
-              </label>
+                <span class="seg" role="radiogroup" aria-labelledby="planting-recommended-label">
+                  <label class="seg-opt">
+                    <input
+                      type="radio"
+                      name="planting-recommended"
+                      value="yes"
+                      checked={panelPlanting === true}
+                    />
+                    <span {...bi(ADMIN.plantingOptYes, lang)}>{ADMIN.plantingOptYes[lang]}</span>
+                  </label>
+                  <label class="seg-opt">
+                    <input
+                      type="radio"
+                      name="planting-recommended"
+                      value="no"
+                      checked={panelPlanting === false}
+                    />
+                    <span {...bi(ADMIN.plantingOptNo, lang)}>{ADMIN.plantingOptNo[lang]}</span>
+                  </label>
+                </span>
+              </div>
               <div class="note-field">
                 <label
                   class="field-label"
@@ -788,8 +847,9 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   .guard-row {
     margin-top: 16px;
   }
-  /* "Not set" beside the label: attention, so black on yellow, never white. */
-  .guard-unset {
+  /* "Not set" beside a three-way row's label — the guard and the two profile
+     facts alike: attention, so black on yellow, never white. */
+  .unset-mark {
     display: inline-block;
     margin-left: 8px;
     padding: 1px 7px;
@@ -800,8 +860,9 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     background: var(--theme-alert);
     color: var(--theme-on-alert);
   }
-  /* The three-way guard choice: real radios drawn as a segmented row, so it
-     posts with no script — same law as the `.sw` switches beside it. */
+  /* Every three-way choice — the guard, the plants, the recommendation: real
+     radios drawn as a segmented row, so each posts with no script — the same
+     law as the `.sw` switches beside them. */
   .seg {
     display: flex;
     flex: none;

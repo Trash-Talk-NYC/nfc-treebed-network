@@ -12,6 +12,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { ADMIN } from '../src/lib/copy';
 
 const ADMIN_KEY = 'e2e-admin-key-with-plenty-of-entropy';
 const BLOCK_PATH = '/admin/blocks/w-171-fort-washington-haven';
@@ -288,9 +289,81 @@ describe('the admin door', () => {
     const after = await (
       await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, { headers: { cookie } })
     ).text();
-    expect(after).not.toContain('NOT SET');
+    // The guard's own not-recorded line is gone — the mark itself still
+    // stands on the profile rows nobody has recorded yet.
+    expect(after).not.toContain(ADMIN.guardUnsetSub.en);
     expect(after).toMatch(/name="guard" value="wood"[^>]*checked/);
     expect(after).toContain('wood guard');
+  });
+
+  it('reads the profile facts three ways, and says so until the admin picks', async () => {
+    const cookie = await adminCookie();
+    const headers = { 'content-type': 'application/x-www-form-urlencoded', origin, cookie };
+    const panel = () =>
+      fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1714`, { headers: { cookie } }).then((r) => r.text());
+
+    // Seeded: nobody has recorded either fact, so neither radio is checked
+    // and the panel says so in both languages.
+    const before = await panel();
+    expect(before).toContain(ADMIN.plantsPresentUnsetSub.en);
+    expect(before).toContain(ADMIN.plantingRecommendedUnsetSub.es);
+    expect(before).not.toMatch(/name="plants-present"[^>]*checked/);
+    expect(before).not.toMatch(/name="planting-recommended"[^>]*checked/);
+
+    // A save that carries neither radio keeps them unrecorded rather than
+    // reading them as "no" — the guard's rule, applied here.
+    const untouched = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1714`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({ plate: 'BED-WH-1714' }),
+      redirect: 'manual',
+    });
+    expect(untouched.status).toBe(303);
+    expect(await panel()).toContain(ADMIN.plantsPresentUnsetSub.en);
+
+    const picked = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1714`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({
+        plate: 'BED-WH-1714',
+        'plants-present': 'yes',
+        'planting-recommended': 'no',
+      }),
+      redirect: 'manual',
+    });
+    expect(picked.status).toBe(303);
+    const after = await panel();
+    expect(after).not.toContain(ADMIN.plantsPresentUnsetSub.en);
+    expect(after).not.toContain(ADMIN.plantingRecommendedUnsetSub.en);
+    expect(after).toMatch(/name="plants-present" value="yes"[^>]*checked/);
+    expect(after).toMatch(/name="planting-recommended" value="no"[^>]*checked/);
+  });
+
+  it('shows the panel’s three-way rows as submitted when a save is refused', async () => {
+    // A refused save re-renders rather than redirecting, and the badge, the
+    // sub-line and the radios must read the same value: a panel that says NOT
+    // SET beside a radio the captain has just checked is telling them their
+    // pick was lost when it was not.
+    const cookie = await adminCookie();
+    const refused = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1715`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({
+        plate: 'BED-WH-1715',
+        guard: 'metal',
+        'plants-present': 'yes',
+        'slot-open': '9',
+      }),
+      redirect: 'manual',
+    });
+    expect(refused.status).toBe(422);
+    const html = await refused.text();
+    expect(html).toMatch(/name="guard" value="metal"[^>]*checked/);
+    expect(html).toMatch(/name="plants-present" value="yes"[^>]*checked/);
+    expect(html).not.toContain(ADMIN.guardUnsetSub.en);
+    expect(html).not.toContain(ADMIN.plantsPresentUnsetSub.en);
+    // The one row nobody picked still says so.
+    expect(html).toContain(ADMIN.plantingRecommendedUnsetSub.en);
   });
 });
 

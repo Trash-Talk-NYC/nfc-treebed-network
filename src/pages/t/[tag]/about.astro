@@ -86,19 +86,17 @@ const back = langLink(ourPlaqueLink(base), lang);
     <h1 class="title" {...bi(ABOUT.title, lang)}>{ABOUT.title[lang]}</h1>
 
     <div class="card facts">
+      {/* The species is named whether or not a tree stands: it is what the
+          bed is FOR, and both doors one tap away headline it — saying only
+          "no tree" here would make two public screens contradict each other
+          about the same bed. An empty pit adds the missing tree as its own
+          line instead of replacing the species. */}
       <div class="fact">
         <span class="fact-label" {...bi(ABOUT.treeLabel, lang)}>{ABOUT.treeLabel[lang]}</span>
-        {
-          bed.treePresent ? (
-            <span class="fact-value" {...bi(bed.treeType, lang)}>
-              {bed.treeType[lang]}
-            </span>
-          ) : (
-            <span class="fact-value" {...bi(ABOUT.noTree, lang)}>
-              {ABOUT.noTree[lang]}
-            </span>
-          )
-        }
+        <span class="fact-value" {...bi(bed.treeType, lang)}>{bed.treeType[lang]}</span>
+        {!bed.treePresent && (
+          <span class="fact-note" {...bi(ABOUT.noTree, lang)}>{ABOUT.noTree[lang]}</span>
+        )}
       </div>
       {/* Omitted entirely while the guard is not yet recorded (types.ts):
           a public screen states what somebody entered, never a default. */}
@@ -110,30 +108,37 @@ const back = langLink(ourPlaqueLink(base), lang);
           </span>
         </div>
       )}
-      <div class="fact">
-        <span class="fact-label" {...bi(ABOUT.plantsLabel, lang)}>{ABOUT.plantsLabel[lang]}</span>
-        <span class="fact-value" {...bi(bed.plantsPresent ? ABOUT.plantsYes : ABOUT.plantsNo, lang)}>
-          {(bed.plantsPresent ? ABOUT.plantsYes : ABOUT.plantsNo)[lang]}
-        </span>
-        {/* The admin's own words, as typed — no data-en/data-es pair — and
-            only under the switch they describe: a note kept on the record
-            while "nothing planted" is on would contradict it out loud. */}
-        {bed.plantsPresent && bed.plantsNote !== '' && (
-          <span class="fact-note">{bed.plantsNote}</span>
-        )}
-      </div>
-      <div class="fact">
-        <span class="fact-label" {...bi(ABOUT.plantingLabel, lang)}>{ABOUT.plantingLabel[lang]}</span>
-        <span
-          class="fact-value"
-          {...bi(bed.plantingRecommended ? ABOUT.plantingYes : ABOUT.plantingNo, lang)}
-        >
-          {(bed.plantingRecommended ? ABOUT.plantingYes : ABOUT.plantingNo)[lang]}
-        </span>
-        {bed.plantingRecommended && bed.recommendedPlantsNote !== '' && (
-          <span class="fact-note">{bed.recommendedPlantsNote}</span>
-        )}
-      </div>
+      {/* Omitted entirely while nobody has recorded it, the same rule as the
+          guard above: "nothing planted yet" is a fact about the bed, and a
+          default is not somebody having looked. */}
+      {bed.plantsPresent !== null && (
+        <div class="fact">
+          <span class="fact-label" {...bi(ABOUT.plantsLabel, lang)}>{ABOUT.plantsLabel[lang]}</span>
+          <span class="fact-value" {...bi(bed.plantsPresent ? ABOUT.plantsYes : ABOUT.plantsNo, lang)}>
+            {(bed.plantsPresent ? ABOUT.plantsYes : ABOUT.plantsNo)[lang]}
+          </span>
+          {/* The admin's own words, as typed — no data-en/data-es pair — and
+              only under the switch they describe: a note kept on the record
+              while "nothing planted" is on would contradict it out loud. */}
+          {bed.plantsPresent && bed.plantsNote !== '' && (
+            <span class="fact-note">{bed.plantsNote}</span>
+          )}
+        </div>
+      )}
+      {bed.plantingRecommended !== null && (
+        <div class="fact">
+          <span class="fact-label" {...bi(ABOUT.plantingLabel, lang)}>{ABOUT.plantingLabel[lang]}</span>
+          <span
+            class="fact-value"
+            {...bi(bed.plantingRecommended ? ABOUT.plantingYes : ABOUT.plantingNo, lang)}
+          >
+            {(bed.plantingRecommended ? ABOUT.plantingYes : ABOUT.plantingNo)[lang]}
+          </span>
+          {bed.plantingRecommended && bed.recommendedPlantsNote !== '' && (
+            <span class="fact-note">{bed.recommendedPlantsNote}</span>
+          )}
+        </div>
+      )}
       <div class="fact">
         <span class="fact-label" {...bi(ABOUT.careLabel, lang)}>{ABOUT.careLabel[lang]}</span>
         {

@@ -210,8 +210,15 @@ export const ABOUT = {
   fromDoor: { en: 'About this bed →', es: 'Sobre este cantero →' },
   title: { en: 'About this bed', es: 'Sobre este cantero' },
   treeLabel: { en: 'Tree', es: 'Árbol' },
-  /** `treePresent` off: a stump or an empty pit, said plainly. */
-  noTree: { en: 'No tree right now.', es: 'Ahora mismo no hay árbol.' },
+  /**
+   * `treePresent` off: a stump or an empty pit. The species is still named
+   * above this line — it is what the bed is FOR, and the doors one tap away
+   * headline it — so this says what is missing without contradicting them.
+   */
+  noTree: {
+    en: 'No tree is standing here right now — this is the bed it belongs to.',
+    es: 'Ahora mismo no hay ningún árbol en pie: este es el cantero que le corresponde.',
+  },
   guardLabel: { en: 'Guard', es: 'Protector' },
   guardNone: { en: 'None', es: 'No hay' },
   guardWood: { en: 'Wood', es: 'De madera' },
@@ -379,10 +386,11 @@ export const ADMIN = {
     es: 'Si hay protector, de qué está hecho',
   },
   /**
-   * The panel while the guard is not yet recorded: the mark beside the label
-   * and the sub-line that replaces `guardChoiceSub` until the admin picks.
+   * The mark beside any three-way row nobody has recorded yet — the guard and
+   * the two profile facts alike — and the guard's own sub-line, which replaces
+   * `guardChoiceSub` until the admin picks.
    */
-  guardUnsetMark: { en: 'NOT SET', es: 'SIN REGISTRAR' },
+  unsetMark: { en: 'NOT SET', es: 'SIN REGISTRAR' },
   guardUnsetSub: {
     en: 'Not recorded yet — the public page says nothing about the guard until you pick one and save.',
     es: 'Aún sin registrar: la página pública no dice nada del protector hasta que elijas uno y guardes.',
@@ -406,12 +414,26 @@ export const ADMIN = {
     en: 'Anything planted besides the tree',
     es: 'Cualquier cosa plantada además del árbol',
   },
+  /** The same row while nobody has recorded it — the guard's rule, applied here. */
+  plantsPresentUnsetSub: {
+    en: 'Not recorded yet — the public page says nothing about plants until you pick one and save.',
+    es: 'Aún sin registrar: la página pública no dice nada de las plantas hasta que elijas y guardes.',
+  },
+  /** The plants row's two answers — a three-way choice, like the guard's. */
+  plantsOptYes: { en: 'Planted', es: 'Plantado' },
+  plantsOptNo: { en: 'Nothing', es: 'Nada' },
   plantsNoteLabel: { en: 'What’s planted', es: 'Qué hay plantado' },
   plantingRecommendedToggle: { en: 'Planting recommended', es: 'Se recomienda plantar' },
   plantingRecommendedSub: {
     en: 'Whether Trash Talk recommends planting here',
     es: 'Si Trash Talk recomienda plantar aquí',
   },
+  plantingRecommendedUnsetSub: {
+    en: 'Not recorded yet — the public page makes no recommendation until you pick one and save.',
+    es: 'Aún sin registrar: la página pública no recomienda nada hasta que elijas y guardes.',
+  },
+  plantingOptYes: { en: 'Recommended', es: 'Recomendado' },
+  plantingOptNo: { en: 'Not now', es: 'Ahora no' },
   recommendedPlantsLabel: { en: 'What to plant', es: 'Qué plantar' },
   careNoteLabel: {
     en: 'Care this bed needs right now',

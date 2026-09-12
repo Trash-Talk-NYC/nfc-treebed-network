@@ -382,7 +382,10 @@ describe('capped request bodies', () => {
     expect(capped.refusal).toBeNull();
     expect(photoAttachedFromHead(capped.head, BOUNDARY)).toBe(false);
     expect(categoriesFromHead(capped.head, BOUNDARY)).toEqual(['guard']);
-    expect(noteFromHead(capped.head, BOUNDARY)).toBe(note);
+    // Carried whole, with its whitespace collapsed the way every typed field's
+    // is (`capped`): what matters here is that it stays a NOTE and never
+    // answers for a part.
+    expect(noteFromHead(capped.head, BOUNDARY)).toBe(note.replace(/\s+/g, ' '));
   });
 
   it('reports no category rather than guessing one', async () => {

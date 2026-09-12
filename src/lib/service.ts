@@ -13,6 +13,7 @@ import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
 import { GENERIC_TREE, spanishSpeciesFor, tableSpeciesCasingFor } from './tree-species';
+import { capped } from './typed-text';
 
 export class RuleError extends Error {
   constructor(
@@ -285,7 +286,7 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
   if (categories.length === 0) {
     throw new RuleError('invalid-input', 'A report names at least one problem');
   }
-  const note = args.note.slice(0, MAX_NOTE_CHARS);
+  const note = capped(args.note, MAX_NOTE_CHARS);
   const now = args.now ?? new Date();
   return store.transaction(async (tx) => {
     const bed = await tx.getBed(plate);
@@ -473,27 +474,6 @@ export const MAX_BED_NAME_CHARS = 40;
  * long enough for a sentence, short enough that the screen stays a screen.
  */
 export const MAX_BED_NOTE_CHARS = 160;
-
-/**
- * The bidirectional-format overrides, which a hand-built POST can carry into a
- * field the browser's own input would never produce. Every typed field lands
- * on a screen as a leaf beside copy of ours, and a U+202E can visually
- * scramble the text around it. They are zero-width, so they are dropped.
- */
-const BIDI_FORMAT_RE = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
-
-/**
- * Control characters and whitespace runs. A textarea submits Enter as CRLF and
- * a note is one line on the screen it lands on, so a break between two words
- * must stay a gap between them rather than glue them together — which is why
- * these become a single space instead of vanishing like the overrides above.
- */
-const WHITESPACE_RUN_RE = /[\p{Cc}\s]+/gu;
-
-/** Strip what cannot be rendered, collapse whitespace, trim, then bound: what every typed field goes through before it is stored. */
-function capped(raw: string, max: number): string {
-  return raw.replace(BIDI_FORMAT_RE, '').replace(WHITESPACE_RUN_RE, ' ').trim().slice(0, max);
-}
 
 /**
  * What the approved adopt form collects, and nothing more.
@@ -845,17 +825,33 @@ export interface AdminBedView {
    * The bed's one open report, read-only: the admin panel states what was
    * picked, the note, when it was opened and how many neighbours added their
    * weight. Closing it stays the steward's act on `mine.astro` (`/clear`).
+   *
+   * Resolved for the ONE bed the caller names (`openReportFor`) and null on
+   * every other, because only the opened bed's panel states it: a read per
+   * bed for a record the page discards grows with the block.
    */
   openReport: Report | null;
 }
 
-/** The block admin page's read: the block and its beds, in block order. */
+/** The block and its beds, in block order. */
 export interface BlockView {
   block: Block;
   beds: AdminBedView[];
 }
 
-export async function getBlockView(store: Store, blockId: string): Promise<BlockView | null> {
+/**
+ * The block admin page's read.
+ *
+ * `openReportFor` is the plate of the bed the page has open, and the only one
+ * whose open report is read: the panel is the single place a report is stated,
+ * so resolving one per bed would cost a store read per bed for a record
+ * nothing renders.
+ */
+export async function getBlockView(
+  store: Store,
+  blockId: string,
+  openReportFor: string | null = null,
+): Promise<BlockView | null> {
   const block = await store.getBlock(blockId);
   if (!block) return null;
   const beds: AdminBedView[] = [];
@@ -866,7 +862,9 @@ export async function getBlockView(store: Store, blockId: string): Promise<Block
       const user = await store.getUser(adoption.userId);
       if (user) stewards.push({ adoption, user });
     }
-    beds.push({ bed, stewards, openReport: (await store.getOpenReport(bed.plate)) ?? null });
+    const openReport =
+      bed.plate === openReportFor ? ((await store.getOpenReport(bed.plate)) ?? null) : null;
+    beds.push({ bed, stewards, openReport });
   }
   return { block, beds };
 }
@@ -889,8 +887,14 @@ export interface BlockSaveInput {
     guard: GuardMaterial | null;
     /** The bed profile's switches — the facts "About this bed" states. */
     treePresent: boolean;
-    plantsPresent: boolean;
-    plantingRecommended: boolean;
+    /**
+     * The profile's two three-way choices, read like `guard`: true, false, or
+     * null for a press that picked neither, which keeps the fact as it stands
+     * — a bed nobody has recorded stays not-yet-recorded, and one on record is
+     * never blanked by a form that omitted the radio.
+     */
+    plantsPresent: boolean | null;
+    plantingRecommended: boolean | null;
     /**
      * The profile's typed notes: what is planted, what to plant, what care
      * the bed needs right now. Rendered as typed on the public about screen,
@@ -1003,8 +1007,8 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       bedName: args.bed.clearBedName ? null : bed.bedName,
       guard: args.bed.guard ?? bed.guard,
       treePresent: args.bed.treePresent,
-      plantsPresent: args.bed.plantsPresent,
-      plantingRecommended: args.bed.plantingRecommended,
+      plantsPresent: args.bed.plantsPresent ?? bed.plantsPresent,
+      plantingRecommended: args.bed.plantingRecommended ?? bed.plantingRecommended,
       plantsNote: capped(args.bed.plantsNote, MAX_BED_NOTE_CHARS),
       recommendedPlantsNote: capped(args.bed.recommendedPlantsNote, MAX_BED_NOTE_CHARS),
       careNote: capped(args.bed.careNote, MAX_BED_NOTE_CHARS),
@@ -1182,9 +1186,9 @@ export async function addBedByAdmin(
       offeredSlots: 0,
       guard: null,
       treePresent: true,
-      plantsPresent: false,
+      plantsPresent: null,
       plantsNote: '',
-      plantingRecommended: false,
+      plantingRecommended: null,
       recommendedPlantsNote: '',
       careNote: '',
       blockId: args.blockId,

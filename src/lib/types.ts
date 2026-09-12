@@ -145,17 +145,30 @@ export interface Bed {
    */
   /** Whether a tree currently stands in this bed. Stumps and empty pits are real states. */
   treePresent: boolean;
-  /** Whether anything is planted in the bed besides the tree. */
-  plantsPresent: boolean;
+  /**
+   * Whether anything is planted in the bed besides the tree.
+   *
+   * `null` is NOT YET RECORDED, exactly like `guard`: a public screen states
+   * what somebody entered, never a default, so every seeded bed, every
+   * backfilled row and every bed the admin adds starts here rather than at
+   * `false` — which would tell a whole block's worth of visitors "nothing
+   * planted yet" before anyone had stood at the bed.
+   */
+  plantsPresent: boolean | null;
   /**
    * What is planted — admin-typed, shown as typed, and shown ONLY while
-   * `plantsPresent` is on. The note is kept in the record whichever way the
-   * switch stands, so flipping it off and back on restores the words; the
-   * switch decides whether the public screen states them.
+   * `plantsPresent` is on (never while it is unrecorded). The note is kept in
+   * the record whichever way the switch stands, so flipping it off and back on
+   * restores the words; the switch decides whether the public screen states
+   * them.
    */
   plantsNote: string;
-  /** Whether Trash Talk recommends planting in this bed. */
-  plantingRecommended: boolean;
+  /**
+   * Whether Trash Talk recommends planting in this bed. `null` is NOT YET
+   * RECORDED, like `plantsPresent` and `guard`: the About page omits the row
+   * entirely rather than publishing a recommendation nobody made.
+   */
+  plantingRecommended: boolean | null;
   /**
    * What to plant — admin-typed, shown as typed, and shown ONLY while
    * `plantingRecommended` is on; kept in the record either way, like
@@ -376,6 +389,19 @@ export type GuardMaterial = (typeof GUARD_MATERIALS)[number];
 /** Narrow a form value to a guard material; anything else is null. */
 export function guardMaterialFrom(value: unknown): GuardMaterial | null {
   return (GUARD_MATERIALS as readonly unknown[]).includes(value) ? (value as GuardMaterial) : null;
+}
+
+/**
+ * Narrow a form value to one of the profile's three-way facts (`plantsPresent`,
+ * `plantingRecommended`): 'yes' or 'no', and null for anything else — a press
+ * that picked neither radio, which keeps the fact as it stands. Null is NOT
+ * YET RECORDED on the record too, so the same value means the same thing at
+ * both ends.
+ */
+export function bedFactFrom(value: unknown): boolean | null {
+  if (value === 'yes') return true;
+  if (value === 'no') return false;
+  return null;
 }
 
 /** Admin-only. Never render this on a public screen. */

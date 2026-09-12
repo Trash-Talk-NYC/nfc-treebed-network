@@ -309,6 +309,19 @@ describe('what SEND IT is worth', () => {
     expect(outcome.report?.note).toHaveLength(MAX_NOTE_CHARS);
   });
 
+  it('strips what a hand-built note could carry into a screen, like every typed field', async () => {
+    // The note is the most attacker-controllable string in the build and it
+    // renders as a leaf beside copy of ours — the steward's view, the admin
+    // panel, the too-large screen. It goes through the same sanitisation the
+    // admin's own fields do: the bidi overrides are dropped, control
+    // characters and whitespace runs collapse to one space.
+    const outcome = await reportProblem(
+      store,
+      careInput({ categories: ['other'], note: '  hay\u202e una\r\n\trata  muerta  ' }),
+    );
+    expect(outcome.report?.note).toBe('hay una rata muerta');
+  });
+
   it('keeps the sentence when "something else" rides alongside another tile', async () => {
     const outcome = await reportProblem(
       store,

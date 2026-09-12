@@ -78,13 +78,15 @@ function normalizeBed(bed: Bed): void {
   // The earlier ordered/installed dates stay in the stored row untouched
   // (additive, lossless), but they never said what a guard is MADE of, so the
   // material is the captain's to set on the admin page rather than a guess —
-  // a tree standing (the network began on live street trees), nothing
-  // planted, no recommendation, no notes.
+  // a tree standing (the network began on live street trees), the plants and
+  // the planting recommendation NOT YET RECORDED for the same reason as the
+  // guard (never `false`, which would publish "nothing planted yet" for a bed
+  // nobody has looked at), no notes.
   bed.guard ??= null;
   bed.treePresent ??= true;
-  bed.plantsPresent ??= false;
+  bed.plantsPresent ??= null;
   bed.plantsNote ??= '';
-  bed.plantingRecommended ??= false;
+  bed.plantingRecommended ??= null;
   bed.recommendedPlantsNote ??= '';
   bed.careNote ??= '';
   bed.blockId ??= null;
@@ -233,9 +235,9 @@ function w171Beds(): Bed[] {
     offeredSlots: 0,
     guard: null,
     treePresent: true,
-    plantsPresent: false,
+    plantsPresent: null,
     plantsNote: '',
-    plantingRecommended: false,
+    plantingRecommended: null,
     recommendedPlantsNote: '',
     careNote: '',
     blockId: W171_BLOCK_ID,
@@ -389,9 +391,9 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
       // somebody who has stood at it sets the material on the admin page.
       guard: null,
       treePresent: true,
-      plantsPresent: false,
+      plantsPresent: null,
       plantsNote: '',
-      plantingRecommended: false,
+      plantingRecommended: null,
       recommendedPlantsNote: '',
       careNote: '',
       blockId: DEMO_BLOCK_ID,
