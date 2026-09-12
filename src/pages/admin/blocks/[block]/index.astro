@@ -18,7 +18,14 @@ import AdminScreen from '../../../../layouts/AdminScreen.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
 import { ADMIN, ADOPT, AUTH, COMMON } from '../../../../lib/copy';
-import { capitalizeFirst, confirmationsLabel, openedLabel, sinceLabel, slotsFilledLabel } from '../../../../lib/format';
+import {
+  bedHeadingName,
+  bedRowName,
+  confirmationsLabel,
+  openedLabel,
+  sinceLabel,
+  slotsFilledLabel,
+} from '../../../../lib/format';
 import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../../lib/presentation';
 import { MAX_NOTE_CHARS, problemFor } from '../../../../lib/problem';
@@ -41,6 +48,7 @@ import {
   guardMaterialFrom,
   publicHandle,
   publicInitials,
+  type Bed,
   type GuardMaterial,
   type Report,
 } from '../../../../lib/types';
@@ -58,6 +66,8 @@ const blockId = Astro.params.block ?? '';
 // different selection, and the point of the press is that nothing is committed
 // until SAVE CHANGES.
 let slotError: Phrase | null = null;
+// The open bed was deleted elsewhere while this tab held it: nothing saved.
+let staleBed = false;
 let submitted: {
   address: string;
   guard: GuardMaterial | null | undefined;
@@ -157,10 +167,23 @@ if (Astro.request.method === 'POST') {
               },
       });
     } catch (err) {
-      if (err instanceof RuleError && err.code === 'bed-not-found') {
+      if (err instanceof RuleError && err.code === 'block-not-found') {
         return new Response('Not found.', { status: 404 });
       }
-      if (
+      if (err instanceof RuleError && err.code === 'bed-not-found') {
+        // The open bed was deleted between this page rendering and the press —
+        // another tab, or the phone in the captain's other hand. The block is
+        // fine, so the answer is the block page the bed has gone from. It is
+        // RE-RENDERED rather than redirected to, because the save wrote
+        // nothing at all (`saveBlockSettings` finds every refusal before its
+        // first write) and a redirect would drop the address the captain had
+        // just retyped. It comes back in the field, and the flash says both
+        // things: the bed is gone, and nothing was saved. A real missing
+        // block keeps its plain 404 above.
+        staleBed = true;
+        submitted = asSubmitted();
+        Astro.response.status = 409;
+      } else if (
         err instanceof RuleError &&
         (err.code === 'invalid-input' || err.code === 'slot-out-of-range')
       ) {
@@ -189,13 +212,46 @@ const view = await getBlockView(store, blockId, Astro.url.searchParams.get('bed'
 if (!view) {
   return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
 }
-const { block, beds } = view;
+const { block, beds, retired } = view;
 
 const selected = beds.find((b) => b.bed.plate === Astro.url.searchParams.get('bed')) ?? null;
 const steward =
   selected?.stewards.find((s) => s.user.id === Astro.url.searchParams.get('steward')) ?? null;
 const savedFlash = Astro.url.searchParams.get('saved') === '1';
+// The delete confirmation (`delete-bed.astro`) lands back here with this flag:
+// the bed is gone from the list, and the page says so rather than leaving the
+// captain to count beds.
+const deletedFlash = Astro.url.searchParams.get('deleted') === '1';
+// And the way back from one: the bed is on the list again, with its tag live.
+const restoredFlash = Astro.url.searchParams.get('restored') === '1';
+// A panel link to a bed that has since been deleted — a bookmark, history, or
+// the language toggle carrying the stale `bed=` along — lands in list mode,
+// and says the bed is gone rather than nothing, the way `add-steward.astro`
+// already answers the same stale plate.
+const retiredParam =
+  selected === null && retired.some((b) => b.plate === Astro.url.searchParams.get('bed'));
 const mode = selected ? 'panel' : 'list';
+// Whether the stale save carried an address the store does not have — judged
+// the way `saveBlockSettings` judges it (trimmed, and an empty field writes
+// nothing), so the page only claims something is left to keep when a SAVE
+// ADDRESS would in fact write it.
+const addressChanged =
+  submitted !== null &&
+  submitted.address.trim() !== '' &&
+  submitted.address.trim() !== block.referenceAddress;
+// The stale re-render is dirty only by the address: the switches it carried
+// belonged to a bed that no longer exists, so with the address as stored
+// there is nothing on the page to guard.
+const dirty = submitted !== null && (!staleBed || addressChanged);
+const flash: Phrase | null = staleBed
+  ? addressChanged
+    ? ADMIN.bedDeletedElsewhereKeepAddress
+    : ADMIN.bedDeletedElsewhere
+  : deletedFlash || retiredParam
+    ? ADMIN.bedDeleted
+    : restoredFlash
+      ? ADMIN.bedRestored
+      : null;
 // The slot count the panel draws. A "+ ADD SLOT" press — and a refused save
 // that had made one — comes back with that slot on the page, and a hidden
 // field carries it into the next submit, so nothing but SAVE CHANGES grows
@@ -212,18 +268,6 @@ const presentation = selected
 
 const base = `/admin/blocks/${blockId}`;
 const bedLink = (plate: string): string => langLink(`${base}?bed=${plate}`, lang);
-
-/** "Willow oak · #2" — the bed list row. */
-const bedName = (b: AdminBedView): Phrase => ({
-  en: `${capitalizeFirst(b.bed.treeType.en)} · #${b.bed.blockPosition ?? ''}`,
-  es: `${capitalizeFirst(b.bed.treeType.es)} · #${b.bed.blockPosition ?? ''}`,
-});
-
-/** "Willow oak · bed #2" — the opened panel's heading. */
-const bedHeading = (b: AdminBedView): Phrase => ({
-  en: `${capitalizeFirst(b.bed.treeType.en)} · bed #${b.bed.blockPosition ?? ''}`,
-  es: `${capitalizeFirst(b.bed.treeType.es)} · cantero #${b.bed.blockPosition ?? ''}`,
-});
 
 /** The bed list's small line, and the panel's three radio segments. */
 const GUARD_LABEL: Record<GuardMaterial, Phrase> = {
@@ -319,6 +363,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     method="POST"
     action={langLink(Astro.url.search === '' ? base : `${base}${Astro.url.search}`, lang)}
     data-admin-form
+    data-dirty={dirty ? 'true' : undefined}
     class="admin-card"
   >
     {/* The form's DEFAULT button, deliberately first and carrying nothing:
@@ -363,12 +408,19 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
             )
           }
         </div>
+        {
+          flash && (
+            <div class="deleted-flash" {...bi(flash, lang)}>
+              {flash[lang]}
+            </div>
+          )
+        }
 
         <div class="street">
           {
             beds.map((b) => {
               const state = bedState(b);
-              const name = bedName(b);
+              const name = bedRowName(b.bed);
               const guard = guardLabel(b.bed.guard);
               return (
                 <a class:list={['tree', { sel: b.bed.plate === selected?.bed.plate }]} href={bedLink(b.bed.plate)}>
@@ -409,6 +461,44 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
         <a class="add-bed" href={langLink(`${base}/add-bed`, lang)} {...bi(ADMIN.addBed, lang)}
           >{ADMIN.addBed[lang]}</a
         >
+
+        {/* The deleted beds, below and apart from the street: a delete is a
+            retirement, so a mis-tap has a way back that needs no deploy — the
+            tag registry is checked in and cannot be rewritten at runtime. A
+            retired row is NOT a link to the panel; RESTORE is all it offers. */}
+        {
+          retired.length > 0 && (
+            <div class="retired">
+              <div class="retired-head" {...bi(ADMIN.retiredHead, lang)}>
+                {ADMIN.retiredHead[lang]}
+              </div>
+              <p class="retired-note" {...bi(ADMIN.retiredNote, lang)}>
+                {ADMIN.retiredNote[lang]}
+              </p>
+              <div class="retired-list">
+                {retired.map((b) => {
+                  const name = bedRowName(b);
+                  return (
+                    <div class="tree retired-row">
+                      <span class="dot dot-closed" />
+                      <span class="nm">
+                        <span {...bi(name, lang)}>{name[lang]}</span>
+                        <small>{b.plate}</small>
+                      </span>
+                      <a
+                        class="restore-act"
+                        href={langLink(`${base}/restore-bed?bed=${b.plate}`, lang)}
+                        {...bi(ADMIN.restoreBed, lang)}
+                      >
+                        {ADMIN.restoreBed[lang]}
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )
+        }
       </div>
 
       <div class="admin-right">
@@ -416,7 +506,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
           selected && steward ? (
             <>
               <a class="admin-backlink admin-backlink--always" href={bedLink(selected.bed.plate)}>
-                ← <span {...bi(bedHeading(selected), lang)}>{bedHeading(selected)[lang]}</span>
+                ← <span {...bi(bedHeadingName(selected.bed), lang)}>{bedHeadingName(selected.bed)[lang]}</span>
               </a>
               <div class="who">
                 {publicHandle(steward.user)}
@@ -483,8 +573,8 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               <a class="admin-backlink" href={langLink(base, lang)}>
                 ← {block.referenceAddress}
               </a>
-              <div class="panel-title" {...bi(bedHeading(selected), lang)}>
-                {bedHeading(selected)[lang]}
+              <div class="panel-title" {...bi(bedHeadingName(selected.bed), lang)}>
+                {bedHeadingName(selected.bed)[lang]}
               </div>
               <div class="idline">
                 {selected.bed.plantingSpaceId === null ? (
@@ -924,7 +1014,6 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               <div
                 class="save-state"
                 data-save-state
-                data-dirty={submitted ? 'true' : undefined}
                 data-unsaved-en={ADMIN.unsaved.en}
                 data-unsaved-es={ADMIN.unsaved.es}
                 {...bi(saveState, lang)}
@@ -934,6 +1023,16 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               <p class="pii" {...bi(ADMIN.piiNote, lang)}>
                 {ADMIN.piiNote[lang]}
               </p>
+              {/* A LINK, deliberately: it opens the confirmation page and
+                  writes nothing, so a mis-tap on a phone costs a navigation.
+                  The delete itself is the confirmation page's own POST. */}
+              <a
+                class="delete-bed"
+                href={langLink(`${base}/delete-bed?bed=${selected.bed.plate}`, lang)}
+                {...bi(ADMIN.deleteBedLink, lang)}
+              >
+                {ADMIN.deleteBedLink[lang]}
+              </a>
             </>
           ) : (
             <div class="blockmeta select-hint" {...bi(ADMIN.selectBed, lang)}>
@@ -1105,6 +1204,76 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     color: var(--theme-action);
     cursor: pointer;
   }
+  /* The one destructive affordance on the page: the alert role's ink — the
+     yellow itself cannot carry text on beige (presentation.ts) — quiet, at
+     the very bottom, past everything the captain came to edit. */
+  .delete-bed {
+    display: block;
+    margin-top: 6px;
+    padding: 11px 0;
+    font-family: 'Barlow', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--theme-alert-ink);
+    text-decoration: none;
+  }
+  /* Apart from the street, and quieter than it: these beds are record, not
+     the block the captain came to edit. */
+  .retired {
+    margin-top: 22px;
+    padding-top: 14px;
+    border-top: 2px dashed var(--theme-border);
+  }
+  .retired-head {
+    font-family: 'Barlow', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--theme-muted);
+  }
+  .retired-note {
+    margin: 4px 0 10px;
+    font-size: 12px;
+    color: var(--theme-muted);
+  }
+  /* Same list component as the street above it, so two deleted rows do not
+     butt their borders together. */
+  .retired-list {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  /* Quieter than the street, without an opacity over the whole row: compositing
+     the text at 0.72 drops the plate line and the RESTORE link below the AA
+     floor this palette is held to, and no test can see it happen. The row reads
+     back by ground and by ink instead — both pairs still full-strength. */
+  .retired-row {
+    background: color-mix(in srgb, var(--theme-muted) 5%, var(--theme-surface));
+  }
+  .retired-row .dot {
+    opacity: 0.55;
+  }
+  .retired-row .nm {
+    color: var(--theme-muted);
+  }
+  .restore-act {
+    flex: none;
+    padding: 8px 0;
+    font-family: 'Barlow', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--theme-action);
+    text-decoration: none;
+  }
+  .deleted-flash {
+    margin-top: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theme-muted);
+  }
   /* Reads exactly as the field it stands in for, minus the caret. */
   .addr-static {
     flex: 1;
@@ -1139,10 +1308,13 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     // browser asks first rather than the page saving on its own — committing
     // changes somebody was still deciding about is the worse of the two.
     // Disarmed by the form's own submit, so saving never prompts.
-    // An add-slot press and a refused save both come back dirty from the
-    // server with no client event to observe, so the flag starts from what
-    // the rendered line already says.
-    var changed = !!state && state.getAttribute('data-dirty') === 'true';
+    // An add-slot press, a refused save and a save that found its bed deleted
+    // with a retyped address all come back dirty from the server with no
+    // client event to observe, so the flag starts from what the server
+    // rendered. It is read off the form, not the line: the last of those
+    // lands in list mode, where no line renders but the address field still
+    // holds the uncommitted text.
+    var changed = form.getAttribute('data-dirty') === 'true';
     function touched() {
       changed = true;
       dirty();

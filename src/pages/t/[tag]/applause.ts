@@ -35,7 +35,10 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
     return redirect(langLink(`${base}/thanks?applause=1`, lang), 303);
   } catch (err) {
     if (err instanceof RuleError && err.code === 'bed-not-found') {
-      return new Response(err.message, { status: 404 });
+      // The rule's own message names the plate, which encodes site type and
+      // neighbourhood and is never rendered to a visitor. A retired bed makes
+      // this a normal state — a stale screen submitting — not a registry typo.
+      return new Response('No bed with that plate.', { status: 404 });
     }
     throw err;
   }

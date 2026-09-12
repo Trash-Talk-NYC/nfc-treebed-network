@@ -14,6 +14,7 @@ Which bed the tag speaks for is a server-side fact (`src/lib/tag-bindings.ts`); 
 
 Behind a key at `/admin` is the block admin: the one surface where full names, emails and phone numbers render.
 It is where a block's beds are opened for adoption one slot at a time (`Bed.offeredSlots` is a rule the adopt flow enforces, not a display state), where a steward signed up on the sidewalk is written in by hand, and where a bed's given name is taken down if it has to be.
+A bed can also be added, and deleted one at a time behind a confirmation page; deleting retires the row rather than erasing it (`Bed.retiredAt`), so the plate keeps its history and a "Deleted beds" section below the street list restores it.
 Adding a bed there asks only for the English species name: the Spanish one defaults from a checked-in table (`src/lib/tree-species.ts`), a typed Spanish name wins over it, and a species the table doesn't know falls back to the generic "árbol" rather than a guess — nobody has to go and look a translation up.
 It is also where each bed's profile is kept: the guard (none, wood or metal), whether a tree and plants are present, whether Trash Talk recommends planting, and the admin's typed notes on what is planted, what to plant and what care the bed needs.
 Each of those four facts is three-way — every bed starts at not yet recorded, the public page then says nothing about it, and a NOT RECORDED choice beside the answers is how a mis-tap goes back.
@@ -47,7 +48,7 @@ Generating it inside the run command is the failure the requirement exists to pr
 Dev needs nothing — it falls back to `.data/session-secret`.
 
 Local state lives in `.data/store.json` (gitignored), seeded on first boot with the captain's real block — W 171st between Fort Washington and Haven, six beds `BED-WH-1711`…`1716`, each bound to its real NYC planting space and all unoffered until the admin page opens them — plus the demo bed `BED-HRL-0847` and steward `marisol_r` (PIN `1234`) in its own demo-flagged block; the checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed and real tags to four of the W 171st beds.
-The site root redirects to the demo binding by name, so monitors and crawlers hitting `/` never land on a real bed.
+The site root redirects to the demo binding by name, so monitors and crawlers hitting `/` never land on a real bed — and only while that binding still names a live bed, so retiring the demo bed (or a store that can't be read) leaves a calm bilingual screen at 200 rather than turning a pinned uptime check red.
 The checked-in blocks and beds also backfill into an already-seeded store on its next load, insert-only, so a live store gains them without a migration step.
 Delete `.data/` to reset.
 `TREEBED_DATA_DIR` puts that directory — the store and the dev session secret both — somewhere else; the end-to-end suite uses it to give every server it spawns a fresh one.

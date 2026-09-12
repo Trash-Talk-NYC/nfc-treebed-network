@@ -289,6 +289,20 @@ export const ABOUT_FAQ = {
   },
 } satisfies Record<string, Phrase>;
 
+/**
+ * The site root, on the rare occasion it has nothing to redirect to — the demo
+ * binding is gone, or the bed behind it has been retired from the admin. The
+ * root is monitors, crawlers and typed domains, so this is a calm 200 rather
+ * than an error: nobody standing at a tree ever sees it.
+ */
+export const ROOT = {
+  title: { en: 'Tap a tag to begin.', es: 'Toca una etiqueta para empezar.' },
+  body: {
+    en: 'This network lives on the tree guards. Find a tag on a guard on the block and hold your phone to it.',
+    es: 'Esta red vive en las rejas de los árboles. Busca una etiqueta en una reja de la cuadra y acerca tu teléfono.',
+  },
+} satisfies Record<string, Phrase>;
+
 /** Where a refused upload lands. */
 export const TOO_LARGE = {
   tabOverLimit: { en: 'Photo too large', es: 'Foto demasiado grande' },
@@ -541,6 +555,55 @@ export const ADMIN = {
     en: 'Every slot on this bed is filled.',
     es: 'Todos los lugares de este cantero están ocupados.',
   },
+  /** The bed panel's way into the delete confirmation — never the delete itself. */
+  deleteBedLink: { en: 'DELETE THIS BED', es: 'ELIMINAR ESTE CANTERO' },
+  deleteBedTitle: { en: 'Delete this bed', es: 'Eliminar este cantero' },
+  deleteBedBody: {
+    en: 'The bed comes off this block, and a tap on its tag shows the “not assigned to a bed yet” screen. Its record — stewards, reports, activity — is kept, and its plate is never reused.',
+    es: 'El cantero sale de esta cuadra, y al tocar su etiqueta se muestra la pantalla de “aún sin cantero asignado”. Su registro — cuidadores, reportes, actividad — se conserva, y su placa nunca se reutiliza.',
+  },
+  /** Only when the bed being deleted has stewards on it. */
+  deleteBedHasStewards: {
+    en: 'People steward this bed. Their record stays, but the tag will no longer open their bed.',
+    es: 'Hay personas cuidando este cantero. Su registro se mantiene, pero la etiqueta ya no abrirá su cantero.',
+  },
+  /** Only when the bed being deleted has an open care report. */
+  deleteBedHasReport: {
+    en: 'A care report is open on this bed. It stays in the record.',
+    es: 'Este cantero tiene un reporte de cuidado abierto. Queda en el registro.',
+  },
+  deleteBedSubmit: { en: 'DELETE THIS BED', es: 'ELIMINAR ESTE CANTERO' },
+  deleteBedCancel: { en: 'KEEP THIS BED', es: 'CONSERVAR EL CANTERO' },
+  /** The block page's flash after a delete. */
+  bedDeleted: { en: 'Bed deleted. Its record is kept.', es: 'Cantero eliminado. Su registro se conserva.' },
+  /** A save whose open bed had been deleted elsewhere: nothing was written. */
+  bedDeletedElsewhere: {
+    en: 'This bed was deleted somewhere else while this page was open. Nothing was saved.',
+    es: 'Este cantero se eliminó en otro lugar mientras esta página estaba abierta. No se guardó nada.',
+  },
+  /** The same, when the block address had been retyped too: it is still there to keep. */
+  bedDeletedElsewhereKeepAddress: {
+    en: 'This bed was deleted somewhere else while this page was open. Nothing was saved — the block address is still in the field above, press SAVE ADDRESS to keep it.',
+    es: 'Este cantero se eliminó en otro lugar mientras esta página estaba abierta. No se guardó nada: la dirección de la cuadra sigue en el campo de arriba, presione GUARDAR DIRECCIÓN para conservarla.',
+  },
+  /** The heading over the deleted beds, below the street list. */
+  retiredHead: { en: 'Deleted beds', es: 'Canteros eliminados' },
+  /** Why they are still on the page at all — and the only thing to do with one. */
+  retiredNote: {
+    en: 'Still in the record. Restoring one brings its bed and its tag back exactly as they were.',
+    es: 'Siguen en el registro. Al restaurar uno, su cantero y su etiqueta vuelven tal como estaban.',
+  },
+  /** The retired row's way into the restore confirmation — never the restore itself. */
+  restoreBed: { en: 'RESTORE', es: 'RESTAURAR' },
+  restoreBedTitle: { en: 'Restore this bed', es: 'Restaurar este cantero' },
+  restoreBedBody: {
+    en: 'The bed goes back on this block exactly as it was — its guard, its slots, its stewards and its whole record — and its tag opens it again on the next tap.',
+    es: 'El cantero vuelve a esta cuadra tal como estaba — su protector, sus lugares, sus cuidadores y todo su registro — y su etiqueta lo abre de nuevo al siguiente toque.',
+  },
+  restoreBedSubmit: { en: 'RESTORE THIS BED', es: 'RESTAURAR ESTE CANTERO' },
+  restoreBedCancel: { en: 'LEAVE IT DELETED', es: 'DEJARLO ELIMINADO' },
+  /** The block page's flash after a restore. */
+  bedRestored: { en: 'Bed restored.', es: 'Cantero restaurado.' },
   addBedTitle: { en: 'Add a bed', es: 'Añadir un cantero' },
   addBedBody: {
     en: 'A new bed starts closed, with one slot, its guard not yet recorded and no NYC number — the NYC bed is matched from the city’s own data, never typed.',

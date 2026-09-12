@@ -1,0 +1,133 @@
+---
+// "DELETE THIS BED", confirmed on a page of its own.
+//
+// Deleting is destructive, and the admin is read one-handed on a sidewalk, so
+// the delete is never one tap: the bed panel's link only navigates HERE, and
+// the delete itself is this page's own POST — a second, deliberate press on a
+// button that says what it does, with the plain way out beside it. No script
+// is involved, so the two-step holds with JavaScript disabled.
+//
+// What the press does is RETIRE the bed (service.ts, `retireBedByAdmin`): the
+// row and everything keyed to its plate — stewards, reports, activity — stay
+// in the store, the bed drops off the admin list, and a tag still bound to it
+// renders the calm "not assigned" screen. This page says exactly that, and
+// says more when the bed is live: stewards on it, an open report on it.
+import AdminScreen from '../../../../layouts/AdminScreen.astro';
+import {
+  redirectAdminWithBody,
+  refuseAdminWithBody,
+  requireAdmin,
+} from '../../../../lib/admin-route';
+import { bi } from '../../../../lib/bilingual';
+import { ADMIN } from '../../../../lib/copy';
+import { bedHeadingName } from '../../../../lib/format';
+import { langLink, resolveLang, type Lang } from '../../../../lib/i18n';
+import { presentationFor } from '../../../../lib/presentation';
+import { abandonBody } from '../../../../lib/request-body';
+import { RuleError, getBedView, retireBedByAdmin } from '../../../../lib/service';
+import { getStore } from '../../../../lib/store';
+import { publicHandle } from '../../../../lib/types';
+
+const lang: Lang = resolveLang(Astro.url, Astro.cookies);
+const gate = await requireAdmin(Astro.request, Astro.cookies, langLink('/admin', lang));
+if (gate.refused) return gate.refused;
+
+const store = getStore();
+const blockId = Astro.params.block ?? '';
+const plate = Astro.url.searchParams.get('bed') ?? '';
+const base = `/admin/blocks/${blockId}`;
+
+const bed = plate === '' ? null : await store.getBed(plate);
+if (!bed || bed.blockId !== blockId) {
+  return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
+}
+// Already deleted — a stale tab, or a resubmitted confirmation. The honest
+// answer is the block page the bed is now gone from, not a 404 for a bed the
+// captain just acted on.
+if (bed.retiredAt !== null) {
+  return await redirectAdminWithBody(Astro.request, langLink(`${base}?deleted=1`, lang));
+}
+
+if (Astro.request.method === 'POST') {
+  // The press carries no fields — the bed is named by the URL this page
+  // validated — so there is nothing to read, only the body to account for,
+  // the same way /admin/sign-out does.
+  await abandonBody(Astro.request);
+  try {
+    await retireBedByAdmin(store, { blockId, plate });
+  } catch (err) {
+    if (err instanceof RuleError && err.code === 'bed-not-found') {
+      return new Response('Not found.', { status: 404 });
+    }
+    throw err;
+  }
+  return Astro.redirect(langLink(`${base}?deleted=1`, lang), 303);
+}
+
+const view = await getBedView(store, plate);
+const stewards = view?.stewards ?? [];
+const openReport = view?.openReport ?? null;
+
+const presentation = presentationFor(bed);
+const heading = bedHeadingName(bed);
+const bedLink = langLink(`${base}?bed=${plate}`, lang);
+---
+
+<AdminScreen
+  title={`${ADMIN.deleteBedTitle[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <div class="admin-narrow delete-form">
+    <a class="admin-backlink admin-backlink--always" href={bedLink}>
+      ← <span {...bi(heading, lang)}>{heading[lang]}</span>
+    </a>
+    <h1 class="admin-title" {...bi(ADMIN.deleteBedTitle, lang)}>{ADMIN.deleteBedTitle[lang]}</h1>
+    <div class="idline">
+      {
+        bed.plantingSpaceId === null ? (
+          <span {...bi(ADMIN.nycUnresolved, lang)}>{ADMIN.nycUnresolved[lang]}</span>
+        ) : (
+          <>#{bed.plantingSpaceId}</>
+        )
+      }{' '}
+      · <span {...bi(ADMIN.oursLabel, lang)}>{ADMIN.oursLabel[lang]}</span>{' '}
+      {plate}
+    </div>
+    <p class="body-copy" {...bi(ADMIN.deleteBedBody, lang)}>{ADMIN.deleteBedBody[lang]}</p>
+    {
+      stewards.length > 0 && (
+        <p class="body-copy live-warning">
+          <span {...bi(ADMIN.deleteBedHasStewards, lang)}>{ADMIN.deleteBedHasStewards[lang]}</span>{' '}
+          {stewards.map(({ user }) => publicHandle(user)).join(', ')}
+        </p>
+      )
+    }
+    {
+      openReport && (
+        <p class="body-copy live-warning" {...bi(ADMIN.deleteBedHasReport, lang)}>
+          {ADMIN.deleteBedHasReport[lang]}
+        </p>
+      )
+    }
+    <form method="POST" action={langLink(`${base}/delete-bed?bed=${plate}`, lang)}>
+      <button class="btn btn-tall btn-alert" type="submit" {...bi(ADMIN.deleteBedSubmit, lang)}>
+        {ADMIN.deleteBedSubmit[lang]}
+      </button>
+    </form>
+    <a class="btn btn-outline" href={bedLink} {...bi(ADMIN.deleteBedCancel, lang)}>
+      {ADMIN.deleteBedCancel[lang]}
+    </a>
+  </div>
+</AdminScreen>
+
+<style>
+  .delete-form {
+    margin: 0 auto;
+  }
+  .live-warning {
+    font-weight: 600;
+    color: var(--theme-alert-ink);
+  }
+</style>

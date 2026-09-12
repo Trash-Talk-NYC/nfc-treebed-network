@@ -49,7 +49,10 @@ const blocks: Array<{ block: Block; count: Phrase }> = [];
 if (signedIn) {
   const store = getStore();
   for (const block of await store.getBlocks()) {
-    blocks.push({ block, count: bedCountLabel((await store.getBedsInBlock(block.id)).length) });
+    // Retired beds stay in the store (deleting is retiring — service.ts) but
+    // are not beds on the street, so the count skips them like the block page.
+    const beds = (await store.getBedsInBlock(block.id)).filter((bed) => bed.retiredAt === null);
+    blocks.push({ block, count: bedCountLabel(beds.length) });
   }
 }
 ---

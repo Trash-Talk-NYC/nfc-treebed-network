@@ -60,3 +60,24 @@ export async function refuseAdminWithBody(request: Request, response: Response):
   await abandonBody(request);
   return response;
 }
+
+/**
+ * Send an admin caller somewhere else because the bed under this page has
+ * changed state since it was opened — a stale tab, or a resubmitted
+ * confirmation. The body is accounted for first (nothing here reads it), and
+ * the status branches the way tag-route.ts branches: 302 for a GET or HEAD,
+ * 303 for anything that arrived with a body, so a client reading RFC 9110
+ * does not repeat the POST at the page it lands on.
+ *
+ * `to` takes two destinations where the honest answer differs by method: a
+ * resubmitted confirmation has something to flash, a stale GET has not.
+ */
+export async function redirectAdminWithBody(
+  request: Request,
+  to: string | { get: string; post: string },
+): Promise<Response> {
+  await abandonBody(request);
+  const seeOther = request.method !== 'GET' && request.method !== 'HEAD';
+  const location = typeof to === 'string' ? to : seeOther ? to.post : to.get;
+  return new Response(null, { status: seeOther ? 303 : 302, headers: { location } });
+}

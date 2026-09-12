@@ -215,6 +215,9 @@ describe('the admin door', () => {
     // And the page says so, in both languages.
     expect(drawn).toContain('Unsaved changes');
     expect(drawn).toContain('Hay cambios sin guardar');
+    // And the unsaved-changes guard starts armed: the flag rides the form,
+    // which is what the script seeds from.
+    expect(drawn).toMatch(/<form[^>]*data-dirty="true"/);
 
     const reloaded = await (
       await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1715`, { headers: { cookie } })
@@ -513,6 +516,321 @@ describe('the admin sees what a neighbour reported', () => {
     expect(after).toContain('the guard is loose');
     // Read-only: the panel offers no way to close it.
     expect(after).not.toContain('/clear');
+  });
+});
+
+describe('deleting a bed', () => {
+  // BED-WH-1712 carries a real checked-in tag, which is the point: the
+  // registry cannot be edited at runtime, so a deleted bed's tag has to
+  // degrade to the calm "not assigned" screen on its own.
+  const PLATE = 'BED-WH-1712';
+  const TAG = '1hc0t9cj';
+
+  it('reaches the delete only through its own confirmation page — the panel link writes nothing', async () => {
+    const cookie = await adminCookie();
+    const panel = await (
+      await fetch(`${origin}${BLOCK_PATH}?bed=${PLATE}`, { headers: { cookie } })
+    ).text();
+    // A link to the confirmation, not a submit that deletes from the panel.
+    expect(panel).toContain(`/delete-bed?bed=${PLATE}`);
+    expect(panel).toContain('data-es="ELIMINAR ESTE CANTERO"');
+
+    const confirm = await fetch(`${origin}${BLOCK_PATH}/delete-bed?bed=${PLATE}`, {
+      headers: { cookie },
+    });
+    expect(confirm.status).toBe(200);
+    const html = await confirm.text();
+    // Says which bed, in both languages, and offers the way out beside the act.
+    expect(html).toContain(PLATE);
+    expect(html).toContain('Delete this bed');
+    expect(html).toContain('data-es="Eliminar este cantero"');
+    expect(html).toContain('data-es="CONSERVAR EL CANTERO"');
+    // And the bed was NOT deleted by looking at the page.
+    const list = await (await fetch(`${origin}${BLOCK_PATH}`, { headers: { cookie } })).text();
+    expect(list).toContain(PLATE);
+  });
+
+  it('deletes on the confirmation POST: off the list, with the record-is-kept flash', async () => {
+    const cookie = await adminCookie();
+    const deleted = await fetch(`${origin}${BLOCK_PATH}/delete-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    expect(deleted.status).toBe(303);
+    const location = deleted.headers.get('location')!;
+    expect(location).toContain('deleted=1');
+    const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    // Off the street — no row that opens the panel — and held below it under
+    // "Deleted beds", which is what a mis-tap is restored from.
+    expect(after).not.toContain(`href="${BLOCK_PATH}?bed=${PLATE}"`);
+    expect(after).toContain('Deleted beds');
+    expect(after).toContain(PLATE);
+    expect(after).toContain('Bed deleted');
+    expect(after).toContain('data-es="Cantero eliminado. Su registro se conserva."');
+  });
+
+  it('degrades the still-bound tag to the calm not-assigned screen, never a 500', async () => {
+    const tap = await fetch(`${origin}/t/${TAG}`);
+    expect(tap.status).toBe(404);
+    const html = await tap.text();
+    expect(html).toContain('assigned to a bed yet');
+    expect(html).toContain(TAG);
+    // And a POST at its report route answers plain text, before any rule runs.
+    const report = await fetch(`${origin}/t/${TAG}/report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: new URLSearchParams({ category: 'litter' }),
+      redirect: 'manual',
+    });
+    expect(report.status).toBe(404);
+    expect((report.headers.get('content-type') ?? '').startsWith('text/plain')).toBe(true);
+  });
+
+  it('sends a steward’s own sub-page to that same calm screen, in either language', async () => {
+    // A bookmarked /mine — or one in history — must not answer a bare line of
+    // English. The door screen is where the calm screen lives, so every
+    // sub-page hands the visitor to it and the language rides along.
+    for (const [query, expected] of [
+      ['', 'assigned to a bed yet'],
+      ['?lang=es', 'todavía no está asignada'],
+    ] as const) {
+      const hop = await fetch(`${origin}/t/${TAG}/mine${query}`, { redirect: 'manual' });
+      expect(hop.status).toBe(302);
+      expect(hop.headers.get('location')).toBe(`/t/${TAG}${query}`);
+      const screen = await fetch(`${origin}${hop.headers.get('location')!}`);
+      expect(screen.status).toBe(404);
+      expect(await screen.text()).toContain(expected);
+    }
+  });
+
+  it('leaves the live tap flow untouched: the neighbouring bed and the demo bed still answer', async () => {
+    const neighbour = await fetch(`${origin}/t/jjhq9gfj`);
+    expect(neighbour.status).toBe(200);
+    expect(await neighbour.text()).not.toContain('assigned to a bed yet');
+    const demo = await fetch(`${origin}/t/2mq2amhv`);
+    expect(demo.status).toBe(200);
+    expect(await demo.text()).toContain('@marisol_r');
+  });
+
+  it('answers a resubmitted confirmation with the block page, not an error', async () => {
+    const cookie = await adminCookie();
+    const again = await fetch(`${origin}${BLOCK_PATH}/delete-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    expect(again.status).toBe(303);
+    expect(again.headers.get('location')).toContain('deleted=1');
+  });
+
+  it('answers a stale panel link to the deleted bed with the list and the deleted flash', async () => {
+    // A bookmarked `?bed=`, one in history, or the language toggle pressed on
+    // the stale-save re-render: the bed opens no panel any more, and the page
+    // says it is gone rather than silently drawing the list.
+    const cookie = await adminCookie();
+    for (const [query, expected] of [
+      ['', 'Bed deleted'],
+      ['&lang=es', 'Cantero eliminado'],
+    ] as const) {
+      const page = await fetch(`${origin}${BLOCK_PATH}?bed=${PLATE}${query}`, {
+        headers: { cookie },
+      });
+      expect(page.status).toBe(200);
+      const html = await page.text();
+      expect(html).toContain(expected);
+      expect(html).toContain('Deleted beds');
+      expect(html).not.toContain('SAVE CHANGES');
+    }
+  });
+
+  it('answers SAVE CHANGES on a bed deleted from another tab with the block page, keeping the typed address', async () => {
+    // The stale tab: the panel was open when the bed went, and the press has
+    // to land somewhere with a way back — mid-walk, one-handed. Nothing was
+    // written, so the address the captain retyped comes back in the field
+    // rather than being dropped by a redirect, and the page says so.
+    const cookie = await adminCookie();
+    const typed = '712 W 171st St';
+    const saved = await fetch(`${origin}${BLOCK_PATH}?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ plate: PLATE, referenceAddress: typed, guard: 'on' }),
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(409);
+    const after = await saved.text();
+    expect(after).toContain('was deleted somewhere else');
+    expect(after).toContain('Nothing was saved');
+    expect(after).toContain('press SAVE ADDRESS to keep it');
+    expect(after).toContain('data-es="Este cantero se eliminó en otro lugar');
+    expect(after).toContain('presione GUARDAR DIRECCIÓN para conservarla');
+    // The typed address is in the field, one SAVE ADDRESS away from landing.
+    expect(after).toContain(`value="${typed}"`);
+    expect(after).toContain('SAVE ADDRESS');
+    // This lands in list mode, where the save-state line does not render —
+    // so the unsaved-changes guard must find its flag on the form itself, or
+    // the address the page just said it kept is dropped by the next tap.
+    expect(after).not.toMatch(/<div[^>]*data-save-state/);
+    expect(after).toMatch(/<form[^>]*data-dirty="true"/);
+    // And it really was not written: a fresh load still shows the old address,
+    // and carries no dirty flag.
+    const fresh = await (await fetch(`${origin}${BLOCK_PATH}`, { headers: { cookie } })).text();
+    expect(fresh).not.toContain(`value="${typed}"`);
+    expect(fresh).not.toMatch(/<form[^>]*data-dirty/);
+  });
+
+  it('reports only the deletion when the stale save carried the address as stored', async () => {
+    // The captain flipped the guard and nothing else: the field holds the
+    // stored address, a SAVE ADDRESS would write nothing, and a page that
+    // asked to keep it — or prompted on leaving — would be guarding nothing.
+    const cookie = await adminCookie();
+    const stored = '708 W 171st St';
+    const saved = await fetch(`${origin}${BLOCK_PATH}?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ plate: PLATE, referenceAddress: ` ${stored} `, guard: 'on' }),
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(409);
+    const after = await saved.text();
+    expect(after).toContain('was deleted somewhere else');
+    expect(after).toContain('Nothing was saved.');
+    expect(after).not.toContain('press SAVE ADDRESS to keep it');
+    expect(after).toContain('data-es="Este cantero se eliminó en otro lugar');
+    expect(after).not.toContain('GUARDAR DIRECCIÓN para conservarla');
+    expect(after).not.toMatch(/<form[^>]*data-dirty/);
+  });
+
+  it('keeps the plain 404 for a block that does not exist — only the bed gets the screen', async () => {
+    const cookie = await adminCookie();
+    const missing = await fetch(`${origin}/admin/blocks/no-such-block`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ referenceAddress: '710 W 171st St' }),
+      redirect: 'manual',
+    });
+    expect(missing.status).toBe(404);
+  });
+});
+
+describe('restoring a deleted bed', () => {
+  // The same bed the delete tests retired, and the same tag: the registry is
+  // checked in and cannot be rewritten at runtime, so the way back from a
+  // mis-tap has to be a store write the admin itself can make. Retired here
+  // too, so this suite proves restore on its own rather than on whatever the
+  // suite above happened to leave behind.
+  const PLATE = 'BED-WH-1712';
+  const TAG = '1hc0t9cj';
+
+  beforeAll(async () => {
+    const cookie = await adminCookie();
+    await fetch(`${origin}${BLOCK_PATH}/delete-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+  });
+
+  it('lists the deleted bed apart from the street, with RESTORE as its only affordance', async () => {
+    const cookie = await adminCookie();
+    const list = await (await fetch(`${origin}${BLOCK_PATH}`, { headers: { cookie } })).text();
+    expect(list).toContain('Deleted beds');
+    expect(list).toContain('data-es="Canteros eliminados"');
+    expect(list).toContain('data-es="RESTAURAR"');
+    // RESTORE is a LINK out of the page, not a submit inside the block form:
+    // a submit fires the form's own submit handler, which disarms the
+    // unsaved-changes guard and would drop whatever the panel still held.
+    // The structure is what makes the browser prompt fire, so it is what is
+    // pinned here — a fetch-based suite has no browser to observe it in.
+    expect(list).toContain(`href="${BLOCK_PATH}/restore-bed?bed=${PLATE}"`);
+    expect(list).not.toContain(`name="restore"`);
+    // A deleted row is not a way into the panel either.
+    expect(list).not.toContain(`href="${BLOCK_PATH}?bed=${PLATE}"`);
+  });
+
+  it('puts the bed and its tag back on the confirmation’s own POST, with nothing else changed', async () => {
+    const cookie = await adminCookie();
+    const confirm = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
+      headers: { cookie },
+    });
+    expect(confirm.status).toBe(200);
+    const confirmHtml = await confirm.text();
+    expect(confirmHtml).toContain('Restore this bed');
+    expect(confirmHtml).toContain('data-es="RESTAURAR ESTE CANTERO"');
+
+    const restored = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    expect(restored.status).toBe(303);
+    const location = restored.headers.get('location')!;
+    expect(location).toContain('restored=1');
+    // The LIST, not the bed's panel: `?bed=` puts the page in panel mode, and
+    // the phone breakpoint hides the column the flash renders in (admin.css),
+    // so a restore on the surface the captain actually uses would confirm
+    // nothing. `mode-list` is what proves the flash is on screen there.
+    expect(location).not.toContain('bed=');
+    const landing = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    expect(landing).toContain('mode-list');
+    const after = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    expect(after).toContain(PLATE);
+    expect(after).toContain('Bed restored');
+    expect(after).not.toContain('Deleted beds');
+
+    // And the tap the delete had taken away answers again, with no deploy.
+    const tap = await fetch(`${origin}/t/${TAG}`);
+    expect(tap.status).toBe(200);
+    expect(await tap.text()).not.toContain('assigned to a bed yet');
+  });
+
+  it('answers a resubmitted confirmation with the block page, not an error', async () => {
+    const cookie = await adminCookie();
+    const again = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    expect(again.status).toBe(303);
+    expect(again.headers.get('location')).toContain('restored=1');
+  });
+
+  it('opens a restore link on a live bed onto the plain block page, with no "restored" flash', async () => {
+    // A bookmarked or history-navigated link is not a press: the bed was not
+    // restored by it, so the page must not say it was. Restored here first,
+    // so the case stands on its own rather than on the one above.
+    const cookie = await adminCookie();
+    await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    const opened = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=${PLATE}`, {
+      headers: { cookie },
+      redirect: 'manual',
+    });
+    expect(opened.status).toBe(302);
+    const location = opened.headers.get('location')!;
+    expect(location).toBe(BLOCK_PATH);
+    const landing = await (await fetch(`${origin}${location}`, { headers: { cookie } })).text();
+    expect(landing).not.toContain('Bed restored');
+  });
+
+  it('takes no restore from a caller with no session', async () => {
+    const refused = await fetch(`${origin}${BLOCK_PATH}/restore-bed?bed=BED-WH-1713`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: new URLSearchParams({}),
+      redirect: 'manual',
+    });
+    expect(refused.status).toBe(303);
+    expect(refused.headers.get('location')).toBe('/admin');
   });
 });
 

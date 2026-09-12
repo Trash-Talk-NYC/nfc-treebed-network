@@ -10,8 +10,12 @@
 // page; no bound is ever enforced by dropping the connection on a visitor.
 //
 //   GET  /                             A redirect to the demo tag (DEMO_TAG_ID),
-//                                      built by ourPlaqueLink; no body, no buffer,
-//                                      and no store read at all.
+//                                      built by ourPlaqueLink, while that
+//                                      binding still names a live bed — one
+//                                      store read, and a calm screen at 200
+//                                      where it can't answer. No body, no
+//                                      buffer; any method's body is
+//                                      `abandonBody`'d on the way out.
 //   GET  /t/<tag>                      No body to read, so no size, time or
 //                                      concurrency bound applies. Peak heap is
 //                                      one render's reads, no per-request
@@ -118,9 +122,10 @@
 //                                      for an unbounded body, and an
 //                                      unauthenticated POST here reaches no
 //                                      store read and writes nothing.
-//   POST /admin/sign-out               Closes the admin session. Behind the
-//                                      same gate, and it carries nothing but
-//                                      the press, so the body is
+//   POST /admin/sign-out,              Close the admin session; retire or
+//        /admin/blocks/…/delete-bed,   restore the bed the URL names. Behind
+//        /admin/blocks/…/restore-bed   the same gate, and each carries
+//                                      nothing but the press, so the body is
 //                                      `abandonBody`'d rather than read: a
 //                                      form with no fields has no form to
 //                                      buffer.

@@ -93,6 +93,8 @@ function normalizeBed(bed: Bed): void {
   bed.blockPosition ??= null;
   bed.nycSyncedAt ??= null;
   bed.nycMissingSince ??= null;
+  // A bed written before deleting existed was never deleted.
+  bed.retiredAt ??= null;
 }
 
 function normalizeBlock(block: Block): void {
@@ -244,6 +246,7 @@ function w171Beds(): Bed[] {
     blockPosition: args.position,
     nycSyncedAt: LOOKED_UP_AT,
     nycMissingSince: null,
+    retiredAt: null,
   });
   return [
     // Haven end, walking toward Fort Washington. Willow oaks 1–4 front
@@ -400,6 +403,7 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
       blockPosition: 1,
       nycSyncedAt: null,
       nycMissingSince: null,
+      retiredAt: null,
     },
   };
   for (const bed of w171Beds()) beds[bed.plate] = bed;

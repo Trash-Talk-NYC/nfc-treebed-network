@@ -20,6 +20,7 @@ export class RuleError extends Error {
     /** Stable machine-readable code the routes branch on. */
     public readonly code:
       | 'bed-not-found'
+      | 'block-not-found'
       | 'open-report-exists'
       | 'already-reported-today'
       | 'no-open-report'
@@ -186,8 +187,24 @@ export function engravedStewards(stewards: BedView['stewards']): BedView['stewar
   return stewards.filter(({ adoption }) => !adoption.displayNameHidden);
 }
 
-export async function getBedView(store: Store, plate: string): Promise<BedView | null> {
+/**
+ * The bed as everything but the delete flow may act on it: an existing,
+ * unretired row, or null.
+ *
+ * Retiring (`retireBedByAdmin`) keeps the row and every record keyed to its
+ * plate, so the store still answers for the plate — this is the one predicate
+ * that turns that tombstone into "not found" for every screen and rule, which
+ * is what makes a tag still bound to a deleted bed degrade to the calm
+ * "not assigned" screen instead of filing reports against a bed the admin
+ * cannot see.
+ */
+export async function getActiveBed(store: Store, plate: string): Promise<Bed | null> {
   const bed = await store.getBed(plate);
+  return bed !== null && bed.retiredAt === null ? bed : null;
+}
+
+export async function getBedView(store: Store, plate: string): Promise<BedView | null> {
+  const bed = await getActiveBed(store, plate);
   if (!bed) return null;
   const adoptions = await store.getActiveAdoptions(plate);
   const stewards = [];
@@ -289,7 +306,7 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
   const note = capped(args.note, MAX_NOTE_CHARS);
   const now = args.now ?? new Date();
   return store.transaction(async (tx) => {
-    const bed = await tx.getBed(plate);
+    const bed = await getActiveBed(tx, plate);
     if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${plate}`);
 
     const open = await tx.getOpenReport(plate);
@@ -377,7 +394,7 @@ export async function sendApplause(
 ): Promise<{ counted: boolean }> {
   const now = args.now ?? new Date();
   return store.transaction(async (tx) => {
-    const bed = await tx.getBed(args.plate);
+    const bed = await getActiveBed(tx, args.plate);
     if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
     const today = nyCalendarDay(now);
     const already = (await tx.getEvents(args.plate, 'applause')).some(
@@ -569,7 +586,7 @@ export function validateAdoptInput(raw: AdoptInput): { values: AdoptValues; erro
  * the form no longer has a question to ask it with.
  */
 async function checkAdoptPreconditions(store: Store, plate: string): Promise<void> {
-  const bed = await store.getBed(plate);
+  const bed = await getActiveBed(store, plate);
   if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${plate}`);
 
   const active = await store.getActiveAdoptions(plate);
@@ -812,6 +829,16 @@ export interface AdminBedView {
 export interface BlockView {
   block: Block;
   beds: AdminBedView[];
+  /**
+   * The block's deleted beds, kept apart from the live ones.
+   *
+   * A delete is a retirement (`retireBedByAdmin`), and the page that can undo
+   * it is the one that did it — so the rows are handed over separately rather
+   * than mixed into `beds`, where every control assumes a live bed. Stewards
+   * are deliberately not read for them: the only affordance a retired row has
+   * is RESTORE.
+   */
+  retired: Bed[];
 }
 
 /**
@@ -857,7 +884,15 @@ export async function getBlockView(
   const block = await store.getBlock(blockId);
   if (!block) return null;
   const beds: AdminBedView[] = [];
+  const retired: Bed[] = [];
+  // A deleted bed is retired, not erased (`retireBedByAdmin`): the row and its
+  // history stay in the store, and this split is what takes it off the street
+  // list while still leaving the captain a way back from a mis-tap.
   for (const bed of await store.getBedsInBlock(blockId)) {
+    if (bed.retiredAt !== null) {
+      retired.push(bed);
+      continue;
+    }
     const adoptions = await store.getActiveAdoptions(bed.plate);
     const stewards = [];
     for (const adoption of adoptions) {
@@ -869,7 +904,7 @@ export async function getBlockView(
     const openReportConfirms = await getOpenReportConfirms(store, bed.plate, openReport);
     beds.push({ bed, stewards, openReport, openReportConfirms });
   }
-  return { block, beds };
+  return { block, beds, retired };
 }
 
 /** What one press of SAVE CHANGES on the block admin page carries. */
@@ -1005,36 +1040,53 @@ function keptNote(submitted: string | undefined, stored: string): string {
 export async function saveBlockSettings(store: Store, args: BlockSaveInput): Promise<void> {
   await store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
-    if (!block) throw new RuleError('bed-not-found', `No block ${args.blockId}`);
+    // Distinct from the bed's refusal below: a block that does not exist is a
+    // URL nobody should be at, while a bed that has gone is a stale tab the
+    // captain is standing in front of. Two codes, so the route can answer the
+    // second one with a screen instead of a line of unstyled English.
+    if (!block) throw new RuleError('block-not-found', `No block ${args.blockId}`);
+    // Every refusal is found BEFORE the first write, so a save either lands
+    // whole or writes nothing at all. Updating the address first and meeting
+    // a deleted bed after it rolled the address back too — the same outcome
+    // as this, but reached by a rollback the route could not describe to the
+    // captain, so it told them only half of what had happened.
+    const wanted = args.bed ?? null;
+    const bed = wanted ? await getActiveBed(tx, wanted.plate) : null;
+    if (wanted && (!bed || bed.blockId !== args.blockId)) {
+      throw new RuleError('bed-not-found', `No bed ${wanted.plate} in block ${args.blockId}`);
+    }
+    // The slot refusals are found here too, ahead of the address write, for
+    // the same reason: the page that comes back says "unsaved changes", and
+    // it must be telling the truth about the address as well as the switches.
+    let pending: { slots: number; offeredSlots: number } | null = null;
+    if (wanted && bed) {
+      const added = Number.isFinite(wanted.addSlots) ? Math.max(0, Math.floor(wanted.addSlots)) : 0;
+      const slots = Math.min(MAX_BED_SLOTS, bed.slots + added);
+      const filled = (await tx.getActiveAdoptions(bed.plate)).length;
+      pending = { slots, offeredSlots: offeredSlotCount(wanted.offeredSlotNumbers, filled, slots) };
+    }
+
     const referenceAddress = capped(args.referenceAddress, MAX_ADDRESS_CHARS);
     if (referenceAddress !== '' && referenceAddress !== block.referenceAddress) {
       await tx.updateBlock({ ...block, referenceAddress });
     }
-    if (!args.bed) return;
+    if (!wanted || !bed || !pending) return;
 
-    const bed = await tx.getBed(args.bed.plate);
-    if (!bed || bed.blockId !== args.blockId) {
-      throw new RuleError('bed-not-found', `No bed ${args.bed.plate} in block ${args.blockId}`);
-    }
-    const added = Number.isFinite(args.bed.addSlots) ? Math.max(0, Math.floor(args.bed.addSlots)) : 0;
-    const slots = Math.min(MAX_BED_SLOTS, bed.slots + added);
-    const filled = (await tx.getActiveAdoptions(bed.plate)).length;
-    const offeredSlots = offeredSlotCount(args.bed.offeredSlotNumbers, filled, slots);
     await tx.updateBed({
       ...bed,
-      slots,
-      offeredSlots,
-      bedName: args.bed.clearBedName ? null : bed.bedName,
-      guard: args.bed.guard === undefined ? bed.guard : args.bed.guard,
-      treePresent: args.bed.treePresent === undefined ? bed.treePresent : args.bed.treePresent,
-      plantsPresent: args.bed.plantsPresent === undefined ? bed.plantsPresent : args.bed.plantsPresent,
+      slots: pending.slots,
+      offeredSlots: pending.offeredSlots,
+      bedName: wanted.clearBedName ? null : bed.bedName,
+      guard: wanted.guard === undefined ? bed.guard : wanted.guard,
+      treePresent: wanted.treePresent === undefined ? bed.treePresent : wanted.treePresent,
+      plantsPresent: wanted.plantsPresent === undefined ? bed.plantsPresent : wanted.plantsPresent,
       plantingRecommended:
-        args.bed.plantingRecommended === undefined
+        wanted.plantingRecommended === undefined
           ? bed.plantingRecommended
-          : args.bed.plantingRecommended,
-      plantsNote: keptNote(args.bed.plantsNote, bed.plantsNote),
-      recommendedPlantsNote: keptNote(args.bed.recommendedPlantsNote, bed.recommendedPlantsNote),
-      careNote: keptNote(args.bed.careNote, bed.careNote),
+          : wanted.plantingRecommended,
+      plantsNote: keptNote(wanted.plantsNote, bed.plantsNote),
+      recommendedPlantsNote: keptNote(wanted.recommendedPlantsNote, bed.recommendedPlantsNote),
+      careNote: keptNote(wanted.careNote, bed.careNote),
     });
   });
 }
@@ -1108,7 +1160,7 @@ export async function addStewardByAdmin(
     throw new RuleError('invalid-input', Object.values(errors).join(' '));
   }
   return store.transaction(async (tx) => {
-    const bed = await tx.getBed(args.plate);
+    const bed = await getActiveBed(tx, args.plate);
     if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
     const active = await tx.getActiveAdoptions(args.plate);
     if (active.length >= bed.slots) {
@@ -1192,7 +1244,9 @@ export async function addBedByAdmin(
   if (en === '') throw new RuleError('invalid-input', 'treeType');
   return store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
-    if (!block) throw new RuleError('bed-not-found', `No block ${args.blockId}`);
+    if (!block) throw new RuleError('block-not-found', `No block ${args.blockId}`);
+    // Retired siblings deliberately count: the plate series and the positions
+    // continue past a deleted bed rather than reusing what it held.
     const siblings = await tx.getBedsInBlock(args.blockId);
     const position = Math.max(0, ...siblings.map((b) => b.blockPosition ?? 0)) + 1;
     const bed: Bed = {
@@ -1218,9 +1272,70 @@ export async function addBedByAdmin(
       blockPosition: position,
       nycSyncedAt: null,
       nycMissingSince: null,
+      retiredAt: null,
     };
     await tx.createBed(bed);
     return bed;
+  });
+}
+
+/**
+ * "DELETE THIS BED" on the block admin page, confirmed.
+ *
+ * Deleting is RETIRING: the row stays, `retiredAt` is set, and everything
+ * keyed to the plate — adoptions, reports, events — is left exactly where it
+ * is. Erasing the row was rejected twice over: the plate is the join key that
+ * history hangs on, and the checked-in seed (`ensureCheckedInBlocks`) would
+ * re-insert a deleted seeded bed on its next load, so only a tombstone
+ * actually stays deleted. What retirement changes is visibility: the bed
+ * drops out of every admin list (`getBlockView`) and every rule and screen
+ * answers "not found" for its plate (`getActiveBed`), so a tag still bound to
+ * it renders the calm "not assigned" screen. The plate is never reused —
+ * `nextPlate` still walks past the row.
+ *
+ * Idempotent: a bed already retired stays retired at its original date, so a
+ * resubmitted confirmation costs nothing and still lands on the block page.
+ */
+export async function retireBedByAdmin(
+  store: Store,
+  args: { blockId: string; plate: string; now?: Date },
+): Promise<void> {
+  const now = args.now ?? new Date();
+  await store.transaction(async (tx) => {
+    const bed = await tx.getBed(args.plate);
+    if (!bed || bed.blockId !== args.blockId) {
+      throw new RuleError('bed-not-found', `No bed ${args.plate} in block ${args.blockId}`);
+    }
+    if (bed.retiredAt !== null) return;
+    await tx.updateBed({ ...bed, retiredAt: now.toISOString() });
+  });
+}
+
+/**
+ * The way back from a mis-tapped delete.
+ *
+ * Retirement is a single nullable field and nothing keyed to the plate was
+ * touched, so undoing it is clearing the field — guard dates, offered slots,
+ * stewards, reports and events all come back exactly as they were, and the
+ * tag still bound to the bed resolves again on the next tap with no deploy.
+ * That matters because the tag→site registry is checked in (tag-bindings.ts)
+ * and has no runtime write path: without this, a mis-tap on the live pilot
+ * would cost that tag its screen until somebody shipped a commit.
+ *
+ * Mirrors `retireBedByAdmin`: the bed must exist in the block it is being
+ * restored on, and restoring a bed that is not retired is a no-op.
+ */
+export async function restoreBedByAdmin(
+  store: Store,
+  args: { blockId: string; plate: string },
+): Promise<void> {
+  await store.transaction(async (tx) => {
+    const bed = await tx.getBed(args.plate);
+    if (!bed || bed.blockId !== args.blockId) {
+      throw new RuleError('bed-not-found', `No bed ${args.plate} in block ${args.blockId}`);
+    }
+    if (bed.retiredAt === null) return;
+    await tx.updateBed({ ...bed, retiredAt: null });
   });
 }
 
