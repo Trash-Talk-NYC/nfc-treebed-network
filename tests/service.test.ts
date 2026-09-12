@@ -129,13 +129,13 @@ describe('the first steward names the bed', () => {
     expect((await store.getBed(plate))!.bedName).toHaveLength(MAX_BED_NAME_CHARS);
   });
 
-  it('strips control and bidi characters a hand-built POST can carry', async () => {
+  it('strips bidi characters a hand-built POST can carry, and keeps a control character as the gap it stood in', async () => {
     const plate = await offeredEmptyBed();
     await adoptBed(store, {
       plate,
       input: adoptInput({ bedName: '\u202eLa\nMadrina\u2069\u200f' }),
     });
-    expect((await store.getBed(plate))!.bedName).toBe('LaMadrina');
+    expect((await store.getBed(plate))!.bedName).toBe('La Madrina');
   });
 
   it('lets the first steward skip naming: the bed then simply has no name', async () => {

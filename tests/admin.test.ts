@@ -442,11 +442,13 @@ describe('saving the block admin page', () => {
         treePresent: false,
         plantsPresent: true,
         plantingRecommended: true,
-        // Typed fields go through `capped`: control characters and the bidi
-        // overrides are stripped, then the bound cuts what remains.
+        // Typed fields go through `capped`: the bidi overrides are stripped,
+        // control characters and whitespace runs — the CRLF a textarea submits
+        // for Enter included — collapse to one space, then the bound cuts what
+        // remains.
         plantsNote: `  Daffodils and‮ a hosta  `,
         recommendedPlantsNote: 'x'.repeat(500),
-        careNote: 'Litter pickup after weekends.',
+        careNote: 'Litter pickup\r\nafter\tweekends.\n\nRake in fall.',
       }),
     });
     const bed = (await store.getBed(W171_PLATE))!;
@@ -455,7 +457,7 @@ describe('saving the block admin page', () => {
     expect(bed.plantingRecommended).toBe(true);
     expect(bed.plantsNote).toBe('Daffodils and a hosta');
     expect(bed.recommendedPlantsNote).toHaveLength(MAX_BED_NOTE_CHARS);
-    expect(bed.careNote).toBe('Litter pickup after weekends.');
+    expect(bed.careNote).toBe('Litter pickup after weekends. Rake in fall.');
   });
 
   it('adds a slot up to the bound, and clamps what is offered to what exists', async () => {

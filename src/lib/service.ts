@@ -475,16 +475,24 @@ export const MAX_BED_NAME_CHARS = 40;
 export const MAX_BED_NOTE_CHARS = 160;
 
 /**
- * Control characters and the bidirectional-format overrides, which a hand-built
- * POST can carry into a field the browser's own input would never produce.
- * Every typed field lands on a screen as a leaf beside copy of ours, and an
- * embedded newline or a U+202E can visually scramble the text around it.
+ * The bidirectional-format overrides, which a hand-built POST can carry into a
+ * field the browser's own input would never produce. Every typed field lands
+ * on a screen as a leaf beside copy of ours, and a U+202E can visually
+ * scramble the text around it. They are zero-width, so they are dropped.
  */
-const UNRENDERABLE_RE = /[\p{Cc}\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
+const BIDI_FORMAT_RE = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
 
-/** Strip what cannot be rendered, trim, then bound: what every typed field goes through before it is stored. */
+/**
+ * Control characters and whitespace runs. A textarea submits Enter as CRLF and
+ * a note is one line on the screen it lands on, so a break between two words
+ * must stay a gap between them rather than glue them together — which is why
+ * these become a single space instead of vanishing like the overrides above.
+ */
+const WHITESPACE_RUN_RE = /[\p{Cc}\s]+/gu;
+
+/** Strip what cannot be rendered, collapse whitespace, trim, then bound: what every typed field goes through before it is stored. */
 function capped(raw: string, max: number): string {
-  return raw.replace(UNRENDERABLE_RE, '').trim().slice(0, max);
+  return raw.replace(BIDI_FORMAT_RE, '').replace(WHITESPACE_RUN_RE, ' ').trim().slice(0, max);
 }
 
 /**
