@@ -958,6 +958,39 @@ describe('the digest controls', () => {
     expect(after).not.toContain('RESUME THEIR DIGEST');
   });
 
+  it('renders the resume control outside the admin-card form, bound to it by `form`', async () => {
+    // The route is fine either way, so a test that only POSTs it never sees
+    // this: a <form> nested inside the admin card is dropped by every parser
+    // and the button silently posts the block save instead.
+    process.env.TREEBED_SESSION_SECRET = 'e2e-secret-not-a-real-one';
+    const linkPath = unsubscribePath(seedData().users['user-marisol']!);
+    await fetch(`${origin}${linkPath}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: 'List-Unsubscribe=One-Click',
+      redirect: 'manual',
+    });
+    const cookie = await adminCookie();
+    const panelPath = '/admin/blocks/w-138-acp-demo?bed=BED-HRL-0847&steward=user-marisol';
+    const html = await (await fetch(`${origin}${panelPath}`, { headers: { cookie } })).text();
+
+    // Nothing opens a form before the admin card closes its own.
+    const cardOpen = html.lastIndexOf('<form', html.indexOf('data-admin-form'));
+    const cardClose = html.indexOf('</form>', cardOpen);
+    expect(cardOpen).toBeGreaterThan(-1);
+    expect(html.slice(cardOpen + 5, cardClose)).not.toContain('<form');
+
+    // The resume form is a sibling below it, aimed at the steward-digest
+    // route, and the button in the panel reaches it by id.
+    const resumeForm = html.indexOf('id="digest-resume-form"');
+    expect(resumeForm).toBeGreaterThan(cardClose);
+    expect(html.slice(resumeForm, resumeForm + 300)).toContain(
+      'action="/admin/blocks/w-138-acp-demo/steward-digest"',
+    );
+    expect(html).toContain('form="digest-resume-form"');
+    expect(html.slice(cardOpen, cardClose)).not.toContain('name="steward"');
+  });
+
   it('changes nothing for a steward outside the block the press names', async () => {
     const cookie = await adminCookie();
     const crossed = await fetch(`${origin}/admin/blocks/w-171-fort-washington-haven/steward-digest`, {
