@@ -1,0 +1,132 @@
+---
+// "DELETE PHOTO", confirmed on a page of its own.
+//
+// The moderation control accepting public uploads obliges: a photo that
+// should not be on the captain's screen must be removable for good. Like the
+// bed delete, it is never one tap — the panel's link only navigates HERE, and
+// the delete itself is this page's own POST — and for the same second reason:
+// the panel sits inside the block page's one big form, where a submit button
+// would fire that form's save instead. No script involved, so the two-step
+// holds with JavaScript disabled.
+//
+// The delete removes the metadata row first (the transaction — service.ts,
+// `deleteReportPhotoByAdmin`) and the blob after it, so the failure a crash
+// can leave is an invisible orphan blob, never a row rendering a broken
+// image. The report the photo rode in on — what the neighbour picked and
+// typed — is untouched: the photo is what is being moderated, not the report.
+import AdminScreen from '../../../../layouts/AdminScreen.astro';
+import {
+  redirectAdminWithBody,
+  refuseAdminWithBody,
+  requireAdmin,
+} from '../../../../lib/admin-route';
+import { bi, biAttr } from '../../../../lib/bilingual';
+import { ADMIN } from '../../../../lib/copy';
+import { bedHeadingName, sentLabel } from '../../../../lib/format';
+import { langLink, resolveLang, type Lang } from '../../../../lib/i18n';
+import { presentationFor } from '../../../../lib/presentation';
+import { abandonBody } from '../../../../lib/request-body';
+import { RuleError, deleteReportPhotoByAdmin } from '../../../../lib/service';
+import { getPhotoBlobs, getStore } from '../../../../lib/store';
+
+const lang: Lang = resolveLang(Astro.url, Astro.cookies);
+const gate = await requireAdmin(Astro.request, Astro.cookies, langLink('/admin', lang));
+if (gate.refused) return gate.refused;
+
+const store = getStore();
+const blockId = Astro.params.block ?? '';
+const photoId = Astro.url.searchParams.get('photo') ?? '';
+const base = `/admin/blocks/${blockId}`;
+
+if (photoId === '') {
+  return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
+}
+const photo = await store.getReportPhoto(photoId);
+const bed = photo === null ? null : await store.getBed(photo.bedPlate);
+// A named photo that is gone is "already deleted" — a stale tab, or a
+// resubmitted confirmation (ids are unguessable, so a never-existed id is
+// the same state in practice). The honest answer is the block page the photo
+// is now gone from, not a 404 for a photo the captain just acted on. A photo
+// on some other block's bed stays a plain 404: this page is scoped to the
+// block its URL names.
+if (photo === null || bed === null) {
+  return await redirectAdminWithBody(Astro.request, langLink(`${base}?photodeleted=1`, lang));
+}
+if (bed.blockId !== blockId) {
+  return await refuseAdminWithBody(Astro.request, new Response('Not found.', { status: 404 }));
+}
+
+const bedLink = langLink(`${base}?bed=${photo.bedPlate}`, lang);
+
+if (Astro.request.method === 'POST') {
+  // The press carries no fields — the photo is named by the URL this page
+  // validated — so there is nothing to read, only the body to account for.
+  await abandonBody(Astro.request);
+  try {
+    const removed = await deleteReportPhotoByAdmin(store, { blockId, photoId: photo.id });
+    // Row first, blob second: a failure here leaves an orphan blob nothing
+    // names — logged, invisible, and the delete the captain asked for is done.
+    try {
+      await getPhotoBlobs().deletePhotoBlob(removed.id);
+    } catch (err) {
+      console.error(`[admin] deleting photo blob ${removed.id} failed (row already gone):`, err);
+    }
+  } catch (err) {
+    if (err instanceof RuleError && err.code === 'photo-not-found') {
+      // Deleted from another tab between the render and the press.
+      return Astro.redirect(langLink(`${base}?bed=${photo.bedPlate}&photodeleted=1`, lang), 303);
+    }
+    throw err;
+  }
+  return Astro.redirect(langLink(`${base}?bed=${photo.bedPlate}&photodeleted=1`, lang), 303);
+}
+
+const presentation = presentationFor(bed);
+const heading = bedHeadingName(bed);
+const sent = sentLabel(new Date(photo.uploadedAt));
+---
+
+<AdminScreen
+  title={`${ADMIN.deletePhotoTitle[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <div class="admin-narrow delete-form">
+    <a class="admin-backlink admin-backlink--always" href={bedLink}>
+      ← <span {...bi(heading, lang)}>{heading[lang]}</span>
+    </a>
+    <h1 class="admin-title" {...bi(ADMIN.deletePhotoTitle, lang)}>{ADMIN.deletePhotoTitle[lang]}</h1>
+    <div class="idline">
+      {photo.reportId} · <span {...bi(sent, lang)}>{sent[lang]}</span>
+    </div>
+    <img
+      class="photo-preview"
+      src={`/admin/photos/${photo.id}`}
+      {...biAttr('alt', ADMIN.photoAlt, lang)}
+    />
+    <p class="body-copy" {...bi(ADMIN.deletePhotoBody, lang)}>{ADMIN.deletePhotoBody[lang]}</p>
+    <form method="POST" action={langLink(`${base}/delete-photo?photo=${photo.id}`, lang)}>
+      <button class="btn btn-tall btn-alert" type="submit" {...bi(ADMIN.deletePhotoSubmit, lang)}>
+        {ADMIN.deletePhotoSubmit[lang]}
+      </button>
+    </form>
+    <a class="btn btn-outline" href={bedLink} {...bi(ADMIN.deletePhotoCancel, lang)}>
+      {ADMIN.deletePhotoCancel[lang]}
+    </a>
+  </div>
+</AdminScreen>
+
+<style>
+  .delete-form {
+    margin: 0 auto;
+  }
+  .photo-preview {
+    display: block;
+    max-width: 100%;
+    max-height: 320px;
+    border-radius: 9px;
+    border: 1px solid var(--theme-border);
+    object-fit: contain;
+  }
+</style>

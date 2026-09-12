@@ -454,6 +454,29 @@ export const DIGEST_MAIL = {
 } satisfies Record<string, Phrase>;
 
 /**
+ * The applause notification (applause-mail.ts) — the mail a bed's stewards
+ * get the first time somebody applauds it each day, in each steward's stored
+ * language like the digest. It shares the digest's "see your bed" and
+ * unsubscribe lines so the two mails cannot drift on them, and it honours the
+ * same opt-out flag — "stop these emails" means all of them.
+ */
+export const APPLAUSE_MAIL = {
+  subject: { en: 'Someone applauded your tree bed', es: 'Alguien aplaudió tu cantero' },
+  body: {
+    en: 'A neighbour just sent applause for your bed. Somebody on the block noticed your work today.',
+    es: 'Un vecino acaba de enviar un aplauso a tu cantero. Alguien en la cuadra notó tu trabajo hoy.',
+  },
+  /**
+   * Why there is at most one of these a day, said in the mail itself so a
+   * popular bed's steward knows the quiet days were not empty ones.
+   */
+  oncePerDay: {
+    en: 'You’ll hear about applause at most once a day; the rest shows up in your digest.',
+    es: 'Te avisaremos de los aplausos como mucho una vez al día; el resto aparece en tu resumen.',
+  },
+} satisfies Record<string, Phrase>;
+
+/**
  * The unsubscribe landing (/digest/unsubscribe): a one-button confirm on
  * GET — mail gateways prefetch links, so opening one changes nothing — and
  * the done screen after the POST that does.
@@ -620,6 +643,31 @@ export const ADMIN = {
   /** The confirming neighbours' own words, under the open report's band. */
   reportAlsoSaid: { en: 'Neighbours also said', es: 'Los vecinos también dijeron' },
   reportAlsoReported: { en: 'reported this as', es: 'lo reportó como' },
+  /**
+   * Stored care photos, in the opened bed's panel — the only surface that
+   * renders them. What a neighbour attaches at the tag is shown to the
+   * captain here, beside the report it rode in on; earlier reports' photos
+   * stay below as the bed's history.
+   */
+  photoAlt: { en: 'Photo a neighbour attached', es: 'Foto adjuntada por un vecino' },
+  /** A stored file the browser cannot render inline (a HEIC, say): still openable, still deletable. */
+  photoUnrenderable: { en: 'Photo (open to view)', es: 'Foto (ábrela para verla)' },
+  photosEarlierHead: { en: 'Earlier photos', es: 'Fotos anteriores' },
+  photosEarlierNote: {
+    en: 'From reports since closed — kept with the bed’s record.',
+    es: 'De reportes ya cerrados; se conservan con el registro del cantero.',
+  },
+  /** The panel's way into the delete confirmation — never the delete itself. */
+  deletePhotoLink: { en: 'DELETE PHOTO', es: 'ELIMINAR FOTO' },
+  deletePhotoTitle: { en: 'Delete this photo', es: 'Eliminar esta foto' },
+  deletePhotoBody: {
+    en: 'The photo comes off this page and its file is removed for good. The report it came with — what the neighbour picked and typed — is untouched.',
+    es: 'La foto sale de esta página y su archivo se elimina definitivamente. El reporte con el que llegó —lo que el vecino eligió y escribió— no se toca.',
+  },
+  deletePhotoSubmit: { en: 'DELETE THIS PHOTO', es: 'ELIMINAR ESTA FOTO' },
+  deletePhotoCancel: { en: 'KEEP THE PHOTO', es: 'CONSERVAR LA FOTO' },
+  /** The block page's flash after a photo delete. */
+  photoDeleted: { en: 'Photo deleted.', es: 'Foto eliminada.' },
   /** `#<NYC id> · ours BED-…` — the one surface that shows our plate. */
   oursLabel: { en: 'ours', es: 'la nuestra' },
   /**
@@ -818,4 +866,19 @@ export const MINE = {
   alsoSaid: { en: 'NEIGHBOURS ALSO SAID', es: 'LOS VECINOS TAMBIÉN DIJERON' },
   alsoReported: { en: 'reported this as', es: 'lo reportó como' },
   clearIt: { en: 'I SORTED IT — CLOSE THE REPORT', es: 'YA LO ARREGLÉ — CERRAR EL REPORTE' },
+  // Renaming the bed, right on the steward's own view — the captain's
+  // 2026-09-12 decision: any active steward may rename it, not only whoever
+  // named it first. The name itself is the steward's own text, never
+  // translated; these are the words around the field.
+  bedNameLabel: { en: 'Bed name', es: 'Nombre del cantero' },
+  bedNameHelp: {
+    en: 'Any steward of this bed can rename it. The name shows on this bed’s screen for the whole block.',
+    es: 'Cualquier persona que cuide este cantero puede cambiarle el nombre. El nombre aparece en la pantalla de este cantero para toda la cuadra.',
+  },
+  saveBedName: { en: 'SAVE THE NAME', es: 'GUARDAR EL NOMBRE' },
+  bedNameSaved: { en: 'Name saved.', es: 'Nombre guardado.' },
+  bedNameMissing: {
+    en: 'Type a name to save it.',
+    es: 'Escribe un nombre para guardarlo.',
+  },
 } satisfies Record<string, Phrase>;

@@ -15,9 +15,10 @@
 // sentence screen stays its own screen, as the approved screens show it, and
 // sends the carried tiles back out as hidden fields beside `other`.
 //
-// The photo is attached on whichever screen the visitor sends from. Nothing
-// stores it (spec §12): the report keeps only that one was attached, and the
-// bytes are counted and dropped without ever being buffered (report.ts).
+// The photo is attached on whichever screen the visitor sends from, and since
+// the captain's 2026-09-12 decision it is STORED (report.ts): the report
+// records the attachment, the bytes land in the photo blob store, and the
+// block admin is the one surface that renders them back.
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { getBedView } from '../../../lib/service';

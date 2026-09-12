@@ -7,9 +7,11 @@ import { MAX_NOTE_CHARS } from '../src/lib/problem';
 import {
   MAX_BED_NAME_CHARS,
   MAX_CONFIRMATIONS,
+  MAX_REPORT_PHOTOS,
   RuleError,
   adoptBed,
   closeReport,
+  deleteReportPhotoByAdmin,
   engravedStewards,
   escalateReport,
   getBedView,
@@ -17,8 +19,11 @@ import {
   MAX_GENERATED_HANDLE_NUMBER,
   generateUsername,
   logTap,
+  photoRendersInline,
+  renameBedBySteward,
   reportProblem,
   sendApplause,
+  storedPhotoContentType,
   validateAdoptInput,
 } from '../src/lib/service';
 
@@ -486,19 +491,240 @@ describe('applause', () => {
     const nextDay = new Date('2026-08-12T16:00:00Z');
     expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: noon })).toEqual({
       counted: true,
+      notice: null,
     });
     // `events` is append-only with nothing pruning it, so a button anybody can
     // press without signing in has to stop costing something at some point.
     expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: evening })).toEqual({
       counted: false,
+      notice: null,
     });
     expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', now: noon })).toEqual({
       counted: true,
+      notice: null,
     });
     expect(await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', now: nextDay })).toEqual({
       counted: true,
+      notice: null,
     });
     expect(await store.getEvents(PLATE, 'applause')).toHaveLength(3);
+  });
+
+  it('names the stewards to mail once per bed per NY day, and claims the day first', async () => {
+    const noon = new Date('2026-08-11T16:00:00Z');
+    const evening = new Date('2026-08-11T23:00:00Z'); // 19:00 NY, same day
+    const nextDay = new Date('2026-08-12T16:00:00Z');
+    // The first counted applause of the day carries the notice — the seeded
+    // steward has an email and no opt-out — and the claim is on the bed
+    // BEFORE anything is sent (claim-then-send, like the digest).
+    const first = await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', notify: true, now: noon });
+    expect(first.counted).toBe(true);
+    expect(first.notice?.recipients.map((u) => u.id)).toEqual(['user-marisol']);
+    expect((await store.getBed(PLATE))!.applauseNoticeAt).toBe(noon.toISOString());
+    // A second neighbour the same NY day: counted, but the steward already
+    // heard — a popular bed must not become a noisy inbox.
+    const second = await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', notify: true, now: evening });
+    expect(second).toMatchObject({ counted: true, notice: null });
+    // The next day starts fresh.
+    const tomorrow = await sendApplause(store, { plate: PLATE, actorId: 'visitor-3', notify: true, now: nextDay });
+    expect(tomorrow.notice?.recipients).toHaveLength(1);
+  });
+
+  it('never names a steward who opted out or has no email, and leaves the day unclaimed', async () => {
+    const noon = new Date('2026-08-11T16:00:00Z');
+    const marisol = (await store.getUser('user-marisol'))!;
+    await store.updateUser({ ...marisol, digestOptedOut: true });
+    // Opted out of the digest opts out of applause mail too — one flag, every
+    // courtesy mail — and with nobody mailable the day is NOT claimed, so a
+    // steward who resumes later does not find it already spent.
+    const optedOut = await sendApplause(store, { plate: PLATE, actorId: 'visitor-1', notify: true, now: noon });
+    expect(optedOut).toMatchObject({ counted: true, notice: null });
+    expect((await store.getBed(PLATE))!.applauseNoticeAt).toBeNull();
+
+    await store.updateUser({ ...marisol, digestOptedOut: false, email: '' });
+    const noEmail = await sendApplause(store, { plate: PLATE, actorId: 'visitor-2', notify: true, now: noon });
+    expect(noEmail).toMatchObject({ counted: true, notice: null });
+    expect((await store.getBed(PLATE))!.applauseNoticeAt).toBeNull();
+  });
+
+  it('claims nothing while the caller cannot mail at all', async () => {
+    // `notify` is whether a mail could actually go out (transport configured,
+    // an origin for links): claiming a day nothing could send would silently
+    // burn notices on a deploy that gets mail later.
+    const quiet = await sendApplause(store, { plate: PLATE, actorId: 'visitor-1' });
+    expect(quiet).toMatchObject({ counted: true, notice: null });
+    expect((await store.getBed(PLATE))!.applauseNoticeAt).toBeNull();
+  });
+});
+
+describe('renaming the bed from the steward view', () => {
+  it('lets any active steward rename, and writes the trail event', async () => {
+    const now = new Date('2026-09-12T16:00:00Z');
+    // The seeded steward is not the first namer of anything — the demo bed is
+    // unnamed — which is the point: any active steward may name or rename.
+    await renameBedBySteward(store, { plate: PLATE, userId: 'user-marisol', name: '  La Madrina  ', now });
+    expect((await store.getBed(PLATE))!.bedName).toBe('La Madrina');
+    const trail = await store.getEvents(PLATE, 'rename');
+    expect(trail).toHaveLength(1);
+    expect(trail[0]).toMatchObject({ actorId: 'user-marisol', note: 'La Madrina' });
+
+    // Renaming again is allowed — that is the captain's decision — and each
+    // rename is its own event, so the record says who changed it and to what.
+    await renameBedBySteward(store, { plate: PLATE, userId: 'user-marisol', name: 'El Roble', now });
+    expect((await store.getBed(PLATE))!.bedName).toBe('El Roble');
+    expect(await store.getEvents(PLATE, 'rename')).toHaveLength(2);
+  });
+
+  it('refuses a caller who is not an active steward of the bed', async () => {
+    await expect(
+      renameBedBySteward(store, { plate: PLATE, userId: 'visitor-1', name: 'Mine Now' }),
+    ).rejects.toMatchObject({ code: 'not-steward' });
+    expect((await store.getBed(PLATE))!.bedName).toBeNull();
+    expect(await store.getEvents(PLATE, 'rename')).toHaveLength(0);
+  });
+
+  it('refuses an empty name — a takedown stays the admin’s act', async () => {
+    await renameBedBySteward(store, { plate: PLATE, userId: 'user-marisol', name: 'La Madrina' });
+    await expect(
+      renameBedBySteward(store, { plate: PLATE, userId: 'user-marisol', name: '   ' }),
+    ).rejects.toMatchObject({ code: 'invalid-input' });
+    expect((await store.getBed(PLATE))!.bedName).toBe('La Madrina');
+  });
+
+  it('bounds and sanitises the name like every other typed field, and no-ops an unchanged one', async () => {
+    const long = 'x'.repeat(MAX_BED_NAME_CHARS + 25);
+    await renameBedBySteward(store, { plate: PLATE, userId: 'user-marisol', name: long });
+    expect((await store.getBed(PLATE))!.bedName).toBe('x'.repeat(MAX_BED_NAME_CHARS));
+    // Saving the same name again writes no second event: nothing changed.
+    await renameBedBySteward(store, { plate: PLATE, userId: 'user-marisol', name: long });
+    expect(await store.getEvents(PLATE, 'rename')).toHaveLength(1);
+  });
+});
+
+describe('stored care photos', () => {
+  /** A stored-blob stand-in: the rule only records metadata. */
+  function photoInput(id: string) {
+    return { id, contentType: 'image/jpeg', bytes: 123_456 };
+  }
+
+  it('records the photo on the report a filing press opens', async () => {
+    const outcome = await reportProblem(
+      store,
+      careInput({ photoAttached: true, photo: photoInput('photo-a') }),
+    );
+    expect(outcome.kind).toBe('filed');
+    if (outcome.kind === 'filed') {
+      expect(outcome.photo).toMatchObject({
+        id: 'photo-a',
+        reportId: outcome.report.id,
+        bedPlate: PLATE,
+        actorId: 'visitor-1',
+        contentType: 'image/jpeg',
+      });
+      expect(await store.getReportPhotosForReport(outcome.report.id)).toHaveLength(1);
+      expect(await store.getReportPhotosForBed(PLATE)).toHaveLength(1);
+    }
+  });
+
+  it('binds a confirming neighbour’s photo to the OPEN report, by id', async () => {
+    const filed = await reportProblem(store, careInput({ actorId: 'visitor-1' }));
+    const confirmed = await reportProblem(
+      store,
+      careInput({ actorId: 'visitor-2', photoAttached: true, photo: photoInput('photo-b') }),
+    );
+    expect(confirmed.kind).toBe('added-weight');
+    if (confirmed.kind === 'added-weight' && filed.kind === 'filed') {
+      expect(confirmed.photo?.reportId).toBe(filed.report.id);
+    }
+  });
+
+  it('declines the photo of a press that wrote nothing, so the caller can drop the blob', async () => {
+    await reportProblem(store, careInput({ actorId: 'visitor-1' }));
+    // Same person, same day: the press writes nothing, and the outcome names
+    // no photo — the route deletes the already-written blob on that answer.
+    const again = await reportProblem(
+      store,
+      careInput({ actorId: 'visitor-1', photoAttached: true, photo: photoInput('photo-c') }),
+    );
+    expect(again.kind).toBe('already-said');
+    expect(await store.getReportPhotosForBed(PLATE)).toHaveLength(0);
+  });
+
+  it('stops storing at MAX_REPORT_PHOTOS per report; the press still counts', async () => {
+    await reportProblem(
+      store,
+      careInput({ actorId: 'visitor-0', photoAttached: true, photo: photoInput('photo-0') }),
+    );
+    for (let i = 1; i < MAX_REPORT_PHOTOS; i += 1) {
+      await reportProblem(
+        store,
+        careInput({ actorId: `visitor-${i}`, photoAttached: true, photo: photoInput(`photo-${i}`) }),
+      );
+    }
+    const past = await reportProblem(
+      store,
+      careInput({ actorId: 'visitor-999', photoAttached: true, photo: photoInput('photo-over') }),
+    );
+    // The confirm counted — nobody standing at a tree is shown a rule — but
+    // the photo was declined, exactly as the pre-storage build discarded all.
+    expect(past.kind).toBe('added-weight');
+    if (past.kind === 'added-weight') {
+      expect(past.photo).toBeNull();
+      expect(past.report.confirmedBy).toContain('visitor-999');
+      expect(await store.getReportPhotosForReport(past.report.id)).toHaveLength(MAX_REPORT_PHOTOS);
+    }
+  });
+
+  it('stores only allowlisted content types; anything else downloads instead of rendering', async () => {
+    // The stored type is what the admin serving route answers with, so a
+    // scriptable type must never survive the write.
+    expect(storedPhotoContentType('IMAGE/JPEG')).toBe('image/jpeg');
+    expect(storedPhotoContentType(' image/png ')).toBe('image/png');
+    expect(storedPhotoContentType('image/svg+xml')).toBe('application/octet-stream');
+    expect(storedPhotoContentType('text/html')).toBe('application/octet-stream');
+    expect(storedPhotoContentType('')).toBe('application/octet-stream');
+    expect(photoRendersInline('image/jpeg')).toBe(true);
+    expect(photoRendersInline('image/heic')).toBe(false);
+    expect(photoRendersInline('text/html')).toBe(false);
+
+    const outcome = await reportProblem(
+      store,
+      careInput({
+        photoAttached: true,
+        photo: { id: 'photo-svg', contentType: 'image/svg+xml', bytes: 10 },
+      }),
+    );
+    if (outcome.kind === 'filed') {
+      expect(outcome.photo?.contentType).toBe('application/octet-stream');
+    }
+  });
+
+  it('lets the admin delete a photo, scoped to the block the page names', async () => {
+    const outcome = await reportProblem(
+      store,
+      careInput({ photoAttached: true, photo: photoInput('photo-d') }),
+    );
+    expect(outcome.kind).toBe('filed');
+    // The demo bed lives in its own demo block (store-dataset.ts); another
+    // block's page cannot reach its photos.
+    await expect(
+      deleteReportPhotoByAdmin(store, { blockId: 'w-171-fort-washington-haven', photoId: 'photo-d' }),
+    ).rejects.toMatchObject({ code: 'photo-not-found' });
+    const removed = await deleteReportPhotoByAdmin(store, {
+      blockId: 'w-138-acp-demo',
+      photoId: 'photo-d',
+    });
+    expect(removed.id).toBe('photo-d');
+    expect(await store.getReportPhotosForBed(PLATE)).toHaveLength(0);
+    // The report the photo rode in on is untouched — what the neighbour SAID
+    // is not what was moderated — and the flag stays true as history.
+    if (outcome.kind === 'filed') {
+      expect((await store.getReport(outcome.report.id))!.photoAttached).toBe(true);
+    }
+    // Already gone: the confirmation page turns this into the block page.
+    await expect(
+      deleteReportPhotoByAdmin(store, { blockId: 'w-138-acp-demo', photoId: 'photo-d' }),
+    ).rejects.toMatchObject({ code: 'photo-not-found' });
   });
 });
 

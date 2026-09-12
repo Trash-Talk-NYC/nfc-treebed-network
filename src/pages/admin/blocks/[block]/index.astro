@@ -16,13 +16,14 @@
 // line states what the server last knew.
 import AdminScreen from '../../../../layouts/AdminScreen.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
-import { bi } from '../../../../lib/bilingual';
+import { bi, biAttr } from '../../../../lib/bilingual';
 import { ADMIN, ADOPT, COMMON } from '../../../../lib/copy';
 import {
   bedHeadingName,
   bedRowName,
   confirmationsLabel,
   openedLabel,
+  sentLabel,
   sinceLabel,
   slotsFilledLabel,
 } from '../../../../lib/format';
@@ -38,6 +39,7 @@ import {
   MAX_TREE_TYPE_CHARS,
   RuleError,
   getBlockView,
+  photoRendersInline,
   saveBlockSettings,
   type AdminBedView,
 } from '../../../../lib/service';
@@ -240,6 +242,9 @@ const savedFlash = Astro.url.searchParams.get('saved') === '1';
 const deletedFlash = Astro.url.searchParams.get('deleted') === '1';
 // And the way back from one: the bed is on the list again, with its tag live.
 const restoredFlash = Astro.url.searchParams.get('restored') === '1';
+// The photo delete confirmation (`delete-photo.astro`) lands back here with
+// this flag, on the bed panel it left from.
+const photoDeletedFlash = Astro.url.searchParams.get('photodeleted') === '1';
 // A panel link to a bed that has since been deleted — a bookmark, history, or
 // the language toggle carrying the stale `bed=` along — lands in list mode,
 // and says the bed is gone rather than nothing, the way `add-steward.astro`
@@ -267,7 +272,9 @@ const flash: Phrase | null = staleBed
     ? ADMIN.bedDeleted
     : restoredFlash
       ? ADMIN.bedRestored
-      : null;
+      : photoDeletedFlash
+        ? ADMIN.photoDeleted
+        : null;
 // The slot count the panel draws. A "+ ADD SLOT" press — and a refused save
 // that had made one — comes back with that slot on the page, and a hidden
 // field carries it into the next submit, so nothing but SAVE CHANGES grows
@@ -341,6 +348,19 @@ const openReportLines = (report: Report, confirms: AdminBedView['openReportConfi
 const openReport = selected?.openReport
   ? openReportLines(selected.openReport, selected.openReportConfirms)
   : null;
+
+// The opened bed's stored photos, split by the exact report join — never a
+// time window: the open report's own sit under its band, and the rest are the
+// bed's history from reports since closed. Each is a link to the delete
+// confirmation (`delete-photo.astro`), a LINK for the same two reasons the
+// retired rows' RESTORE is one: the panel sits inside the page's single big
+// form, and a destructive act gets its own deliberate second tap.
+const openReportPhotos = (selected?.photos ?? []).filter(
+  (p) => selected?.openReport !== null && p.reportId === selected?.openReport?.id,
+);
+const earlierPhotos = (selected?.photos ?? []).filter(
+  (p) => selected?.openReport === null || p.reportId !== selected?.openReport?.id,
+);
 
 // What the panel's three-way rows stand at right now: the pick a refused save
 // left on the page, otherwise the record. The badge, the sub-line and the
@@ -666,6 +686,46 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                     <span {...bi(openReport.opened, lang)}>{openReport.opened[lang]}</span> ·{' '}
                     <span {...bi(openReport.confirmations, lang)}>{openReport.confirmations[lang]}</span>
                   </div>
+                  {/* The stored photos this report carried — what "Photo
+                      attached" means now that photos are kept. Admin-only:
+                      this panel is the one surface that renders them. */}
+                  {openReportPhotos.length > 0 && (
+                    <div class="photo-grid">
+                      {openReportPhotos.map((photo) => {
+                        const sent = sentLabel(new Date(photo.uploadedAt));
+                        return (
+                          <figure class="photo-item">
+                            {photoRendersInline(photo.contentType) ? (
+                              <img
+                                class="photo-thumb"
+                                src={`/admin/photos/${photo.id}`}
+                                loading="lazy"
+                                {...biAttr('alt', ADMIN.photoAlt, lang)}
+                              />
+                            ) : (
+                              <a
+                                class="photo-open"
+                                href={`/admin/photos/${photo.id}`}
+                                {...bi(ADMIN.photoUnrenderable, lang)}
+                              >
+                                {ADMIN.photoUnrenderable[lang]}
+                              </a>
+                            )}
+                            <figcaption class="photo-meta">
+                              <span {...bi(sent, lang)}>{sent[lang]}</span>
+                              <a
+                                class="photo-delete"
+                                href={langLink(`${base}/delete-photo?photo=${photo.id}`, lang)}
+                                {...bi(ADMIN.deletePhotoLink, lang)}
+                              >
+                                {ADMIN.deletePhotoLink[lang]}
+                              </a>
+                            </figcaption>
+                          </figure>
+                        );
+                      })}
+                    </div>
+                  )}
                   {openReport.alsoSaid.length > 0 && (
                     <div class="report-also">
                       <div class="report-also-title" {...bi(ADMIN.reportAlsoSaid, lang)}>
@@ -698,6 +758,55 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                 <div class="blockmeta" {...bi(ADMIN.noOpenReport, lang)}>
                   {ADMIN.noOpenReport[lang]}
                 </div>
+              )}
+
+              {/* Photos from reports since closed: kept as the bed's history
+                  (a photo stays with its report when the report closes), each
+                  still deletable — moderation does not expire. */}
+              {earlierPhotos.length > 0 && (
+                <>
+                  <div class="panel-title photos-head" {...bi(ADMIN.photosEarlierHead, lang)}>
+                    {ADMIN.photosEarlierHead[lang]}
+                  </div>
+                  <div class="blockmeta" {...bi(ADMIN.photosEarlierNote, lang)}>
+                    {ADMIN.photosEarlierNote[lang]}
+                  </div>
+                  <div class="photo-grid">
+                    {earlierPhotos.map((photo) => {
+                      const sent = sentLabel(new Date(photo.uploadedAt));
+                      return (
+                        <figure class="photo-item">
+                          {photoRendersInline(photo.contentType) ? (
+                            <img
+                              class="photo-thumb"
+                              src={`/admin/photos/${photo.id}`}
+                              loading="lazy"
+                              {...biAttr('alt', ADMIN.photoAlt, lang)}
+                            />
+                          ) : (
+                            <a
+                              class="photo-open"
+                              href={`/admin/photos/${photo.id}`}
+                              {...bi(ADMIN.photoUnrenderable, lang)}
+                            >
+                              {ADMIN.photoUnrenderable[lang]}
+                            </a>
+                          )}
+                          <figcaption class="photo-meta">
+                            <span {...bi(sent, lang)}>{sent[lang]}</span>
+                            <a
+                              class="photo-delete"
+                              href={langLink(`${base}/delete-photo?photo=${photo.id}`, lang)}
+                              {...bi(ADMIN.deletePhotoLink, lang)}
+                            >
+                              {ADMIN.deletePhotoLink[lang]}
+                            </a>
+                          </figcaption>
+                        </figure>
+                      );
+                    })}
+                  </div>
+                </>
               )}
 
               {/* Only a NAMED bed gets this row: the switch removes the
@@ -1297,6 +1406,62 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   .report-also-cats { font-weight: 500; }
   .report-also-sep { margin: 0 4px; color: var(--ink-quiet); }
   .report-also-note { font-style: italic; margin-left: 6px; }
+  /* Stored care photos, under the report band and in the history section:
+     small enough to scan, big enough to judge — the delete link opens the
+     confirmation page, so a mis-tap here costs a navigation. */
+  .photos-head { margin-top: 18px; }
+  .photo-grid {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+  }
+  .photo-item { margin: 0; min-width: 0; }
+  .photo-thumb {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--theme-border);
+    background: var(--theme-surface);
+  }
+  /* A stored file the browser cannot paint: the same box, as a link. */
+  .photo-open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px dashed var(--theme-border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theme-action);
+    text-decoration: none;
+  }
+  .photo-meta {
+    margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink-quiet);
+  }
+  /* Destructive, so the alert role's ink — the same treatment as the bed's
+     own delete link at the bottom of the panel. */
+  .photo-delete {
+    flex: none;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--theme-alert-ink);
+    text-decoration: none;
+  }
   .profile-head { margin-top: 22px; }
   .note-field { margin: 12px 0 4px; }
   .note-field .freetext { min-height: 0; }

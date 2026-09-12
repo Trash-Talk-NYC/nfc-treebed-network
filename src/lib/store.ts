@@ -36,6 +36,7 @@ import type {
   Block,
   NetworkSettings,
   Report,
+  ReportPhoto,
   Severity,
   SignInMissWindow,
   SignInRequest,
@@ -108,6 +109,16 @@ export interface Store {
   /** Monotonic counter used to mint receipt numbers (RPT-XXXX-…). */
   nextReportNumber(): Promise<number>;
 
+  // -- stored care photos (metadata; the bytes live behind PhotoBlobs) --
+  getReportPhoto(id: string): Promise<ReportPhoto | null>;
+  /** A report's photos, oldest first — what bounds `MAX_REPORT_PHOTOS`. */
+  getReportPhotosForReport(reportId: string): Promise<ReportPhoto[]>;
+  /** A bed's photos, newest first — the admin panel's read. */
+  getReportPhotosForBed(bedPlate: string): Promise<ReportPhoto[]>;
+  addReportPhoto(photo: ReportPhoto): Promise<void>;
+  /** The admin's moderation control. Deletes the row; the blob is the caller's. */
+  deleteReportPhoto(id: string): Promise<void>;
+
   // -- events (append-only — there is deliberately no update/delete) ---
   appendEvent(event: BedEvent): Promise<void>;
   /** Events for a bed, newest first, optionally filtered by type. */
@@ -142,6 +153,7 @@ export type {
   Block,
   NetworkSettings,
   Report,
+  ReportPhoto,
   Severity,
   SignInMissWindow,
   SignInRequest,
@@ -149,7 +161,24 @@ export type {
   User,
 };
 
-let instance: Store | null = null;
+/**
+ * Where a stored photo's BYTES live — deliberately not part of `Store`:
+ * the dataset is committed whole per revision, and a photo is megabytes, so
+ * the blob sits beside the dataset (a file under `.data/photos/` locally, a
+ * `photo/<id>` blob on Netlify) and the dataset holds only the `ReportPhoto`
+ * row. That split is also why these are not transactional: a blob is written
+ * BEFORE the transaction that records its row (report.ts) and deleted after
+ * the one that removes it, so the row never points at bytes that were never
+ * stored — the failure that can happen is an orphan blob no row names, which
+ * is invisible and cheap, rather than a broken image on the admin panel.
+ */
+export interface PhotoBlobs {
+  putPhotoBlob(id: string, bytes: Uint8Array): Promise<void>;
+  getPhotoBlob(id: string): Promise<Uint8Array | null>;
+  deletePhotoBlob(id: string): Promise<void>;
+}
+
+let instance: (Store & PhotoBlobs) | null = null;
 
 /**
  * The app-wide store, selected by TREEBED_STORE:
@@ -174,7 +203,18 @@ export function getStore(): Store {
   return instance;
 }
 
-function createStore(): Store {
+/**
+ * The photo-blob half of the same backend. The same singleton as `getStore()`,
+ * exposed as its own narrow interface so the transaction facade never has to
+ * pretend blobs are transactional (`TransactionStore` implements `Store` and
+ * nothing else).
+ */
+export function getPhotoBlobs(): PhotoBlobs {
+  instance ??= createStore();
+  return instance;
+}
+
+function createStore(): Store & PhotoBlobs {
   const configured = process.env.TREEBED_STORE || 'local';
   if (configured !== 'blobs' && configured !== 'local') {
     throw new Error(

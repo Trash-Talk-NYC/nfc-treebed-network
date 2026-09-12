@@ -53,7 +53,7 @@
 // four rather than possibly two.
 
 import { getStore as getBlobStore, type Store as BlobsClientStore } from '@netlify/blobs';
-import type { Store } from './store';
+import type { PhotoBlobs, Store } from './store';
 import { getRequestContext } from './request-context';
 import type {
   Adoption,
@@ -62,15 +62,16 @@ import type {
   Block,
   NetworkSettings,
   Report,
+  ReportPhoto,
   SignInMissWindow,
   SignInRequest,
   SignInToken,
   User,
 } from './types';
 import { type Data, TransactionStore, detach, normalizeData, ops, seedData } from './store-dataset';
-import { HEAD_KEY, REVISION_PREFIX, STORE_NAME } from './store-keys';
+import { HEAD_KEY, PHOTO_PREFIX, REVISION_PREFIX, STORE_NAME } from './store-keys';
 
-export { HEAD_KEY, REVISION_PREFIX, STORE_NAME };
+export { HEAD_KEY, PHOTO_PREFIX, REVISION_PREFIX, STORE_NAME };
 
 // Optimistic commits only ever lose to real concurrent writers, and at pilot
 // scale (one seeded bed) more than a couple of collisions in a row means
@@ -90,7 +91,7 @@ interface Loaded {
   revision: number;
 }
 
-export class BlobsStore implements Store {
+export class BlobsStore implements Store, PhotoBlobs {
   private readonly blobs: BlobsClientStore;
   /** Newest revision this instance has seen, revalidated on every load. */
   private cached: Loaded | null = null;
@@ -456,6 +457,50 @@ export class BlobsStore implements Store {
     return this.transaction((tx) => tx.nextReportNumber());
   }
 
+  async getReportPhoto(id: string): Promise<ReportPhoto | null> {
+    return ops.getReportPhoto((await this.load()).data, id);
+  }
+
+  async getReportPhotosForReport(reportId: string): Promise<ReportPhoto[]> {
+    return ops.getReportPhotosForReport((await this.load()).data, reportId);
+  }
+
+  async getReportPhotosForBed(bedPlate: string): Promise<ReportPhoto[]> {
+    return ops.getReportPhotosForBed((await this.load()).data, bedPlate);
+  }
+
+  async addReportPhoto(photo: ReportPhoto): Promise<void> {
+    await this.transaction((tx) => tx.addReportPhoto(photo));
+  }
+
+  async deleteReportPhoto(id: string): Promise<void> {
+    await this.transaction((tx) => tx.deleteReportPhoto(id));
+  }
+
+  // ── Photo blobs: `photo/<id>` keys beside the revision chain ──────────
+  //
+  // Outside the chain on purpose (store-keys.ts): the dataset re-uploads
+  // whole on every commit and a photo is megabytes, so the bytes are written
+  // once and named by the `ReportPhoto` row. The pruning sweep lists the
+  // `rev/` prefix alone, so nothing here is ever swept.
+
+  async putPhotoBlob(id: string, bytes: Uint8Array): Promise<void> {
+    // Copied into a bare ArrayBuffer: the client takes BlobInput, and a view's
+    // underlying buffer may be larger than the view.
+    const copy = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(copy).set(bytes);
+    await this.blobs.set(photoKey(id), copy);
+  }
+
+  async getPhotoBlob(id: string): Promise<Uint8Array | null> {
+    const found = await this.blobs.get(photoKey(id), { type: 'arrayBuffer' });
+    return found === null ? null : new Uint8Array(found);
+  }
+
+  async deletePhotoBlob(id: string): Promise<void> {
+    await this.blobs.delete(photoKey(id));
+  }
+
   async appendEvent(event: BedEvent): Promise<void> {
     await this.transaction((tx) => tx.appendEvent(event));
   }
@@ -511,6 +556,10 @@ export class BlobsStore implements Store {
 
 function revisionKey(revision: number): string {
   return `${REVISION_PREFIX}${revision}`;
+}
+
+function photoKey(id: string): string {
+  return `${PHOTO_PREFIX}${id}`;
 }
 
 // Compact, unlike store-local.ts: every commit uploads the whole dataset and

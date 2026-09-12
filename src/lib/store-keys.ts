@@ -17,3 +17,10 @@ export const REVISION_PREFIX = 'rev/';
 // two instances committing at once can land their pointer writes in either
 // order, so it is only ever a place to start walking forward from.
 export const HEAD_KEY = 'head';
+
+// Stored care photos, one blob per photo (`photo/<id>`), OUTSIDE the revision
+// chain: the dataset is re-serialized whole on every commit and a photo is
+// megabytes, so the bytes live beside the chain and the dataset holds only
+// the metadata row (`ReportPhoto`). The prefix is what keeps them clear of
+// the pruning sweep, which lists `rev/` alone.
+export const PHOTO_PREFIX = 'photo/';
