@@ -13,6 +13,7 @@ import { copyFile, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runApplauseNotices } from '../src/lib/digest';
+import { ADMIN_EARLIER_PHOTOS_SHOWN } from '../src/lib/service';
 import { LocalStore } from '../src/lib/store-local';
 import { serverEnv } from './helpers/server-env';
 import { signInByLink } from './helpers/steward-session';
@@ -146,6 +147,11 @@ function photoReportBody(category: string, photoBytes: number): Buffer {
     Buffer.alloc(photoBytes, 0x7f),
     Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
   ]);
+}
+
+/** How many photos the admin panel actually draws as pixels on a render. */
+function drawnPhotos(html: string): number {
+  return (html.match(/src="\/admin\/photos\//g) ?? []).length;
 }
 
 describe('the stored care photo', () => {
@@ -397,5 +403,59 @@ describe('renaming the bed from the steward view', () => {
     expect(empty.headers.get('location')).toBe(`/t/${TAG}/mine?rename=empty`);
 
     expect((await storedData()).beds[PLATE]!.bedName).toBe('La Madrina de Harlem');
+  });
+});
+
+describe('the bed’s earlier photos', () => {
+  it('draws the most recent few and puts the rest behind a link that needs no script', async () => {
+    const steward = await stewardCookie();
+    const clear = async (): Promise<void> => {
+      const closed = await fetch(`${origin}/t/${TAG}/clear`, {
+        method: 'POST',
+        headers: { origin, cookie: steward },
+        redirect: 'manual',
+      });
+      expect(closed.status).toBe(303);
+    };
+    const fileWithPhoto = async (): Promise<void> => {
+      const filed = await fetch(`${origin}/t/${TAG}/report`, {
+        method: 'POST',
+        headers: {
+          'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
+          origin,
+          cookie: await visitorCookie(),
+        },
+        body: new Uint8Array(photoReportBody('litter', 512)),
+        redirect: 'manual',
+      });
+      expect(filed.status).toBe(303);
+    };
+
+    // Every photo on the bed into the history: a photo stays with its report,
+    // and a closed report's photos are what the panel caps.
+    await clear();
+    for (let i = 0; i < ADMIN_EARLIER_PHOTOS_SHOWN; i += 1) {
+      await fileWithPhoto();
+      await clear();
+    }
+    const earlier = (await storedData()).photos.length;
+    expect(earlier).toBeGreaterThan(ADMIN_EARLIER_PHOTOS_SHOWN);
+
+    const cookie = await adminCookie();
+    const capped = await (
+      await fetch(`${origin}${DEMO_BLOCK_PATH}?bed=${PLATE}`, { headers: { cookie } })
+    ).text();
+    expect(drawnPhotos(capped)).toBe(ADMIN_EARLIER_PHOTOS_SHOWN);
+    expect(capped).toContain('Show older photos');
+    expect(capped).toContain('photos=all');
+
+    // The reveal is a plain link the server reads, and every photo it draws
+    // keeps its delete: moderation does not expire with the cap.
+    const all = await (
+      await fetch(`${origin}${DEMO_BLOCK_PATH}?bed=${PLATE}&photos=all`, { headers: { cookie } })
+    ).text();
+    expect(drawnPhotos(all)).toBe(earlier);
+    expect(all.match(/delete-photo\?photo=/g) ?? []).toHaveLength(earlier);
+    expect(all).not.toContain('Show older photos');
   });
 });

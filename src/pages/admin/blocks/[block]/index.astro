@@ -33,6 +33,7 @@ import { MAX_NOTE_CHARS, problemFor } from '../../../../lib/problem';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
 import { capped } from '../../../../lib/typed-text';
 import {
+  ADMIN_EARLIER_PHOTOS_SHOWN,
   MAX_ADDRESS_CHARS,
   MAX_BED_NOTE_CHARS,
   MAX_BED_SLOTS,
@@ -357,9 +358,18 @@ const openReport = selected?.openReport
 const openReportPhotos = (selected?.photos ?? []).filter(
   (p) => selected?.openReport !== null && p.reportId === selected?.openReport?.id,
 );
-const earlierPhotos = (selected?.photos ?? []).filter(
+const allEarlierPhotos = (selected?.photos ?? []).filter(
   (p) => selected?.openReport === null || p.reportId !== selected?.openReport?.id,
 );
+// Capped at the most recent few unless the captain asked for the rest: the
+// history has no pruning behind it, and every photo drawn is a full download
+// through the function. The reveal is a query param the server reads, so it
+// works with no script like every other state on this page.
+const showAllPhotos = Astro.url.searchParams.get('photos') === 'all';
+const earlierPhotos = showAllPhotos
+  ? allEarlierPhotos
+  : allEarlierPhotos.slice(0, ADMIN_EARLIER_PHOTOS_SHOWN);
+const olderPhotosHidden = allEarlierPhotos.length - earlierPhotos.length;
 
 // What the panel's three-way rows stand at right now: the pick a refused save
 // left on the page, otherwise the record. The badge, the sub-line and the
@@ -737,6 +747,15 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                     {ADMIN.photosEarlierNote[lang]}
                   </div>
                   <AdminPhotoGrid photos={earlierPhotos} base={base} lang={lang} />
+                  {olderPhotosHidden > 0 && (
+                    <a
+                      class="photos-older"
+                      href={langLink(`${base}?bed=${selected.bed.plate}&photos=all`, lang)}
+                      {...bi(ADMIN.photosShowOlder, lang)}
+                    >
+                      {ADMIN.photosShowOlder[lang]}
+                    </a>
+                  )}
                 </>
               )}
 
@@ -1340,6 +1359,15 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   /* Stored care photos are their own component (AdminPhotoGrid), styles
      included; this is only the heading above the history section. */
   .photos-head { margin-top: 18px; }
+  .photos-older {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--theme-action);
+    text-decoration: none;
+  }
   .profile-head { margin-top: 22px; }
   .note-field { margin: 12px 0 4px; }
   .note-field .freetext { min-height: 0; }

@@ -212,6 +212,16 @@ export function photoRendersInline(contentType: string): boolean {
   return stored !== 'application/octet-stream' && stored !== 'image/heic' && stored !== 'image/heif';
 }
 
+/**
+ * How many of a bed's EARLIER photos the admin panel draws before the rest
+ * are behind a link. Nothing prunes stored photos, so a bed's history grows
+ * for the life of the pilot, and every one of them is a full-resolution image
+ * served `no-store` — unbounded, opening that panel on a sidewalk gets slower
+ * every week. The OPEN report's photos are never capped: those are the ones
+ * the captain opened the panel to act on.
+ */
+export const ADMIN_EARLIER_PHOTOS_SHOWN = 6;
+
 export interface ProblemInput {
   plate: string;
   actorId: string;

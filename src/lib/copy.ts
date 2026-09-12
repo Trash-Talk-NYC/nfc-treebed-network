@@ -657,6 +657,12 @@ export const ADMIN = {
     en: 'From reports since closed — kept with the bed’s record.',
     es: 'De reportes ya cerrados; se conservan con el registro del cantero.',
   },
+  /**
+   * The history is capped at the most recent few so a bed with a long pilot
+   * behind it still opens on a phone; this link is the rest of it, and it is
+   * a link because every other state on this page is one.
+   */
+  photosShowOlder: { en: 'Show older photos', es: 'Ver fotos anteriores' },
   /** The panel's way into the delete confirmation — never the delete itself. */
   deletePhotoLink: { en: 'DELETE PHOTO', es: 'ELIMINAR FOTO' },
   deletePhotoTitle: { en: 'Delete this photo', es: 'Eliminar esta foto' },
