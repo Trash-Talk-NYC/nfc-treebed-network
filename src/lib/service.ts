@@ -1507,9 +1507,10 @@ export async function carryStewardByAdmin(
  * the admin never touched still arrives filled, which without this would read
  * as a human's name and pin the old species' Spanish to a corrected English
  * one ("red maple" / "roble sauce" on the neighbour's own street). So a typed
- * Spanish name that is exactly what the table itself gave the OLD English
- * name is the table's answer, not a person's, and re-derives from the new
- * name; anything a human actually wrote survives the correction untouched.
+ * Spanish name that is exactly what THIS function gave the OLD English name
+ * — the table's name, or the generic "árbol" where the table had none — is
+ * our own answer, not a person's, and re-derives from the new name; anything
+ * a human actually wrote survives the correction untouched.
  */
 export function resolveSpecies(
   typed: { en: string; es: string },
@@ -1521,13 +1522,18 @@ export function resolveSpecies(
   const en = lowercaseFirst(capped(typed.en, MAX_TREE_TYPE_CHARS));
   if (en === '') return null;
   const typedEs = capped(typed.es, MAX_TREE_TYPE_CHARS);
-  const carriedTableDefault =
-    typedEs !== '' && stored != null && tableSpeciesCasingFor(stored.en, typedEs) !== null;
+  // What we ourselves would have written for the species the bed holds —
+  // the table's name, or the generic word where the table has none. Both are
+  // ours, so neither is a human's translation to protect.
+  const carriedOwnDefault =
+    typedEs !== '' &&
+    stored != null &&
+    typedEs.toLowerCase() === (spanishSpeciesFor(stored.en) ?? GENERIC_TREE.es).toLowerCase();
   // A typed name that is the table's own modulo casing is the table's, so it
   // is stored the way the door frame needs it; anything else is a name and
   // keeps every character the admin typed.
   const es =
-    typedEs !== '' && !carriedTableDefault
+    typedEs !== '' && !carriedOwnDefault
       ? (tableSpeciesCasingFor(en, typedEs) ?? typedEs)
       : (spanishSpeciesFor(en) ?? GENERIC_TREE.es);
   return { en, es };

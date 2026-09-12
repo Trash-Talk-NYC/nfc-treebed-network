@@ -87,8 +87,8 @@ describe('the six real beds on W 171st', () => {
     expect(view!.block.demo).toBe(false);
     expect(view!.beds.map((b) => b.bed.blockPosition)).toEqual([1, 2, 3, 4, 5, 6]);
     const species = view!.beds.map((b) => b.bed.treeType!.en);
-    expect(species.filter((s) => s === 'Willow oak')).toHaveLength(5);
-    expect(species.filter((s) => s === 'White oak')).toHaveLength(1);
+    expect(species.filter((s) => s === 'willow oak')).toHaveLength(5);
+    expect(species.filter((s) => s === 'white oak')).toHaveLength(1);
   });
 
   it('carries a resolved NYC planting space on every bed, each a distinct record', async () => {
@@ -1091,6 +1091,33 @@ describe('the panel’s species row', () => {
       bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Dragon tree', es: 'arce rojo' } }),
     });
     expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('árbol');
+  });
+
+  it('re-derives the generic Spanish word when an unknown species is corrected', async () => {
+    const store = freshStore();
+    // Honeylocust is deliberately absent from the table (its accepted Spanish
+    // names are feminine), so the bed stores the generic word.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Honeylocust', es: '' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      en: 'honeylocust',
+      es: 'árbol',
+    });
+
+    // "árbol" is our own word, not a person's, so the pre-filled field must
+    // not pin the generic wording to a species the table does know.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Willow oak', es: 'árbol' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      en: 'willow oak',
+      es: 'roble sauce',
+    });
   });
 
   it('keeps a human-typed Spanish name across an English correction', async () => {

@@ -135,8 +135,8 @@ export function w171Beds(): Bed[] {
     plantingSpaceId: args.plantingSpaceId,
     plantingSpaceGlobalId: args.plantingSpaceGlobalId,
     treeType: args.whiteOak
-      ? { en: 'White oak', es: 'roble blanco' }
-      : { en: 'Willow oak', es: 'roble sauce' },
+      ? { en: 'white oak', es: 'roble blanco' }
+      : { en: 'willow oak', es: 'roble sauce' },
     treeId: args.treeId,
     bedName: null,
     tagUid: '',

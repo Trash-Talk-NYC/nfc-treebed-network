@@ -175,27 +175,33 @@ export async function carrySteward(port: CarryPort, args: CarryArgs): Promise<Ad
  * cannot load (see the header).
  */
 export function dataCarryPort(data: {
-  beds: Record<string, Bed>;
-  adoptions: Adoption[];
-  events: BedEvent[];
+  beds?: Record<string, Bed>;
+  adoptions?: Adoption[];
+  events?: BedEvent[];
 }): CarryPort {
+  // A raw revision predating a collection is a shape to refuse in words, not
+  // one to throw a bare TypeError from — the same reason
+  // `ensureCheckedInRecords` fills in the beds and blocks it is handed.
+  const beds = (data.beds ??= {});
+  const adoptions = (data.adoptions ??= []);
+  const events = (data.events ??= []);
   return {
     async getBed(plate) {
-      return data.beds[plate] ?? null;
+      return beds[plate] ?? null;
     },
     async getActiveAdoptions(bedPlate) {
-      return data.adoptions.filter((a) => a.bedPlate === bedPlate && a.releasedAt === null);
+      return adoptions.filter((a) => a.bedPlate === bedPlate && a.releasedAt === null);
     },
     async updateAdoption(adoption) {
-      const i = data.adoptions.findIndex((a) => a.id === adoption.id);
+      const i = adoptions.findIndex((a) => a.id === adoption.id);
       if (i === -1) throw new Error(`Adoption not found: ${adoption.id}`);
-      data.adoptions[i] = adoption;
+      adoptions[i] = adoption;
     },
     async createAdoption(adoption) {
-      data.adoptions.push(adoption);
+      adoptions.push(adoption);
     },
     async appendEvent(event) {
-      data.events.push(event);
+      events.push(event);
     },
   };
 }

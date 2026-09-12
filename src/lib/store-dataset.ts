@@ -260,7 +260,7 @@ export function seedData(): Data {
       // block this bed sits in.
       plantingSpaceId: '15850293',
       plantingSpaceGlobalId: null,
-      treeType: { en: 'Willow oak', es: 'roble sauce' },
+      treeType: { en: 'willow oak', es: 'roble sauce' },
       treeId: '08-4211',
       bedName: null,
       tagUid: '04:A2:2F:9C',
