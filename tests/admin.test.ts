@@ -805,7 +805,7 @@ describe('deleting a bed', () => {
     const outcome = await reportProblem(store, {
       plate: W171_PLATE,
       actorId: 'visitor-1',
-      category: 'litter',
+      categories: ['litter'],
       note: '',
       photoAttached: false,
     });
@@ -855,7 +855,7 @@ describe('deleting a bed', () => {
       reportProblem(store, {
         plate: W171_PLATE,
         actorId: 'visitor-1',
-        category: 'litter',
+        categories: ['litter'],
         note: '',
         photoAttached: false,
       }),
@@ -921,7 +921,7 @@ describe('restoring a deleted bed', () => {
     const outcome = await reportProblem(store, {
       plate: W171_PLATE,
       actorId: 'visitor-1',
-      category: 'litter',
+      categories: ['litter'],
       note: '',
       photoAttached: false,
     });
