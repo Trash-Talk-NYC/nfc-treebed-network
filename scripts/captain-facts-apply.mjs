@@ -56,9 +56,14 @@ export function fillCaptainFacts(data) {
     }
     for (const field of CAPTAIN_FACT_FIELDS) {
       const current = stored[field] ?? null;
-      if (current === null) {
-        stored[field] = seed[field];
-        changes.push({ plate, field, to: seed[field] });
+      const stated = seed[field] ?? null;
+      if (stated === null) {
+        // The seed asserts nothing here either, so there is nothing to fill:
+        // writing null over null would still commit a whole-dataset revision.
+        kept.push({ plate, field, reason: 'the checked-in seed states no fact' });
+      } else if (current === null) {
+        stored[field] = stated;
+        changes.push({ plate, field, to: stated });
       } else {
         kept.push({ plate, field, reason: `already ${JSON.stringify(current)} — somebody has said` });
       }

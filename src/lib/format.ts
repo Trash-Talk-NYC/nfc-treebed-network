@@ -53,7 +53,7 @@ export function bedCountLabel(count: number): Phrase {
 
 /**
  * The species a screen prints inside a sentence frame, for a bed whose
- * species may be NOT YET RECORDED (`Bed.treeType` null — the 22 captain-run
+ * species may be NOT YET RECORDED (`Bed.treeType` null — the 20 fresh captain-run
  * beds seed that way). The generic tree is the degrade, never a guessed
  * species: the door frames stay whole sentences in both languages ("This
  * tree's bed is looking for a steward." / "El cantero de este árbol busca

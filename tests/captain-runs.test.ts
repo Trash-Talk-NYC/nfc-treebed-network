@@ -1,7 +1,9 @@
-// The captain's three named runs and their 22 beds (store-dataset.ts,
-// `captainRunBeds`), as of his 2026-09-12 decision. What these hold:
+// The captain's three named runs and their 22 bed ids — 20 fresh beds from
+// `captainRunBeds` plus `8NHFW171`/`9NHFW171`, which he renamed onto the
+// existing `BED-WH-1713`/`BED-WH-1712` (store-dataset.ts), as of his
+// 2026-09-12 decision. What these hold:
 //
-//  - the bed id IS his id — plate `1E170171HFW` and its 21 siblings — and
+//  - the bed id IS his id — plate `1E170171HFW` and its fresh siblings — and
 //    every bed opens for adoption, because "just want to get this ready for
 //    people to adopt and name";
 //  - everything else seeds UNASSERTED: NYC identifiers null, the species and

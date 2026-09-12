@@ -513,7 +513,7 @@ describe('the steward carry remediation', () => {
 
   it('finds a run bed the live store has not persisted yet', async () => {
     // The day-one shape: the pilot store was seeded before the named runs
-    // existed, so its newest revision holds none of the 22 — they are
+    // existed, so its newest revision holds none of the fresh run beds — they are
     // checked-in records every load would insert, and a commit is what
     // finally persists them. The script applies that same insert-only pass,
     // so the captain's own target is found rather than refused as a typo.

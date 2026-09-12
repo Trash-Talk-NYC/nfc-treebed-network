@@ -102,11 +102,19 @@ export interface DigestContent {
 /**
  * The steward's-view path for a bed, through the tag registry: beds are
  * reached by tag, and a bed whose guard (and tag) is not in yet simply has
- * no URL to offer. One find is the whole lookup — an active row for this
- * plate, which is exactly what a tag bound to the bed means.
+ * no URL to offer. A plate can carry SEVERAL active rows — the captain's
+ * rename left `8NHFW171`/`9NHFW171` bound beside the opaque tags they
+ * supersede, and a replacement for a stolen tag is bound beside the row it
+ * replaces until somebody retires it — so the MOST RECENTLY BOUND active row
+ * wins: the newest tag is the bed's current address, and the older URL keeps
+ * resolving for whoever already holds it.
  */
 function mineLink(plate: string, lang: Lang, bindings: readonly TagBinding[]): string | null {
-  const bound = bindings.find((b) => b.sitePlate === plate && b.retiredAt === null);
+  let bound: TagBinding | null = null;
+  for (const candidate of bindings) {
+    if (candidate.sitePlate !== plate || candidate.retiredAt !== null) continue;
+    if (!bound || candidate.boundAt > bound.boundAt) bound = candidate;
+  }
   return bound ? langLink(`/t/${bound.tagId}/mine`, lang) : null;
 }
 

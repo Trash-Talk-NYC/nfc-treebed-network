@@ -40,7 +40,8 @@ beforeAll(async () => {
   });
   if (built.status !== 0) throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
 
-  // The plain seed: the 22 run beds exactly as a fresh (or additively
+  // The plain seed: the 20 fresh run beds — and the two older beds the
+  // captain renamed onto N-run ids — exactly as a fresh (or additively
   // upgraded) store holds them.
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-named-'));
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {

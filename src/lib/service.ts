@@ -695,10 +695,11 @@ async function checkAdoptPreconditions(store: Store, plate: string): Promise<voi
   // the captain has actually OFFERED on the admin page (`Bed.offeredSlots`).
   // A bed with a slot built but not offered refuses exactly like a full one —
   // the admin switch is a rule here, not a display state, because anything
-  // enforced only by a screen is editable in devtools (spec §7). The four
-  // opaque W 171st tags point at unoffered beds today, so their doors withhold
-  // the invitation rather than offering a form this would then refuse; the
-  // captain's 22 named-run beds each open with their one slot offered.
+  // enforced only by a screen is editable in devtools (spec §7). Two of the
+  // four opaque W 171st tags point at unoffered beds today, so their doors
+  // withhold the invitation rather than offering a form this would then
+  // refuse; the captain's named-run beds — the two older beds he renamed onto
+  // N-run ids included — each open with their one slot offered.
   if (active.length >= Math.min(bed.slots, bed.offeredSlots)) {
     throw new RuleError('slots-full', `${plate} has no offered slot open`);
   }

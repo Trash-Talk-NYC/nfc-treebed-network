@@ -1060,7 +1060,7 @@ describe('restoring a deleted bed', () => {
 });
 
 describe('the panel’s species row', () => {
-  // The 22 named-run beds seed with no species at all (checked-in-beds.ts,
+  // The 20 fresh named-run beds seed with no species at all (checked-in-beds.ts,
   // "i will update it to match NYC parks"), so this row is the only way the
   // captain records one — and it must read like the add-bed form, because
   // both go through `resolveSpecies`.

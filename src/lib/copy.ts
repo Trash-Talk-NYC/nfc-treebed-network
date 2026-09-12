@@ -231,7 +231,7 @@ export const ABOUT = {
   title: { en: 'About this bed', es: 'Sobre este cantero' },
   treeLabel: { en: 'Tree', es: 'Árbol' },
   /**
-   * `Bed.treeType` null — the species is NOT YET RECORDED (the 22 captain-run
+   * `Bed.treeType` null — the species is NOT YET RECORDED (the 20 fresh captain-run
    * beds seed that way, until he fills them in from NYC Parks' data). Stated
    * here rather than degraded to the generic "tree": this row asserts what
    * the species IS, and "Tree" under the label "Tree" would read as an
@@ -574,7 +574,8 @@ export const ADMIN = {
   /**
    * The panel's species row. Typed rather than three-way, because a species
    * is a name and not a yes/no: a bed whose species nobody has recorded (the
-   * 22 named-run beds seed that way — "i will update it to match NYC parks")
+   * 20 fresh named-run beds seed that way — "i will update it to match NYC
+   * parks"; the two the captain renamed onto existing beds keep theirs)
    * shows the NOT SET mark and both doors keep their generic tree until the
    * captain types it here. Clearing the English field is what takes it back.
    */
