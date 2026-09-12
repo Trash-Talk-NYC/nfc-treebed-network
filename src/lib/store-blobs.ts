@@ -62,6 +62,7 @@ import type {
   Block,
   NetworkSettings,
   Report,
+  SignInMissWindow,
   SignInRequest,
   SignInToken,
   User,
@@ -485,6 +486,14 @@ export class BlobsStore implements Store {
 
   async deleteSignInRequestsBefore(cutoff: string): Promise<void> {
     await this.transaction((tx) => tx.deleteSignInRequestsBefore(cutoff));
+  }
+
+  async getSignInMissWindow(bedPlate: string): Promise<SignInMissWindow | null> {
+    return ops.getSignInMissWindow((await this.load()).data, bedPlate);
+  }
+
+  async putSignInMissWindow(window: SignInMissWindow): Promise<void> {
+    await this.transaction((tx) => tx.putSignInMissWindow(window));
   }
 
   async getNetworkSettings(): Promise<NetworkSettings> {

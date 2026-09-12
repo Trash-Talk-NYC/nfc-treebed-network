@@ -345,6 +345,28 @@ export interface SignInRequest {
   resolved: boolean;
 }
 
+/**
+ * How many requests one bed's auth screen has taken in the current window that
+ * resolved to nobody — one row per bed, rewritten in place.
+ *
+ * It exists because the per-bed send cap counts only requests that resolved
+ * (`MAX_SIGNIN_REQUESTS_PER_BED`), which leaves the misses bounded per address
+ * but not per bed: a script cycling fresh addresses trips no cap and every one
+ * of its requests is a full commit on the Blobs backend. This counter is what
+ * bounds those writes (`MAX_SIGNIN_MISSES_PER_BED`), and it is a counter rather
+ * than the ledger's own rows so what gates the writes can never be the thing
+ * the writes grow.
+ *
+ * A tumbling window, not a sliding one: `windowStart` is when counting began
+ * and the row is started afresh once it is a whole `SIGNIN_RATE_WINDOW_MS` old.
+ */
+export interface SignInMissWindow {
+  bedPlate: string;
+  /** ISO instant the current window began. */
+  windowStart: string;
+  count: number;
+}
+
 /** How a steward came to be on the bed. The admin page shows this; the public screens do not. */
 export type StewardKind = 'nfc' | 'pen-and-paper';
 

@@ -13,6 +13,7 @@ import type {
   Block,
   NetworkSettings,
   Report,
+  SignInMissWindow,
   SignInRequest,
   SignInToken,
   User,
@@ -31,6 +32,8 @@ export interface Data {
   signInTokens: SignInToken[];
   /** The sign-in rate limit's sliding window (types.ts `SignInRequest`). */
   signInRequests: SignInRequest[];
+  /** Per-bed unresolved sign-in attempts this window (types.ts `SignInMissWindow`). */
+  signInMisses: Record<string, SignInMissWindow>;
   /** Network-wide settings the block admin edits. */
   settings: NetworkSettings;
 }
@@ -58,10 +61,12 @@ export function normalizeData(data: Data): Data {
   // until he picks a frequency on the admin index.
   data.signInTokens ??= [];
   data.signInRequests ??= [];
-  // `resolved` arrived with the per-bed cap's availability fix. A row written
-  // before it counted against that cap, so it keeps doing so; no migration is
-  // owed either way, because the ledger holds one SIGNIN_RATE_WINDOW_MS and
-  // deletes its own past on the next request.
+  data.signInMisses ??= {};
+  // `resolved` and `signInMisses` arrived with the per-bed cap's availability
+  // fix. A row written before it counted against that cap, so it keeps doing
+  // so; no migration is owed either way, because the ledger holds one
+  // SIGNIN_RATE_WINDOW_MS and deletes its own past on the next request, and an
+  // absent miss counter simply starts the bed's first window.
   for (const request of data.signInRequests) request.resolved ??= true;
   data.settings ??= { digestCadence: 'off' };
   data.settings.digestCadence ??= 'off';
@@ -460,6 +465,7 @@ export function seedData(): Data {
     reportCounter: 2216,
     signInTokens: [],
     signInRequests: [],
+    signInMisses: {},
     // OFF until the captain turns it on in the block admin — his explicit
     // "do not send anything". The cadence choices exist; the default mails
     // nobody.
@@ -612,6 +618,12 @@ export const ops = {
   deleteSignInRequestsBefore(data: Data, cutoff: string): void {
     data.signInRequests = data.signInRequests.filter((r) => r.requestedAt >= cutoff);
   },
+  getSignInMissWindow(data: Data, bedPlate: string): SignInMissWindow | null {
+    return detach(data.signInMisses[bedPlate] ?? null);
+  },
+  putSignInMissWindow(data: Data, window: SignInMissWindow): void {
+    data.signInMisses[window.bedPlate] = detach(window);
+  },
   getNetworkSettings(data: Data): NetworkSettings {
     return detach(data.settings);
   },
@@ -759,6 +771,14 @@ export class TransactionStore implements Store {
 
   async deleteSignInRequestsBefore(cutoff: string): Promise<void> {
     ops.deleteSignInRequestsBefore(this.data, cutoff);
+  }
+
+  async getSignInMissWindow(bedPlate: string): Promise<SignInMissWindow | null> {
+    return ops.getSignInMissWindow(this.data, bedPlate);
+  }
+
+  async putSignInMissWindow(window: SignInMissWindow): Promise<void> {
+    ops.putSignInMissWindow(this.data, window);
   }
 
   async getNetworkSettings(): Promise<NetworkSettings> {

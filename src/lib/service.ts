@@ -6,7 +6,18 @@
 
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { Store } from './store';
-import type { Adoption, Bed, BedEvent, Block, GuardMaterial, Report, Severity, SignInToken, User } from './types';
+import type {
+  Adoption,
+  Bed,
+  BedEvent,
+  Block,
+  GuardMaterial,
+  Report,
+  Severity,
+  SignInMissWindow,
+  SignInToken,
+  User,
+} from './types';
 import type { Lang } from './i18n';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
@@ -686,6 +697,38 @@ export const MAX_SIGNIN_REQUESTS_PER_EMAIL = 3;
 export const MAX_SIGNIN_REQUESTS_PER_BED = 12;
 
 /**
+ * Unresolved requests one bed's auth screen may WRITE per window
+ * (`SignInMissWindow`), which is the bound the resolved-only cap above leaves
+ * open: the per-email cap resets with every fresh address, so a script cycling
+ * addresses trips neither cap, and on the Blobs backend each of its requests is
+ * a whole-dataset re-serialization plus a revision with KEPT_REVISIONS copies
+ * trailing it. Two hundred is far above what a street ever produces by mistake
+ * and far below what makes the store's write path a lever.
+ *
+ * It bounds the WRITES rather than the answers: past the ceiling an unresolved
+ * request still gets the same "check your inbox" an unresolved request always
+ * got — it simply records nothing, so nothing a stranger can do to this screen
+ * stops a real steward's link (the availability half of the trade above) or
+ * grows the dataset.
+ *
+ * Residual, accepted: a request past the ceiling makes no commit and is
+ * therefore measurably faster, so the ceiling is a timing signal for "this bed
+ * has taken 200 misses this hour" — which is a fact about the bed, not about
+ * any address, and so says nothing about who is on the network. It sits in the
+ * same accepted tier as the mail call a resolved request makes, and the answer
+ * itself stays byte-identical.
+ */
+export const MAX_SIGNIN_MISSES_PER_BED = 200;
+
+/**
+ * Domain separation for the ledger's MAC, the same way `unsubscribeMac` and
+ * the session cookies label theirs: one construction's output over the shared
+ * secret must never be usable as another's. Changing it re-keys the ledger,
+ * which needs no migration for the reason above — the rows live one window.
+ */
+const SIGNIN_EMAIL_MAC_PURPOSE = 'signin-email:';
+
+/**
  * The rate-limit ledger's key for an address: an HMAC-SHA-256 of the
  * lowercased email, hex, keyed by the server's signing secret.
  *
@@ -703,7 +746,7 @@ export const MAX_SIGNIN_REQUESTS_PER_BED = 12;
  */
 export function hashSignInEmail(email: string): string {
   return createHmac('sha256', signingSecret())
-    .update(email.trim().toLowerCase())
+    .update(`${SIGNIN_EMAIL_MAC_PURPOSE}${email.trim().toLowerCase()}`)
     .digest('hex');
 }
 
@@ -724,6 +767,27 @@ export type SignInLinkOutcome =
   | { kind: 'unknown-email' };
 
 /**
+ * The ceiling's control signal. Not a `RuleError`: nothing about it reaches a
+ * caller — it exists only to leave the transaction without committing, and
+ * `requestSignInLink` turns it back into the ordinary unknown-email answer.
+ */
+class SignInMissCeiling extends Error {}
+
+/** This bed's miss counter with this attempt added, starting a fresh window
+ * once the stored one is a whole `SIGNIN_RATE_WINDOW_MS` old. */
+function countedMiss(
+  stored: SignInMissWindow | null,
+  bedPlate: string,
+  now: Date,
+): SignInMissWindow {
+  const current =
+    stored !== null && now.getTime() - Date.parse(stored.windowStart) < SIGNIN_RATE_WINDOW_MS
+      ? stored
+      : { bedPlate, windowStart: now.toISOString(), count: 0 };
+  return { bedPlate, windowStart: current.windowStart, count: current.count + 1 };
+}
+
+/**
  * "Email me a sign-in link", decided.
  *
  * One transaction: the rate-limit window slides, the caps are checked, the
@@ -736,8 +800,10 @@ export type SignInLinkOutcome =
  * for the same reason: both paths make the same writes, so the response
  * cannot say which one ran. What the row RECORDS differs (`resolved`), and
  * only the per-bed cap reads it, so a stranger's misses cannot spend the
- * budget a real steward needs. What still differs is the mail call the route
- * makes for a real steward, a residual timing signal noted on the route.
+ * budget a real steward needs. What bounds the misses' own writes is the
+ * per-bed miss ceiling (`MAX_SIGNIN_MISSES_PER_BED`), which changes what is
+ * recorded and never what is answered. What still differs is the mail call the
+ * route makes for a real steward, a residual timing signal noted on the route.
  *
  * The raw token is returned to the caller for the one journey it exists for
  * — into the emailed link — and is never stored or logged anywhere.
@@ -750,6 +816,25 @@ export async function requestSignInLink(
   const nowIso = now.toISOString();
   const email = args.email.trim().slice(0, MAX_EMAIL_CHARS);
   const emailHash = hashSignInEmail(email);
+  try {
+    return await runSignInLinkRequest(store, { ...args, now, nowIso, email, emailHash });
+  } catch (err) {
+    // The ceiling is not a refusal: an unresolved address has always been
+    // answered "check your inbox" with nothing sent, and that must not change
+    // just because this bed has taken a lot of misses this hour.
+    if (err instanceof SignInMissCeiling) return { kind: 'unknown-email' };
+    throw err;
+  }
+}
+
+/** The transaction `requestSignInLink` runs, split out only so the ceiling's
+ * control signal can be caught outside it — throwing is what keeps the
+ * over-ceiling attempt from committing. */
+async function runSignInLinkRequest(
+  store: Store,
+  args: { plate: string; email: string; emailHash: string; now: Date; nowIso: string },
+): Promise<SignInLinkOutcome> {
+  const { now, nowIso, email, emailHash } = args;
   return store.transaction(async (tx) => {
     const windowStart = new Date(now.getTime() - SIGNIN_RATE_WINDOW_MS).toISOString();
     // Housekeeping on the way past, in the same commit: the ledger holds one
@@ -769,10 +854,20 @@ export async function requestSignInLink(
       throw new RuleError('rate-limited', 'Too many sign-in link requests');
     }
     // The lookup happens before the row is written so the row can record which
-    // kind this was — but BOTH kinds write exactly one row, so nothing about
-    // the sequence of store calls differs between them.
+    // kind this was — but under the miss ceiling BOTH kinds write exactly one
+    // row, so nothing about the sequence of store calls differs between them.
     const user = await tx.getUserByEmail(email);
     const resolved = user !== null && user.hasSignInRoute;
+    if (!resolved) {
+      // Past the ceiling this request writes nothing at all — which has to
+      // mean leaving the transaction by throwing, because a commit happens on
+      // the way out of the callback whether or not it wrote anything, and a
+      // commit is the cost being bounded. The sentinel is caught below and
+      // answered exactly as any unresolved address is.
+      const counted = countedMiss(await tx.getSignInMissWindow(args.plate), args.plate, now);
+      if (counted.count > MAX_SIGNIN_MISSES_PER_BED) throw new SignInMissCeiling();
+      await tx.putSignInMissWindow(counted);
+    }
     await tx.appendSignInRequest({ emailHash, bedPlate: args.plate, requestedAt: nowIso, resolved });
     if (!resolved || !user) return { kind: 'unknown-email' };
     const token = randomBytes(32).toString('base64url');

@@ -37,6 +37,7 @@ import type {
   NetworkSettings,
   Report,
   Severity,
+  SignInMissWindow,
   SignInRequest,
   SignInToken,
   User,
@@ -118,13 +119,29 @@ export interface Store {
   appendSignInRequest(request: SignInRequest): Promise<void>;
   /** Housekeeping: drop rows older than the rate-limit window. */
   deleteSignInRequestsBefore(cutoff: string): Promise<void>;
+  /** The bed's unresolved-attempt counter for the current window, if any. */
+  getSignInMissWindow(bedPlate: string): Promise<SignInMissWindow | null>;
+  /** Write the bed's counter, replacing whatever window it held. */
+  putSignInMissWindow(window: SignInMissWindow): Promise<void>;
 
   // -- network settings (the admin's digest cadence) --------------------
   getNetworkSettings(): Promise<NetworkSettings>;
   updateNetworkSettings(settings: NetworkSettings): Promise<void>;
 }
 
-export type { Adoption, Bed, BedEvent, Block, NetworkSettings, Report, Severity, SignInRequest, SignInToken, User };
+export type {
+  Adoption,
+  Bed,
+  BedEvent,
+  Block,
+  NetworkSettings,
+  Report,
+  Severity,
+  SignInMissWindow,
+  SignInRequest,
+  SignInToken,
+  User,
+};
 
 let instance: Store | null = null;
 

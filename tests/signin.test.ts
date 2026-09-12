@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LocalStore } from '../src/lib/store-local';
 import {
+  MAX_SIGNIN_MISSES_PER_BED,
   MAX_SIGNIN_REQUESTS_PER_BED,
   MAX_SIGNIN_REQUESTS_PER_EMAIL,
   SIGNIN_TOKEN_TTL_MS,
@@ -196,6 +197,73 @@ describe('the rate limits, counted in the store', () => {
     }
     const sent = await requestSignInLink(store, { plate: PLATE, email: EMAIL });
     expect(sent.kind).toBe('sent');
+  });
+
+  it('stops writing once a bed has taken its ceiling of misses, and still answers the same', async () => {
+    // A script cycling fresh addresses trips neither cap — the per-email one
+    // resets with every address, the per-bed one counts only sends — so the
+    // miss ceiling is what stops each attempt from being another commit.
+    for (let i = 0; i < MAX_SIGNIN_MISSES_PER_BED; i += 1) {
+      const miss = await requestSignInLink(store, {
+        plate: PLATE,
+        email: `probe-${i}@example.com`,
+      });
+      expect(miss.kind).toBe('unknown-email');
+    }
+    const rawAtCeiling = readFileSync(storeFile, 'utf8');
+    const atCeiling = JSON.parse(rawAtCeiling) as {
+      signInRequests: unknown[];
+      signInMisses: Record<string, { count: number }>;
+    };
+    expect(atCeiling.signInRequests).toHaveLength(MAX_SIGNIN_MISSES_PER_BED);
+    expect(atCeiling.signInMisses[PLATE]!.count).toBe(MAX_SIGNIN_MISSES_PER_BED);
+
+    // Past it: the same answer an unresolved address always got, and not one
+    // byte more in the store.
+    const past = await requestSignInLink(store, { plate: PLATE, email: 'one-more@example.com' });
+    expect(past).toEqual({ kind: 'unknown-email' });
+    expect(readFileSync(storeFile, 'utf8')).toBe(rawAtCeiling);
+
+    // A real steward is untouched by any of it — which is the whole point of
+    // counting misses separately from sends.
+    const sent = await requestSignInLink(store, { plate: PLATE, email: EMAIL });
+    expect(sent.kind).toBe('sent');
+    // And their own cap is still their own: eleven more sends, then refused.
+    for (let i = 0; i < MAX_SIGNIN_REQUESTS_PER_EMAIL - 1; i += 1) {
+      expect((await requestSignInLink(store, { plate: PLATE, email: EMAIL })).kind).toBe('sent');
+    }
+    const mailboxes = await seedMailableUsers(3);
+    for (const email of mailboxes) {
+      for (let i = 0; i < MAX_SIGNIN_REQUESTS_PER_EMAIL; i += 1) {
+        expect((await requestSignInLink(store, { plate: PLATE, email })).kind).toBe('sent');
+      }
+    }
+    await expect(
+      requestSignInLink(store, { plate: PLATE, email: 'fresh@example.com' }),
+    ).rejects.toMatchObject({ code: 'rate-limited' });
+  });
+
+  it('counts the miss ceiling per bed, and starts a fresh window an hour on', async () => {
+    const noon = new Date('2026-09-11T12:00:00Z');
+    for (let i = 0; i < MAX_SIGNIN_MISSES_PER_BED; i += 1) {
+      await requestSignInLink(store, { plate: PLATE, email: `probe-${i}@example.com`, now: noon });
+    }
+    // Another bed's screen has its own counter.
+    await requestSignInLink(store, { plate: OTHER_PLATE, email: 'probe-x@example.com', now: noon });
+    const data = JSON.parse(readFileSync(storeFile, 'utf8')) as {
+      signInMisses: Record<string, { count: number }>;
+    };
+    expect(data.signInMisses[OTHER_PLATE]!.count).toBe(1);
+
+    const later = new Date(noon.getTime() + 61 * 60 * 1000);
+    await requestSignInLink(store, { plate: PLATE, email: 'probe-late@example.com', now: later });
+    const after = JSON.parse(readFileSync(storeFile, 'utf8')) as {
+      signInMisses: Record<string, { count: number; windowStart: string }>;
+    };
+    expect(after.signInMisses[PLATE]).toMatchObject({
+      count: 1,
+      windowStart: later.toISOString(),
+    });
   });
 
   it('records every request, resolved or not, so the write pattern tells nothing apart', async () => {
