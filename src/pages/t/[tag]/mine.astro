@@ -1,6 +1,6 @@
 ---
 // The steward's own view of their bed — the same bed, different verbs.
-// Streak and points render from stored values only; the earning rules are a
+// Points render from the stored value only; the earning rules are a
 // later task.
 //
 // Not part of the visitor tap flow. It is the one place in the build with a
@@ -8,7 +8,7 @@
 // steward of this bed (see clear.ts).
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
-import { getBedView, getOpenReportConfirms, hasPhotoThisWeek } from '../../../lib/service';
+import { getBedView, getOpenReportConfirms } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { capitalizeFirst, relativeAge, sinceLabel } from '../../../lib/format';
 import { bi } from '../../../lib/bilingual';
@@ -49,7 +49,6 @@ const treeTypeHeading = {
   es: capitalizeFirst(bed.treeType.es),
 };
 
-const photoLogged = await hasPhotoThisWeek(store, plate, me.id);
 // The picker is multi-select, so an open report names every tile the reporter
 // pressed; an old single-category row reads as a one-entry list (store-dataset).
 const openProblems = openReport ? openReport.categories.map(problemFor) : [];
@@ -184,17 +183,13 @@ const visibleStewards = stewards.filter(
         </div>
       )
     }
+    <div class="spacer" />
     <div class="stats">
-      <span>
-        <span class="stat">{me.streakWeeks}</span>{' '}
-        <span {...bi(MINE.streak, lang)}>{MINE.streak[lang]}</span>
-      </span>
       <span>
         <span class="stat">{me.points}</span>{' '}
         <span {...bi(MINE.points, lang)}>{MINE.points[lang]}</span>
       </span>
     </div>
-    <div class="spacer" />
     {
       openReport && (
         <form method="POST" action={langLink(`${base}/clear`, lang)}>
@@ -204,14 +199,6 @@ const visibleStewards = stewards.filter(
         </form>
       )
     }
-    <form method="POST" action={langLink(`${base}/photo`, lang)}>
-      <button
-        class="btn btn-tall btn-action"
-        type="submit"
-        {...bi(photoLogged ? MINE.photoIn : MINE.givePhoto, lang)}
-        >{(photoLogged ? MINE.photoIn : MINE.givePhoto)[lang]}</button
-      >
-    </form>
   </div>
 </Screen>
 
@@ -258,5 +245,4 @@ const visibleStewards = stewards.filter(
     text-align: center;
   }
   .stats .stat { font-size: 17px; font-weight: 700; color: var(--theme-ink); }
-  form + form { margin-top: -4px; }
 </style>

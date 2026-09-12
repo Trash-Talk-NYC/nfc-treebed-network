@@ -315,7 +315,7 @@ describe('a steward who asked not to be named', () => {
   it('still sees their own bed, and themselves on it', async () => {
     // Hiding is about the public screen. A steward who is invisible on the
     // sidewalk must not be invisible to themselves on the view that carries
-    // the clear button and the weekly photo.
+    // the clear button.
     const signedIn = await fetch(`${origin}/t/${TAG}/auth`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
@@ -334,6 +334,21 @@ describe('a steward who asked not to be named', () => {
     expect(html).toContain('marisol_r');
     expect(html).toContain('M. R.');
 
+    // The weekly-photo ask is gone from the steward's own screen (captain,
+    // 2026-09-11): no photo button, no photo-streak stat, in either language.
+    // Club points stay. The strings are literal because their copy keys went
+    // with the feature.
+    expect(html).not.toContain("GIVE THIS WEEK'S PHOTO");
+    expect(html).not.toContain('week photo streak');
+    expect(html).toContain('club points');
+    // And the route the button posted to is gone with it, not just unlinked.
+    const photoPost = await fetch(`${origin}/t/${TAG}/photo`, {
+      method: 'POST',
+      headers: { origin, cookie: cookie! },
+      redirect: 'manual',
+    });
+    expect(photoPost.status).toBe(404);
+
     // The species is stored in the casing the door sentence needs, and this
     // screen prints it standalone as its heading: capitalized here, lowercase
     // inside "El cantero de este roble sauce…" on the same bed's door.
@@ -348,7 +363,11 @@ describe('a steward who asked not to be named', () => {
     expect(titleOf(html)).toBe('YOUR BED · Willow oak');
     expect(titleOf(door)).toBe('Roble sauce · TRASH TALK NYC');
     const mineEs = await fetch(`${origin}/t/${TAG}/mine?lang=es`, { headers: { cookie: cookie! } });
-    expect(titleOf(await mineEs.text())).toBe('TU CANTERO · Roble sauce');
+    const htmlEs = await mineEs.text();
+    expect(titleOf(htmlEs)).toBe('TU CANTERO · Roble sauce');
+    // The Spanish render carries no weekly-photo ask either.
+    expect(htmlEs).not.toContain('SUBE LA FOTO DE ESTA SEMANA');
+    expect(htmlEs).not.toContain('semanas seguidas con foto');
     for (const [path, expected] of [
       ['care', '¿Qué pasa? · Roble sauce'],
       ['adopt', 'Pon tu nombre · Roble sauce'],

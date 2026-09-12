@@ -763,44 +763,6 @@ export async function signIn(
   });
 }
 
-/**
- * Log this week's photo, at most once per NY week — the rule lives here, not
- * in the route, so the check and the append can't be raced by a double tap.
- * Storage and point earning are out of MVP scope; only the event is kept.
- */
-export async function logPhoto(
-  store: Store,
-  args: { plate: string; actorId: string; now?: Date },
-): Promise<void> {
-  const now = args.now ?? new Date();
-  await store.transaction(async (tx) => {
-    if (await hasPhotoThisWeek(tx, args.plate, args.actorId, now)) return;
-    await appendEvent(tx, args.plate, 'photo', args.actorId, null, now);
-  });
-}
-
-/** Has this user logged a photo for this bed in the current NY ISO week? */
-export async function hasPhotoThisWeek(
-  store: Store,
-  plate: string,
-  actorId: string,
-  now: Date = new Date(),
-): Promise<boolean> {
-  const photos = await store.getEvents(plate, 'photo');
-  const week = nyIsoWeek(now);
-  return photos.some((e) => e.actorId === actorId && nyIsoWeek(new Date(e.createdAt)) === week);
-}
-
-function nyIsoWeek(date: Date): string {
-  // Week bucketing only needs to be stable, not ISO-8601-perfect: key on the
-  // Monday of the week in NY time.
-  const day = nyCalendarDay(date); // YYYY-MM-DD
-  const d = new Date(`${day}T00:00:00Z`);
-  const monday = new Date(d);
-  monday.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
-  return monday.toISOString().slice(0, 10);
-}
-
 // ── The block admin's rules ─────────────────────────────────────────────
 //
 // Server-side like every other rule, and behind the admin session at the

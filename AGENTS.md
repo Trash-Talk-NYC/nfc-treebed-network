@@ -123,7 +123,7 @@ Washington Heights is heavily Spanish-speaking.
   POSTs at an unbound tag are answered before any rule runs, and pay `abandonBody`'s bounded drain (`request-body.ts`) for the body on the way out:
   a body the app never touches is one Node dumps to its end for us, so refusing without reading is the expensive answer rather than the free one.
   `requireBoundTagForPost` / `requireBoundTagForForm` / `requireBoundTagForView` (`src/lib/tag-route.ts`) are what every route behind `/t/<tag>` resolves through, which is where that ordering is kept.
-  The four POST endpoints (`requireBoundTagForPost` — `report`, `applause`, `clear`, `photo`) answer 404 in plain text — nothing is submitting a form there.
+  The three POST endpoints (`requireBoundTagForPost` — `report`, `applause`, `clear`) answer 404 in plain text — nothing is submitting a form there.
   The screens (`requireBoundTagForForm` / `requireBoundTagForView`) send the visitor to the door screen instead, which answers 404 itself, so the calm screen lives in exactly one place: 302 for a GET, 303 for a POST at `adopt` or `auth`.
   An invalid ID — one no normalization can resolve — is 404 plain text everywhere, screens included: it is not on this network at all.
 
@@ -155,7 +155,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   `netlify blobs:get treebed rev/<n> | jq` covers the readability.
   Growth is still linear in lifetime taps — `events` is append-only with nothing pruning it — which is fine at pilot scale and is the thing to revisit (a separate append-only key, or sampling) before traffic accumulates.
 - **Business rules live in `src/lib/service.ts`, never in the store and never in the client.**
-  The per-bed slot cap (`min(slots, offeredSlots)`, and `slots` itself bounded by `MAX_BED_SLOTS`), one-report-per-person-per-bed-per-NY-day, single open report per bed, one applause per person per bed per NY day, escalate-to-dumping-once, one photo per NY week, the note cap, the typed-field caps (`MAX_NAME_CHARS` / `MAX_EMAIL_CHARS` / `MAX_ADDRESS_CHARS` / `MAX_TREE_TYPE_CHARS` / `MAX_BED_NAME_CHARS` / `MAX_BED_NOTE_CHARS`, trimmed rather than refused), first-steward bed naming, PIN hashing.
+  The per-bed slot cap (`min(slots, offeredSlots)`, and `slots` itself bounded by `MAX_BED_SLOTS`), one-report-per-person-per-bed-per-NY-day, single open report per bed, one applause per person per bed per NY day, escalate-to-dumping-once, the note cap, the typed-field caps (`MAX_NAME_CHARS` / `MAX_EMAIL_CHARS` / `MAX_ADDRESS_CHARS` / `MAX_TREE_TYPE_CHARS` / `MAX_BED_NAME_CHARS` / `MAX_BED_NOTE_CHARS`, trimmed rather than refused), first-steward bed naming, PIN hashing.
   Every typed field — the visitor's care note included (`noteFrom`) — goes through `capped` (`typed-text.ts`), which DROPS the bidirectional-format overrides — they are zero-width — and COLLAPSES control characters and whitespace runs to a single space before it trims and cuts — a hand-built POST is the only thing that can carry a U+202E into a field that renders as a leaf beside copy of ours, and a textarea's own CRLF must stay a gap between two words rather than glue them together.
   Anything in the browser is editable in devtools (spec §7).
 - **A rule that checks state before writing it runs inside `store.transaction()`, and reads and writes through the `tx` the callback is handed — never through the store it came from.**
@@ -217,7 +217,7 @@ A commit's own expired revision is deleted by key, since arithmetic already know
   Four bounds, because three rounds of review each found one of them missing somewhere: a byte cap per body, a time bound on *both* the accepted and the refused read, an in-flight byte budget across all reads at once, and the drain headroom below.
   A route bounds only the method it exports, so `src/middleware.ts` drains once after `next()` settles as the backstop for every route and every method — a no-op wherever the body was already read, and what covers the `PUT` at `/report` no route handler ever sees.
   It drains in a `finally`, so a route that throws is covered too: Astro turns the rejection into a 500 of its own, and the unread body has to be accounted for before that answer is written.
-  The four POST endpoints export `ALL = postOnly` (`tag-route.ts`) so an unhandled method is answered 405 rather than by Astro's own 404, which logs a line per request and would let an anonymous caller decide how much stderr it costs us.
+  The three POST endpoints export `ALL = postOnly` (`tag-route.ts`) so an unhandled method is answered 405 rather than by Astro's own 404, which logs a line per request and would let an anonymous caller decide how much stderr it costs us.
   One refusal is deliberately not ours: Astro's cross-origin guard runs ahead of our middleware and answers a form-content-type POST with a missing or mismatched `Origin` header 403 with the body unread.
   Taking that over would mean turning off `security.checkOrigin` and re-implementing CSRF ourselves to recover work spent on requests that were going to be refused anyway — accepted and recorded in the sweep comment instead.
 - **The photo cap is per target: 12MB on node, 4MB on netlify.**
@@ -337,7 +337,10 @@ A commit's own expired revision is deleted by key, since arithmetic already know
 - The block-over-time view, deliberately pulled from the visitor flow and kept admin-only.
 - The NYC Open Data sync itself.
   `Bed.nycSyncedAt` / `nycMissingSince` are the fields it will write.
-- Streak/points on the steward's own view render stored values only; nothing increments them yet.
+- Points on the steward's own view render the stored value only; nothing increments it yet.
+  The weekly-photo ask is REMOVED from that screen (captain, 2026-09-11): no photo button, no photo-streak stat, no `/photo` route.
+  `User.streakWeeks` and the `photo` event kind stay in the model as stored history — the ask left the screen, the record was not deleted.
+  The care report's optional photo attachment is a different feature and is untouched.
 
 ## The block admin (/admin)
 
@@ -382,7 +385,7 @@ The checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to
 It is not the only binding — four of the captain's real W 171st beds (`BED-WH-1711`…`1714`) carry real tags there too, so read `tag-bindings.ts` rather than assuming a single demo row.
 The site root redirects to the demo binding **by name** (`DEMO_TAG_ID`), never to whichever row sits first, and answers 500 if that binding is gone: root traffic is monitors, crawlers and typed domains, and a real bed's tap count must not absorb it.
 
-**`BlobsStore` seeds the same steward with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the door screen engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open steward account on the internet — `/mine`, `/photo`, and the deliberately auth-gated `/clear`.
+**`BlobsStore` seeds the same steward with no PIN anybody knows** (a hash of random bytes), because that store is the publicly tappable one: the door screen engraves `@marisol_r`, sign-in has no rate limiting yet, and a well-known PIN there would be an open steward account on the internet — `/mine` and the deliberately auth-gated `/clear`.
 `TREEBED_SEED_PIN` is a **development-only** seam, for driving the sign-in flow against a store that seeds without one.
 It is unset on the Netlify site and must never be set there: a PIN supplied to the publicly tappable store is the open steward account this seed exists to avoid.
 That is enforced in code rather than by this paragraph — `seed()` reads the variable only on the node target (`BUILD_TARGET`, the same shape as the store-selection assertion), so a production build ignores it however it is set.
