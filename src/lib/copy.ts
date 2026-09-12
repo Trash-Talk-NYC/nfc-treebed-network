@@ -463,8 +463,8 @@ export const DIGEST_MAIL = {
 export const APPLAUSE_MAIL = {
   subject: { en: 'Someone applauded your tree bed', es: 'Alguien aplaudió tu cantero' },
   body: {
-    en: 'A neighbour just sent applause for your bed. Somebody on the block noticed your work today.',
-    es: 'Un vecino acaba de enviar un aplauso a tu cantero. Alguien en la cuadra notó tu trabajo hoy.',
+    en: 'A neighbour sent applause for your bed. Somebody on the block noticed your work.',
+    es: 'Un vecino le envió un aplauso a tu cantero. Alguien en la cuadra notó tu trabajo.',
   },
   /**
    * Why there is at most one of these a day, said in the mail itself so a

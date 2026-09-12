@@ -338,8 +338,9 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
  *
  * The upload is megabytes on the one route that mints an identity for a
  * cookie-less caller, and the presses `reportProblem` declines pay for it in
- * full: today's second say, a neighbour already counted on the open report,
- * a report at `MAX_CONFIRMATIONS`, or one already at `MAX_REPORT_PHOTOS`.
+ * full: a bed the admin has retired, today's second say, a neighbour already
+ * counted on the open report, a report at `MAX_CONFIRMATIONS`, or one
+ * already at `MAX_REPORT_PHOTOS`.
  * Answering that off a plain read costs nothing and skips exactly those
  * uploads.
  *
@@ -354,6 +355,7 @@ export async function reportPhotoCouldBeKept(
 ): Promise<boolean> {
   const { plate, actorId } = args;
   const now = args.now ?? new Date();
+  if (!(await getActiveBed(store, plate))) return false;
   const open = await store.getOpenReport(plate);
   if (!open) return !(await hasReportedToday(store, plate, actorId, now));
   if (open.reporterId === actorId || open.confirmedBy.includes(actorId)) return false;
@@ -1866,7 +1868,11 @@ export async function retireBedByAdmin(
       throw new RuleError('bed-not-found', `No bed ${args.plate} in block ${args.blockId}`);
     }
     if (bed.retiredAt !== null) return;
-    await tx.updateBed({ ...bed, retiredAt: now.toISOString() });
+    await tx.updateBed({
+      ...bed,
+      retiredAt: now.toISOString(),
+      applauseNoticeDueAt: null,
+    });
   });
 }
 

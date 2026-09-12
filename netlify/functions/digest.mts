@@ -55,7 +55,15 @@ export default async (): Promise<Response> => {
   // `digestCadence` is how often a steward wants the periodic summary, and the
   // captain's "i realize when applause is sent i dont get emailed" is a
   // different mail. This run only rides the same daily clock.
-  const applause = await runApplauseNotices(store, { origin });
+  // Each errand stands alone: the applause run reads and commits through the
+  // store, so a transient Blobs failure there must not cost the whole day's
+  // digest — the two share a clock and nothing else.
+  let applause = { sent: 0, failed: 0 };
+  try {
+    applause = await runApplauseNotices(store, { origin });
+  } catch (error) {
+    console.error('[digest] applause notices failed — continuing to the digest', error);
+  }
   const result = await runDigest(store, { origin });
   // Counts only — never an address, never a token.
   console.log(

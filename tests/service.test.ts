@@ -582,6 +582,13 @@ describe('a carried photo the rules would decline', () => {
     expect(await reportPhotoCouldBeKept(store, { plate: PLATE, actorId: 'visitor-2', now: noon })).toBe(false);
   });
 
+  it('is not worth uploading at a bed the admin has retired', async () => {
+    const noon = new Date('2026-08-11T16:00:00Z');
+    const bed = (await store.getBed(PLATE))!;
+    await store.updateBed({ ...bed, retiredAt: noon.toISOString() });
+    expect(await reportPhotoCouldBeKept(store, { plate: PLATE, actorId: 'visitor-1', now: noon })).toBe(false);
+  });
+
   it('is not worth uploading once the report is at its photo cap', async () => {
     const noon = new Date('2026-08-11T16:00:00Z');
     const filed = await reportProblem(store, care({ now: noon }));
