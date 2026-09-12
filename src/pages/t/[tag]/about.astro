@@ -1,0 +1,223 @@
+---
+// "About this bed" — the captain's ask, verbatim: "an about this bed page
+// with resources almost like an FAQ", because "every tree is specialized,
+// there are comments that have to go with every specific bed".
+//
+// Two halves. The top is the BED's profile — the facts the block admin keeps
+// on the record (types.ts, the bed profile fields): the tree, the guard and
+// its material, what is planted, whether Trash Talk recommends planting, and
+// the care it needs right now. The bottom is the NETWORK's FAQ — the same on
+// every bed, held in copy.ts so the captain edits sentences, not screens.
+//
+// Reached by a small text link under the buttons on BOTH doors — never a
+// third big button; the doors keep one clear question each. Plain links only,
+// like every screen here, and the whole page works with JavaScript disabled.
+//
+// The admin's typed notes render AS TYPED in both languages, each its own
+// leaf with no data-en/data-es pair — the same rule as the bed's given name:
+// free text is never translated and never spliced into a sentence of ours.
+// PII and the plate never render here, as on every public screen.
+import Screen from '../../../layouts/Screen.astro';
+import { getStore } from '../../../lib/store';
+import { getBedView } from '../../../lib/service';
+import { bi } from '../../../lib/bilingual';
+import { ABOUT, ABOUT_FAQ, COMMON } from '../../../lib/copy';
+import { langLink, resolveLang, type Phrase } from '../../../lib/i18n';
+import { presentationFor } from '../../../lib/presentation';
+import { ourPlaqueLink } from '../../../lib/plaque-url';
+import { refuseWithBody, requireBoundTagForView } from '../../../lib/tag-route';
+import type { GuardMaterial } from '../../../lib/types';
+
+const { bound, refused: notBound } = await requireBoundTagForView(Astro.params.tag, Astro.request);
+if (notBound) return notBound;
+const { plate, base } = bound;
+const store = getStore();
+const view = await getBedView(store, plate);
+if (!view) {
+  return await refuseWithBody(Astro.request, new Response('No bed with that plate.', { status: 404 }));
+}
+
+const lang = resolveLang(Astro.url, Astro.cookies);
+const { bed } = view;
+const presentation = presentationFor(bed);
+
+const GUARD_VALUE: Record<GuardMaterial, Phrase> = {
+  none: ABOUT.guardNone,
+  wood: ABOUT.guardWood,
+  metal: ABOUT.guardMetal,
+};
+
+/** The question/answer pairs, in the order they read. The words live in copy.ts. */
+const FAQ: ReadonlyArray<readonly [Phrase, Phrase]> = [
+  [ABOUT_FAQ.stewardQ, ABOUT_FAQ.stewardA],
+  [ABOUT_FAQ.reportQ, ABOUT_FAQ.reportA],
+  [ABOUT_FAQ.plantsQ, ABOUT_FAQ.plantsA],
+  [ABOUT_FAQ.whoQ, ABOUT_FAQ.whoA],
+];
+
+/** External resources: the city's own pages, linked plainly. */
+const RESOURCES: ReadonlyArray<{ label: Phrase; href: string }> = [
+  { label: ABOUT_FAQ.nycParksLink, href: 'https://www.nycgovparks.org/trees' },
+  { label: ABOUT_FAQ.nyc311Link, href: 'https://portal.311.nyc.gov/' },
+];
+
+const back = langLink(ourPlaqueLink(base), lang);
+---
+
+<Screen
+  title={`${ABOUT.title[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <div class="screen">
+    <div>
+      <div class="top-row">
+        <a class="back-link" href={back} {...bi(COMMON.backToBed, lang)}>{COMMON.backToBed[lang]}</a>
+      </div>
+      <div class="kicker">
+        {presentation.copy.wordmark}
+        {presentation.copy.locality && ` · ${presentation.copy.locality}`}
+      </div>
+      {bed.plantingSpaceId && <div class="ident head-ident">#{bed.plantingSpaceId}</div>}
+      {/* The bed's given name — as typed, its own leaf, both languages. */}
+      {bed.bedName !== null && <div class="bed-name">“{bed.bedName}”</div>}
+    </div>
+    <h1 class="title" {...bi(ABOUT.title, lang)}>{ABOUT.title[lang]}</h1>
+
+    <div class="card facts">
+      <div class="fact">
+        <span class="fact-label" {...bi(ABOUT.treeLabel, lang)}>{ABOUT.treeLabel[lang]}</span>
+        {
+          bed.treePresent ? (
+            <span class="fact-value" {...bi(bed.treeType, lang)}>
+              {bed.treeType[lang]}
+            </span>
+          ) : (
+            <span class="fact-value" {...bi(ABOUT.noTree, lang)}>
+              {ABOUT.noTree[lang]}
+            </span>
+          )
+        }
+      </div>
+      <div class="fact">
+        <span class="fact-label" {...bi(ABOUT.guardLabel, lang)}>{ABOUT.guardLabel[lang]}</span>
+        <span class="fact-value" {...bi(GUARD_VALUE[bed.guard], lang)}>
+          {GUARD_VALUE[bed.guard][lang]}
+        </span>
+      </div>
+      <div class="fact">
+        <span class="fact-label" {...bi(ABOUT.plantsLabel, lang)}>{ABOUT.plantsLabel[lang]}</span>
+        <span class="fact-value" {...bi(bed.plantsPresent ? ABOUT.plantsYes : ABOUT.plantsNo, lang)}>
+          {(bed.plantsPresent ? ABOUT.plantsYes : ABOUT.plantsNo)[lang]}
+        </span>
+        {/* The admin's own words, as typed — no data-en/data-es pair. */}
+        {bed.plantsNote !== '' && <span class="fact-note">{bed.plantsNote}</span>}
+      </div>
+      <div class="fact">
+        <span class="fact-label" {...bi(ABOUT.plantingLabel, lang)}>{ABOUT.plantingLabel[lang]}</span>
+        <span
+          class="fact-value"
+          {...bi(bed.plantingRecommended ? ABOUT.plantingYes : ABOUT.plantingNo, lang)}
+        >
+          {(bed.plantingRecommended ? ABOUT.plantingYes : ABOUT.plantingNo)[lang]}
+        </span>
+        {bed.recommendedPlantsNote !== '' && (
+          <span class="fact-note">{bed.recommendedPlantsNote}</span>
+        )}
+      </div>
+      <div class="fact">
+        <span class="fact-label" {...bi(ABOUT.careLabel, lang)}>{ABOUT.careLabel[lang]}</span>
+        {
+          bed.careNote !== '' ? (
+            <span class="fact-note care-note">{bed.careNote}</span>
+          ) : (
+            <span class="fact-value" {...bi(ABOUT.careNone, lang)}>
+              {ABOUT.careNone[lang]}
+            </span>
+          )
+        }
+      </div>
+    </div>
+
+    <div class="panel-h faq-head" {...bi(ABOUT_FAQ.head, lang)}>{ABOUT_FAQ.head[lang]}</div>
+    {
+      FAQ.map(([q, a]) => (
+        <div class="qa">
+          <div class="q" {...bi(q, lang)}>
+            {q[lang]}
+          </div>
+          <p class="body-copy qa-a" {...bi(a, lang)}>
+            {a[lang]}
+          </p>
+        </div>
+      ))
+    }
+
+    <div class="panel-h faq-head" {...bi(ABOUT_FAQ.resourcesHead, lang)}>
+      {ABOUT_FAQ.resourcesHead[lang]}
+    </div>
+    <ul class="resources">
+      {
+        RESOURCES.map((resource) => (
+          <li>
+            <a href={resource.href} {...bi(resource.label, lang)}>
+              {resource.label[lang]}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+
+    <div class="spacer"></div>
+    <a class="btn-ghost" href={back} {...bi(COMMON.backToBed, lang)}>{COMMON.backToBed[lang]}</a>
+  </div>
+</Screen>
+
+<style>
+  .top-row { margin-bottom: 8px; }
+  .head-ident { margin-top: 4px; }
+  .bed-name {
+    font-family: 'Londrina Solid', cursive;
+    font-weight: 400;
+    font-size: 19px;
+    overflow-wrap: anywhere;
+    margin-top: 4px;
+  }
+  .facts { display: flex; flex-direction: column; padding: 4px 18px; }
+  .fact {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 0;
+  }
+  .fact + .fact { border-top: 1px solid var(--theme-border); }
+  .fact-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theme-muted);
+  }
+  .fact-value { font-size: 15px; font-weight: 600; }
+  /* The admin's typed note, as typed: readable weight, never a quote. */
+  .fact-note { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  .care-note { font-weight: 600; }
+  .faq-head { margin-top: 10px; }
+  .qa { display: flex; flex-direction: column; gap: 3px; }
+  .q { font-size: 15px; font-weight: 700; }
+  .qa-a { margin: 0; }
+  .resources {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .resources a {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theme-ink);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+</style>

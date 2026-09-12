@@ -121,14 +121,35 @@ export interface Bed {
    */
   offeredSlots: number;
   /**
-   * The guard, as two dates rather than a status enum, so flipping the admin
-   * page's "guard installed" toggle off loses nothing: a bed whose guard is
-   * ordered but not yet in has `guardOrderedAt` set and `guardInstalledAt`
-   * null, and a bed with no guard coming — the white oak on W 171st — has
-   * neither. Which word the admin page prints is derived (`guardStatus`).
+   * The guard standing at this bed, as the captain asked it: "guard there yes
+   * or no, and if there is a guard there, whether it wood or metal". One field
+   * answers both — `'none'` is no guard, and a material is a guard. Replaces
+   * the earlier ordered/installed date pair (whose values older stored rows
+   * still carry, untouched — normalization is additive); a record from before
+   * this field reads as `'none'` and the admin sets the material when a guard
+   * goes in.
    */
-  guardOrderedAt: string | null;
-  guardInstalledAt: string | null;
+  guard: GuardMaterial;
+  /**
+   * The bed's own profile — what a passer-by reading "About this bed" is told,
+   * because every bed is different (the captain: "every tree is specialized").
+   * The four facts are the admin page's switches; the three notes are
+   * admin-typed free text, rendered AS TYPED in both languages (a plant list
+   * is not translated), each its own leaf on the screen and bounded by
+   * `MAX_BED_NOTE_CHARS` (service.ts) like every other typed field.
+   */
+  /** Whether a tree currently stands in this bed. Stumps and empty pits are real states. */
+  treePresent: boolean;
+  /** Whether anything is planted in the bed besides the tree. */
+  plantsPresent: boolean;
+  /** What is planted, when `plantsPresent` — admin-typed, shown as typed. */
+  plantsNote: string;
+  /** Whether Trash Talk recommends planting in this bed. */
+  plantingRecommended: boolean;
+  /** What to plant, when `plantingRecommended` — admin-typed, shown as typed. */
+  recommendedPlantsNote: string;
+  /** The care this bed needs right now — admin-typed, shown as typed. */
+  careNote: string;
   /**
    * The block this bed belongs to and where it stands in it, or null for a
    * bed outside any block. Admin-only grouping — see `Block`.
@@ -328,12 +349,17 @@ export function publicInitials(user: User): string {
   return parts.join(' ');
 }
 
-/** What the admin page says about a bed's guard, derived from the two dates. */
-export type GuardStatus = 'installed' | 'ordered' | 'none';
+/**
+ * What stands at the bed: no guard, or a guard and its material. One value
+ * rather than a flag plus a material, so "wood guard with the material
+ * unset" is not a state anything can hold.
+ */
+export const GUARD_MATERIALS = ['none', 'wood', 'metal'] as const;
+export type GuardMaterial = (typeof GUARD_MATERIALS)[number];
 
-export function guardStatus(bed: Bed): GuardStatus {
-  if (bed.guardInstalledAt !== null) return 'installed';
-  return bed.guardOrderedAt !== null ? 'ordered' : 'none';
+/** Narrow a form value to a guard material; anything else is null. */
+export function guardMaterialFrom(value: unknown): GuardMaterial | null {
+  return (GUARD_MATERIALS as readonly unknown[]).includes(value) ? (value as GuardMaterial) : null;
 }
 
 /** Admin-only. Never render this on a public screen. */

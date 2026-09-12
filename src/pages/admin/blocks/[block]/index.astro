@@ -21,6 +21,7 @@ import { defaultPresentation, presentationFor } from '../../../../lib/presentati
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
 import {
   MAX_ADDRESS_CHARS,
+  MAX_BED_NOTE_CHARS,
   MAX_BED_SLOTS,
   RuleError,
   getBlockView,
@@ -28,7 +29,13 @@ import {
   type AdminBedView,
 } from '../../../../lib/service';
 import { getStore } from '../../../../lib/store';
-import { guardStatus, publicHandle, publicInitials } from '../../../../lib/types';
+import {
+  GUARD_MATERIALS,
+  guardMaterialFrom,
+  publicHandle,
+  publicInitials,
+  type GuardMaterial,
+} from '../../../../lib/types';
 
 const lang: Lang = resolveLang(Astro.url, Astro.cookies);
 const gate = await requireAdmin(Astro.request, Astro.cookies, langLink('/admin', lang));
@@ -45,7 +52,13 @@ const blockId = Astro.params.block ?? '';
 let slotError: Phrase | null = null;
 let submitted: {
   address: string;
-  guard: boolean;
+  guard: GuardMaterial;
+  treePresent: boolean;
+  plantsPresent: boolean;
+  plantingRecommended: boolean;
+  plantsNote: string;
+  recommendedPlantsNote: string;
+  careNote: string;
   slots: Set<number>;
   addSlots: number;
   clearName: boolean;
@@ -58,7 +71,15 @@ if (Astro.request.method === 'POST') {
   if (refused) return refused;
   const plate = String(form.get('plate') ?? '');
   const referenceAddress = String(form.get('referenceAddress') ?? '');
-  const guardInstalled = form.get('guard') !== null;
+  // A radio always submits one of the three; anything else is a hand-built
+  // POST, read as the no-guard state rather than invented into a material.
+  const guard = guardMaterialFrom(form.get('guard')) ?? 'none';
+  const treePresent = form.get('tree-present') !== null;
+  const plantsPresent = form.get('plants-present') !== null;
+  const plantingRecommended = form.get('planting-recommended') !== null;
+  const plantsNote = String(form.get('plants-note') ?? '');
+  const recommendedPlantsNote = String(form.get('recommended-plants-note') ?? '');
+  const careNote = String(form.get('care-note') ?? '');
   // The bed-name removal switch (service.ts, `BlockSaveInput`): committed by
   // SAVE CHANGES like every other panel control, never on its own press.
   const clearBedName = form.get('clear-bed-name') !== null;
@@ -80,7 +101,13 @@ if (Astro.request.method === 'POST') {
   const addSlots = form.get('intent') === 'add-slot' ? carriedSlots + 1 : carriedSlots;
   const asSubmitted = (): NonNullable<typeof submitted> => ({
     address: referenceAddress,
-    guard: guardInstalled,
+    guard,
+    treePresent,
+    plantsPresent,
+    plantingRecommended,
+    plantsNote,
+    recommendedPlantsNote,
+    careNote,
     slots: new Set(offeredSlotNumbers.filter(Number.isFinite)),
     addSlots,
     clearName: clearBedName,
@@ -97,7 +124,13 @@ if (Astro.request.method === 'POST') {
             ? undefined
             : {
                 plate,
-                guardInstalled,
+                guard,
+                treePresent,
+                plantsPresent,
+                plantingRecommended,
+                plantsNote,
+                recommendedPlantsNote,
+                careNote,
                 offeredSlotNumbers,
                 addSlots,
                 clearBedName,
@@ -172,11 +205,17 @@ const bedHeading = (b: AdminBedView): Phrase => ({
   es: `${capitalizeFirst(b.bed.treeType.es)} · cantero #${b.bed.blockPosition ?? ''}`,
 });
 
-const GUARD_LABEL = {
-  installed: ADMIN.guardInstalled,
-  ordered: ADMIN.guardOrdered,
+/** The bed list's small line, and the panel's three radio segments. */
+const GUARD_LABEL: Record<GuardMaterial, Phrase> = {
   none: ADMIN.guardNone,
-} as const;
+  wood: ADMIN.guardWood,
+  metal: ADMIN.guardMetal,
+};
+const GUARD_OPTION: Record<GuardMaterial, Phrase> = {
+  none: ADMIN.guardOptNone,
+  wood: ADMIN.guardOptWood,
+  metal: ADMIN.guardOptMetal,
+};
 
 /** At a glance (spec): adopted — and HOW — versus open versus not offered. */
 function bedState(b: AdminBedView): { dot: string; badge: Phrase; badgeClass: string } {
@@ -258,7 +297,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
             beds.map((b) => {
               const state = bedState(b);
               const name = bedName(b);
-              const guard = GUARD_LABEL[guardStatus(b.bed)];
+              const guard = GUARD_LABEL[b.bed.guard];
               return (
                 <a class:list={['tree', { sel: b.bed.plate === selected?.bed.plate }]} href={bedLink(b.bed.plate)}>
                   <span class={`dot ${state.dot}`} />
@@ -412,23 +451,138 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                 </label>
               )}
 
-              <label class="toggle-row guard-row">
+              {/* The captain's own framing, as one control: "guard there yes
+                  or no, and if there is a guard there, whether it wood or
+                  metal". Three radios, so no state can say "a guard, material
+                  unset" — and a plain submit carries it with no script. */}
+              <div class="toggle-row guard-row">
                 <span>
                   <span class="t-lbl">
-                    <span {...bi(ADMIN.guardToggle, lang)}>{ADMIN.guardToggle[lang]}</span>
+                    <span {...bi(ADMIN.guardChoice, lang)}>{ADMIN.guardChoice[lang]}</span>
                   </span>
                   <span class="t-sub">
-                    <span {...bi(ADMIN.guardToggleSub, lang)}>{ADMIN.guardToggleSub[lang]}</span>
+                    <span {...bi(ADMIN.guardChoiceSub, lang)}>{ADMIN.guardChoiceSub[lang]}</span>
+                  </span>
+                </span>
+                <span class="seg">
+                  {GUARD_MATERIALS.map((material) => (
+                    <label class="seg-opt">
+                      <input
+                        type="radio"
+                        name="guard"
+                        value={material}
+                        checked={(submitted ? submitted.guard : selected.bed.guard) === material}
+                      />
+                      <span {...bi(GUARD_OPTION[material], lang)}>{GUARD_OPTION[material][lang]}</span>
+                    </label>
+                  ))}
+                </span>
+              </div>
+
+              {/* The bed profile: what the public "About this bed" page
+                  states. Switches for the facts, short typed notes for the
+                  admin's own words — all committed by SAVE CHANGES. */}
+              <div class="panel-title profile-head" {...bi(ADMIN.profileHead, lang)}>
+                {ADMIN.profileHead[lang]}
+              </div>
+              <div class="blockmeta" {...bi(ADMIN.profileHint, lang)}>
+                {ADMIN.profileHint[lang]}
+              </div>
+              <label class="toggle-row">
+                <span>
+                  <span class="t-lbl">
+                    <span {...bi(ADMIN.treePresentToggle, lang)}>{ADMIN.treePresentToggle[lang]}</span>
+                  </span>
+                  <span class="t-sub">
+                    <span {...bi(ADMIN.treePresentSub, lang)}>{ADMIN.treePresentSub[lang]}</span>
                   </span>
                 </span>
                 <input
                   type="checkbox"
                   class="sw"
-                  name="guard"
+                  name="tree-present"
                   value="1"
-                  checked={submitted ? submitted.guard : selected.bed.guardInstalledAt !== null}
+                  checked={submitted ? submitted.treePresent : selected.bed.treePresent}
                 />
               </label>
+              <label class="toggle-row">
+                <span>
+                  <span class="t-lbl">
+                    <span {...bi(ADMIN.plantsPresentToggle, lang)}>{ADMIN.plantsPresentToggle[lang]}</span>
+                  </span>
+                  <span class="t-sub">
+                    <span {...bi(ADMIN.plantsPresentSub, lang)}>{ADMIN.plantsPresentSub[lang]}</span>
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  class="sw"
+                  name="plants-present"
+                  value="1"
+                  checked={submitted ? submitted.plantsPresent : selected.bed.plantsPresent}
+                />
+              </label>
+              <div class="note-field">
+                <label class="field-label" for="plants-note" {...bi(ADMIN.plantsNoteLabel, lang)}>
+                  {ADMIN.plantsNoteLabel[lang]}
+                </label>
+                <textarea
+                  class="freetext"
+                  id="plants-note"
+                  name="plants-note"
+                  rows="2"
+                  maxlength={MAX_BED_NOTE_CHARS}
+                >{submitted ? submitted.plantsNote : selected.bed.plantsNote}</textarea>
+              </div>
+              <label class="toggle-row">
+                <span>
+                  <span class="t-lbl">
+                    <span {...bi(ADMIN.plantingRecommendedToggle, lang)}>
+                      {ADMIN.plantingRecommendedToggle[lang]}
+                    </span>
+                  </span>
+                  <span class="t-sub">
+                    <span {...bi(ADMIN.plantingRecommendedSub, lang)}>
+                      {ADMIN.plantingRecommendedSub[lang]}
+                    </span>
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  class="sw"
+                  name="planting-recommended"
+                  value="1"
+                  checked={submitted ? submitted.plantingRecommended : selected.bed.plantingRecommended}
+                />
+              </label>
+              <div class="note-field">
+                <label
+                  class="field-label"
+                  for="recommended-plants-note"
+                  {...bi(ADMIN.recommendedPlantsLabel, lang)}
+                >
+                  {ADMIN.recommendedPlantsLabel[lang]}
+                </label>
+                <textarea
+                  class="freetext"
+                  id="recommended-plants-note"
+                  name="recommended-plants-note"
+                  rows="2"
+                  maxlength={MAX_BED_NOTE_CHARS}
+                >{submitted ? submitted.recommendedPlantsNote : selected.bed.recommendedPlantsNote}</textarea>
+              </div>
+              <div class="note-field">
+                <label class="field-label" for="care-note" {...bi(ADMIN.careNoteLabel, lang)}>
+                  {ADMIN.careNoteLabel[lang]}
+                </label>
+                <textarea
+                  class="freetext"
+                  id="care-note"
+                  name="care-note"
+                  rows="2"
+                  maxlength={MAX_BED_NOTE_CHARS}
+                >{submitted ? submitted.careNote : selected.bed.careNote}</textarea>
+              </div>
 
               <div class="panel-title slots-head" {...bi(slotsFilledLabel(selected.stewards.length, panelSlots), lang)}>
                 {slotsFilledLabel(selected.stewards.length, panelSlots)[lang]}
@@ -568,8 +722,44 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   }
   .guard-row {
     margin-top: 16px;
-    cursor: pointer;
   }
+  /* The three-way guard choice: real radios drawn as a segmented row, so it
+     posts with no script — same law as the `.sw` switches beside it. */
+  .seg {
+    display: flex;
+    flex: none;
+    border: 1px solid var(--theme-border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg-opt { display: flex; }
+  .seg-opt input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+  }
+  .seg-opt span {
+    display: flex;
+    align-items: center;
+    padding: 8px 11px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--theme-muted);
+  }
+  .seg-opt + .seg-opt span { border-left: 1px solid var(--theme-border); }
+  .seg-opt input:checked + span {
+    background: var(--theme-clear);
+    color: var(--theme-on-clear);
+  }
+  .seg-opt input:focus-visible + span {
+    outline: 3px solid var(--theme-ink);
+    outline-offset: -3px;
+  }
+  .profile-head { margin-top: 22px; }
+  .note-field { margin: 12px 0 4px; }
+  .note-field .freetext { min-height: 0; }
   .slots-head {
     margin-top: 22px;
   }

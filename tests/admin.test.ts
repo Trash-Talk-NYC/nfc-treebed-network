@@ -17,6 +17,7 @@ import {
 } from '../src/lib/store-dataset';
 import {
   MAX_ADDRESS_CHARS,
+  MAX_BED_NOTE_CHARS,
   MAX_BED_SLOTS,
   MAX_NAME_CHARS,
   addBedByAdmin,
@@ -27,11 +28,28 @@ import {
   saveBlockSettings,
   validateAdminStewardInput,
 } from '../src/lib/service';
-import { guardStatus } from '../src/lib/types';
-
 function freshStore(): LocalStore {
   const dir = mkdtempSync(path.join(tmpdir(), 'treebed-admin-test-'));
   return new LocalStore(path.join(dir, 'store.json'));
+}
+
+type BedSave = NonNullable<Parameters<typeof saveBlockSettings>[1]['bed']>;
+
+/** One opened-bed save, with the panel's controls defaulted to untouched. */
+function bedSave(overrides: Partial<BedSave> = {}): BedSave {
+  return {
+    plate: W171_PLATE,
+    guard: 'none',
+    treePresent: true,
+    plantsPresent: false,
+    plantingRecommended: false,
+    plantsNote: '',
+    recommendedPlantsNote: '',
+    careNote: '',
+    offeredSlotNumbers: [],
+    addSlots: 0,
+    ...overrides,
+  };
 }
 
 function stewardInput(overrides: Partial<Parameters<typeof validateAdminStewardInput>[0]> = {}) {
@@ -73,11 +91,19 @@ describe('the six real beds on W 171st', () => {
     expect(new Set(globals).size).toBe(6);
   });
 
-  it('orders five guards — none for the white oak — and installs none', async () => {
+  it('seeds every bed with the profile defaults: no guard on record, a tree standing, nothing else', async () => {
+    // Guards are ordered in the real world but none is IN, so the profile —
+    // which records what stands at the bed — says none; the material goes in
+    // on the admin page when the guards do.
     const view = await getBlockView(freshStore(), W171_BLOCK_ID);
     for (const { bed } of view!.beds) {
-      expect(bed.guardInstalledAt).toBeNull();
-      expect(guardStatus(bed), bed.plate).toBe(bed.treeType.en === 'White oak' ? 'none' : 'ordered');
+      expect(bed.guard, bed.plate).toBe('none');
+      expect(bed.treePresent, bed.plate).toBe(true);
+      expect(bed.plantsPresent, bed.plate).toBe(false);
+      expect(bed.plantingRecommended, bed.plate).toBe(false);
+      expect(bed.plantsNote, bed.plate).toBe('');
+      expect(bed.recommendedPlantsNote, bed.plate).toBe('');
+      expect(bed.careNote, bed.plate).toBe('');
     }
   });
 
@@ -116,8 +142,17 @@ describe('the block reaches a store seeded before it existed', () => {
     delete demo.blockId;
     delete demo.blockPosition;
     delete demo.offeredSlots;
-    delete demo.guardOrderedAt;
     delete demo.plantingSpaceGlobalId;
+    // A live row from before the bed profile: no guard field, no facts, no
+    // notes — and the earlier build's guard dates still on it, which stay.
+    delete demo.guard;
+    delete demo.treePresent;
+    delete demo.plantsPresent;
+    delete demo.plantsNote;
+    delete demo.plantingRecommended;
+    delete demo.recommendedPlantsNote;
+    delete demo.careNote;
+    demo.guardInstalledAt = '2026-04-18T16:00:00.000Z';
 
     const normalized = normalizeData(data);
     expect(Object.keys(normalized.blocks)).toContain(W171_BLOCK_ID);
@@ -126,8 +161,22 @@ describe('the block reaches a store seeded before it existed', () => {
     ).toHaveLength(6);
     // The pre-existing bed keeps its meaning: every unfilled slot was
     // implicitly up for adoption before the switches existed.
-    expect(normalized.beds['BED-HRL-0847']!.offeredSlots).toBe(2);
-    expect(normalized.beds['BED-HRL-0847']!.blockId).toBe(DEMO_BLOCK_ID);
+    const bed = normalized.beds['BED-HRL-0847']!;
+    expect(bed.offeredSlots).toBe(2);
+    expect(bed.blockId).toBe(DEMO_BLOCK_ID);
+    // The profile backfills to its defaults — the old dates never said what a
+    // guard is MADE of, so the material stays the captain's to set — and the
+    // legacy date survives untouched: additive and lossless.
+    expect(bed.guard).toBe('none');
+    expect(bed.treePresent).toBe(true);
+    expect(bed.plantsPresent).toBe(false);
+    expect(bed.plantingRecommended).toBe(false);
+    expect(bed.plantsNote).toBe('');
+    expect(bed.recommendedPlantsNote).toBe('');
+    expect(bed.careNote).toBe('');
+    expect((bed as unknown as Record<string, unknown>).guardInstalledAt).toBe(
+      '2026-04-18T16:00:00.000Z',
+    );
   });
 
   it('reads a single-category report and event from before multi-select, losslessly', async () => {
@@ -208,7 +257,7 @@ describe('offered slots are a rule, not a display state', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [1], addSlots: 0 }),
     });
     await adoptBed(store, {
       plate: W171_PLATE,
@@ -235,7 +284,7 @@ describe('the visitor screens read the same bound the rules do', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [1], addSlots: 0 }),
     });
     expect((await getBedView(store, W171_PLATE))!.openSlots).toBe(1);
   });
@@ -247,13 +296,13 @@ describe('saving the block admin page', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlots: 1 },
+      bed: bedSave({ offeredSlotNumbers: [], addSlots: 1 }),
     });
     await expect(
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [2], addSlots: 0 },
+        bed: bedSave({ offeredSlotNumbers: [2], addSlots: 0 }),
       }),
     ).rejects.toMatchObject({ code: 'invalid-input' });
     // Nothing was written, address included.
@@ -262,7 +311,7 @@ describe('saving the block admin page', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1, 2], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [1, 2], addSlots: 0 }),
     });
     expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(2);
   });
@@ -275,7 +324,7 @@ describe('saving the block admin page', () => {
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [9], addSlots: 0 },
+        bed: bedSave({ offeredSlotNumbers: [9], addSlots: 0 }),
       }),
     ).rejects.toMatchObject({ code: 'slot-out-of-range' });
   });
@@ -299,24 +348,48 @@ describe('saving the block admin page', () => {
     expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toBe('710 W 171st St');
   });
 
-  it('toggles the guard without losing the ordered date, and keeps the original install date', async () => {
+  it('saves the guard as one of three states, and back to none without losing anything else', async () => {
     const store = freshStore();
-    const save = (guardInstalled: boolean) =>
+    const save = (guard: 'none' | 'wood' | 'metal') =>
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: { plate: W171_PLATE, guardInstalled, offeredSlotNumbers: [], addSlots: 0 },
+        bed: bedSave({ guard, careNote: 'Water on hot weeks.' }),
       });
-    await save(true);
-    const installed = (await store.getBed(W171_PLATE))!.guardInstalledAt;
-    expect(installed).not.toBeNull();
-    // Saving again does not move the date; toggling off keeps "ordered".
-    await save(true);
-    expect((await store.getBed(W171_PLATE))!.guardInstalledAt).toBe(installed);
-    await save(false);
+    await save('wood');
+    expect((await store.getBed(W171_PLATE))!.guard).toBe('wood');
+    await save('metal');
+    expect((await store.getBed(W171_PLATE))!.guard).toBe('metal');
+    await save('none');
     const off = (await store.getBed(W171_PLATE))!;
-    expect(off.guardInstalledAt).toBeNull();
-    expect(guardStatus(off)).toBe('ordered');
+    expect(off.guard).toBe('none');
+    // The rest of the press rode along: the guard choice never costs a note.
+    expect(off.careNote).toBe('Water on hot weeks.');
+  });
+
+  it('saves the bed profile — the switches and the typed notes, capped and stripped', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        treePresent: false,
+        plantsPresent: true,
+        plantingRecommended: true,
+        // Typed fields go through `capped`: control characters and the bidi
+        // overrides are stripped, then the bound cuts what remains.
+        plantsNote: `  Daffodils and‮ a hosta  `,
+        recommendedPlantsNote: 'x'.repeat(500),
+        careNote: 'Litter pickup after weekends.',
+      }),
+    });
+    const bed = (await store.getBed(W171_PLATE))!;
+    expect(bed.treePresent).toBe(false);
+    expect(bed.plantsPresent).toBe(true);
+    expect(bed.plantingRecommended).toBe(true);
+    expect(bed.plantsNote).toBe('Daffodils and a hosta');
+    expect(bed.recommendedPlantsNote).toHaveLength(MAX_BED_NOTE_CHARS);
+    expect(bed.careNote).toBe('Litter pickup after weekends.');
   });
 
   it('adds a slot up to the bound, and clamps what is offered to what exists', async () => {
@@ -327,12 +400,10 @@ describe('saving the block admin page', () => {
       await saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
-        bed: {
-          plate: W171_PLATE,
-          guardInstalled: false,
+        bed: bedSave({
           offeredSlotNumbers: Array.from({ length: slots }, (_, n) => n + 1),
           addSlots: 1,
-        },
+        }),
       });
     }
     const bed = (await store.getBed(W171_PLATE))!;
@@ -344,22 +415,22 @@ describe('saving the block admin page', () => {
     // The page drew both switches on an empty bed and the captain flipped
     // both. A neighbour adopted slot 1 in between, so the save arrives naming
     // a slot that is now filled — which must not cost the captain the whole
-    // press, guard toggle and address included.
+    // press, guard choice and address included.
     const store = freshStore();
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 1 },
+      bed: bedSave({ offeredSlotNumbers: [1], addSlots: 1 }),
     });
     await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '712 W 171st St',
-      bed: { plate: W171_PLATE, guardInstalled: true, offeredSlotNumbers: [1, 2], addSlots: 0 },
+      bed: bedSave({ guard: 'wood', offeredSlotNumbers: [1, 2], addSlots: 0 }),
     });
     const bed = (await store.getBed(W171_PLATE))!;
     expect(bed.offeredSlots).toBe(2);
-    expect(bed.guardInstalledAt).not.toBeNull();
+    expect(bed.guard).toBe('wood');
     expect((await store.getBlock(W171_BLOCK_ID))!.referenceAddress).toBe('712 W 171st St');
   });
 
@@ -369,7 +440,7 @@ describe('saving the block admin page', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [], addSlots: 0 }),
     });
     expect((await store.getBed(W171_PLATE))!.offeredSlots).toBe(1);
   });
@@ -381,7 +452,7 @@ describe('the admin takes a bed’s name down', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: false, offeredSlotNumbers: [1], addSlots: 0 },
+      bed: bedSave({ offeredSlotNumbers: [1], addSlots: 0 }),
     });
     await adoptBed(store, {
       plate: W171_PLATE,
@@ -401,7 +472,7 @@ describe('the admin takes a bed’s name down', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: { plate: W171_PLATE, guardInstalled: true, offeredSlotNumbers: [1], addSlots: 0 },
+      bed: bedSave({ guard: 'wood', offeredSlotNumbers: [1], addSlots: 0 }),
     });
     expect((await store.getBed(W171_PLATE))!.bedName).toBe('La Madrina');
   });
@@ -412,13 +483,7 @@ describe('the admin takes a bed’s name down', () => {
     await saveBlockSettings(store, {
       blockId: W171_BLOCK_ID,
       referenceAddress: '',
-      bed: {
-        plate: W171_PLATE,
-        guardInstalled: false,
-        offeredSlotNumbers: [1],
-        addSlots: 0,
-        clearBedName: true,
-      },
+      bed: bedSave({ offeredSlotNumbers: [1], clearBedName: true }),
     });
     const view = (await getBedView(store, W171_PLATE))!;
     // Unnamed again — and the steward, the slot and the bed are untouched:

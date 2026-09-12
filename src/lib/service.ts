@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { boundFromEnv } from './bounds';
 import type { Store } from './store';
-import type { Adoption, Bed, BedEvent, Block, Report, Severity, User } from './types';
+import type { Adoption, Bed, BedEvent, Block, GuardMaterial, Report, Severity, User } from './types';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
@@ -466,6 +466,13 @@ export const MAX_TREE_TYPE_CHARS = 60;
  * for "La Madrina de la 171" and short enough that one line stays one line.
  */
 export const MAX_BED_NAME_CHARS = 40;
+/**
+ * The bed profile's three notes — what is planted, what to plant, what care
+ * is needed. Admin-typed, but rendered as leaves on a PUBLIC screen ("About
+ * this bed"), so they are bounded the same way every visitor-typed field is:
+ * long enough for a sentence, short enough that the screen stays a screen.
+ */
+export const MAX_BED_NOTE_CHARS = 160;
 
 /**
  * Control characters and the bidirectional-format overrides, which a hand-built
@@ -858,7 +865,23 @@ export interface BlockSaveInput {
   /** The opened bed's controls, when a bed was open. */
   bed?: {
     plate: string;
-    guardInstalled: boolean;
+    /**
+     * The guard standing at the bed — the panel's three-way choice, never a
+     * flag plus a material: 'none', or a guard and what it is made of.
+     */
+    guard: GuardMaterial;
+    /** The bed profile's switches — the facts "About this bed" states. */
+    treePresent: boolean;
+    plantsPresent: boolean;
+    plantingRecommended: boolean;
+    /**
+     * The profile's typed notes: what is planted, what to plant, what care
+     * the bed needs right now. Rendered as typed on the public about screen,
+     * so each goes through `capped` here like every other typed field.
+     */
+    plantsNote: string;
+    recommendedPlantsNote: string;
+    careNote: string;
     /**
      * WHICH unfilled slots the captain left switched on, by slot number.
      *
@@ -963,10 +986,13 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       slots,
       offeredSlots,
       bedName: args.bed.clearBedName ? null : bed.bedName,
-      // The toggle only moves the installed date; a guard toggled off keeps
-      // its ordered date, so "ordered" is never lost to a mis-tap. A guard
-      // already installed keeps its original date.
-      guardInstalledAt: args.bed.guardInstalled ? (bed.guardInstalledAt ?? now.toISOString()) : null,
+      guard: args.bed.guard,
+      treePresent: args.bed.treePresent,
+      plantsPresent: args.bed.plantsPresent,
+      plantingRecommended: args.bed.plantingRecommended,
+      plantsNote: capped(args.bed.plantsNote, MAX_BED_NOTE_CHARS),
+      recommendedPlantsNote: capped(args.bed.recommendedPlantsNote, MAX_BED_NOTE_CHARS),
+      careNote: capped(args.bed.careNote, MAX_BED_NOTE_CHARS),
     });
   });
 }
@@ -1139,8 +1165,13 @@ export async function addBedByAdmin(
       address: block.referenceAddress,
       slots: 1,
       offeredSlots: 0,
-      guardOrderedAt: null,
-      guardInstalledAt: null,
+      guard: 'none',
+      treePresent: true,
+      plantsPresent: false,
+      plantsNote: '',
+      plantingRecommended: false,
+      recommendedPlantsNote: '',
+      careNote: '',
       blockId: args.blockId,
       blockPosition: position,
       nycSyncedAt: null,

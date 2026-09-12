@@ -72,11 +72,19 @@ function normalizeBed(bed: Bed): void {
   // door screen did with it — so `offeredSlots = slots` records what was
   // already true rather than closing a bed nobody closed.
   bed.offeredSlots ??= bed.slots;
-  // Before the block admin, `guardInstalledAt` was a bare string: every bed
-  // that existed had its guard in. Nothing to fill for those; a bed written
-  // without the ordered date simply was never in the ordered state.
-  bed.guardOrderedAt ??= null;
-  bed.guardInstalledAt ??= null;
+  // The bed profile ("About this bed"). A record from before it reads as the
+  // seeded defaults: no guard on record — the earlier ordered/installed dates
+  // stay in the stored row untouched (additive, lossless), but they never
+  // said what a guard is MADE of, so the material is the captain's to set on
+  // the admin page rather than a guess — a tree standing (the network began
+  // on live street trees), nothing planted, no recommendation, no notes.
+  bed.guard ??= 'none';
+  bed.treePresent ??= true;
+  bed.plantsPresent ??= false;
+  bed.plantsNote ??= '';
+  bed.plantingRecommended ??= false;
+  bed.recommendedPlantsNote ??= '';
+  bed.careNote ??= '';
   bed.blockId ??= null;
   bed.blockPosition ??= null;
   bed.nycSyncedAt ??= null;
@@ -187,14 +195,14 @@ function checkedInBlocks(): Block[] {
  * the corner willow oak (a bed wrapped around 255 Fort Washington Ave, on the
  * W 171st curb line) is past it.
  *
- * Five guards are ordered — one per willow oak — and none is installed; the
- * white oak has no guard coming (`guardOrderedAt: null`). No tag is bound to
- * any of these beds yet: tags go in with guards (tag-bindings.ts), so
+ * Five guards are ordered in the real world — one per willow oak, none for
+ * the white oak — and none is installed, so every bed seeds `guard: 'none'`:
+ * the profile records what stands at the bed, and the material goes in on the
+ * admin page when the guards do. Tags go in with guards (tag-bindings.ts), so
  * `tagUid` is empty and every bed starts unoffered (`offeredSlots: 0`) until
  * the captain opens it on the admin page — which is the page's whole point.
  */
 function w171Beds(): Bed[] {
-  const GUARDS_ORDERED_AT = '2026-09-09T00:00:00.000Z';
   const LOOKED_UP_AT = '2026-09-10T00:00:00.000Z';
   const bed = (args: {
     plate: string;
@@ -218,8 +226,13 @@ function w171Beds(): Bed[] {
     address: args.address,
     slots: 1,
     offeredSlots: 0,
-    guardOrderedAt: args.whiteOak ? null : GUARDS_ORDERED_AT,
-    guardInstalledAt: null,
+    guard: 'none',
+    treePresent: true,
+    plantsPresent: false,
+    plantsNote: '',
+    plantingRecommended: false,
+    recommendedPlantsNote: '',
+    careNote: '',
     blockId: W171_BLOCK_ID,
     blockPosition: args.position,
     nycSyncedAt: LOOKED_UP_AT,
@@ -366,8 +379,16 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
       address: '2300 Adam Clayton Powell Jr Blvd, New York, NY 10030',
       slots: 2,
       offeredSlots: 2,
-      guardOrderedAt: null,
-      guardInstalledAt: '2026-04-18T16:00:00.000Z',
+      // The mockup bed's guard is in (the tag rides it), material unrecorded
+      // anywhere real — 'none' like every backfilled bed, until somebody who
+      // has stood at it sets the material on the admin page.
+      guard: 'none',
+      treePresent: true,
+      plantsPresent: false,
+      plantsNote: '',
+      plantingRecommended: false,
+      recommendedPlantsNote: '',
+      careNote: '',
       blockId: DEMO_BLOCK_ID,
       blockPosition: 1,
       nycSyncedAt: null,
