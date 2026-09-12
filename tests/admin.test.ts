@@ -514,8 +514,55 @@ describe('adding a bed', () => {
     // Never invented: unresolved is null, and the admin panel says so.
     expect(bed.plantingSpaceId).toBeNull();
     expect(bed.plantingSpaceGlobalId).toBeNull();
-    // Spanish falls back to the English name rather than to no name.
-    expect(bed.treeType.es).toBe('Pin oak');
+    // Nobody looked anything up: the species table supplied the Spanish.
+    expect(bed.treeType.es).toBe('roble palustre');
+  });
+
+  it('fills the Spanish name from the species table when the admin leaves it blank', async () => {
+    const bed = await addBedByAdmin(freshStore(), {
+      blockId: W171_BLOCK_ID,
+      treeType: { en: '  willow   oak ', es: '' },
+    });
+    // The English name stays exactly what was typed (trimmed by the route,
+    // capped here); the Spanish resolves through the table's tolerant match.
+    expect(bed.treeType.en).toBe('willow   oak');
+    expect(bed.treeType.es).toBe('roble sauce');
+  });
+
+  it('degrades an unknown species to the generic wording rather than guessing', async () => {
+    const bed = await addBedByAdmin(freshStore(), {
+      blockId: W171_BLOCK_ID,
+      treeType: { en: 'Dragon tree', es: '' },
+    });
+    expect(bed.treeType.en).toBe('Dragon tree');
+    // Never the English name and never a transliteration: "árbol" is the
+    // same wording normalizeData gives a bed with no tree type at all.
+    expect(bed.treeType.es).toBe('árbol');
+  });
+
+  it('lets an explicitly supplied Spanish name win over the table', async () => {
+    const bed = await addBedByAdmin(freshStore(), {
+      blockId: W171_BLOCK_ID,
+      treeType: { en: 'Pin oak', es: 'Roble de los pantanos' },
+    });
+    expect(bed.treeType.es).toBe('Roble de los pantanos');
+  });
+
+  it('normalizes a typed name that is the table’s own shouted, so the door sentence reads', async () => {
+    const bed = await addBedByAdmin(freshStore(), {
+      blockId: W171_BLOCK_ID,
+      treeType: { en: 'Willow oak', es: 'Roble Sauce' },
+    });
+    // "El cantero de este roble sauce…" — mid-sentence, so lowercase.
+    expect(bed.treeType.es).toBe('roble sauce');
+  });
+
+  it('stores a genuinely different typed name byte-for-byte, casing included', async () => {
+    const bed = await addBedByAdmin(freshStore(), {
+      blockId: W171_BLOCK_ID,
+      treeType: { en: 'Willow oak', es: 'Mi roble favorito' },
+    });
+    expect(bed.treeType.es).toBe('Mi roble favorito');
   });
 
   it('keeps the siblings’ zero padding, so a block’s plates stay one series', async () => {

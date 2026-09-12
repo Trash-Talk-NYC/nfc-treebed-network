@@ -55,6 +55,7 @@ import { isPostAction } from '../../../lib/plaque-url';
 import { resolveTagParam } from '../../../lib/tag-bindings';
 import { abandonBody } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
+import { capitalizeFirst } from '../../../lib/format';
 import { COMMON, DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, UNBOUND } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../lib/presentation';
@@ -142,7 +143,7 @@ const care = langLink(`${base}/care`, lang);
 const adopt = langLink(`${base}/adopt`, lang);
 
 const title = bed
-  ? `${bed.treeType[lang]} · ${presentation.copy.wordmark}`
+  ? `${capitalizeFirst(bed.treeType[lang])} · ${presentation.copy.wordmark}`
   : `${presentation.copy.wordmark}`;
 ---
 

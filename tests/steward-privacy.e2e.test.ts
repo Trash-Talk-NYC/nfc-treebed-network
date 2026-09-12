@@ -151,7 +151,7 @@ describe('the door a bed with no steward opens', () => {
     // One plain sentence: the tree type is still its own bilingual leaf, but
     // nothing picks it out.
     expect(html).not.toContain('class="hl"');
-    expect(html).toContain('data-es="Roble sauce"');
+    expect(html).toContain('data-es="roble sauce"');
 
     // Same two buttons, same order, in the page ground's own pair.
     const adoptAt = html.indexOf(DOOR_UNSTEWARDED.adopt.en);
@@ -257,7 +257,7 @@ describe('the shipped W 171st tags', () => {
 
       // The right bed: the NYC planting space ID is the one public identity.
       expect(html, tagId).toContain(`#${plantingSpaceId}`);
-      expect(html, tagId).toContain('data-es="Roble sauce"');
+      expect(html, tagId).toContain('data-es="roble sauce"');
 
       // The not-yet-open door, with no invitation anywhere on it.
       expect(html, tagId).toContain(DOOR_NOT_OFFERED.headAfter.en);
@@ -277,7 +277,12 @@ describe('the shipped W 171st tags', () => {
     const html = await (await fetch(`${origin}/t/jjhq9gfj?lang=es`)).text();
     expect(html).toContain(DOOR_NOT_OFFERED.headAfter.es);
     expect(html).toContain(DOOR_NOT_OFFERED.sub.es);
-    expect(html).toContain('Roble sauce');
+    expect(html).toContain('roble sauce');
+    // The headline is split into leaves either side of the species, so the
+    // sentence only reads right once the tags are gone: the species sits
+    // lowercase inside the fixed frame.
+    const text = html.replace(/<[^>]+>/g, '');
+    expect(text).toContain('El cantero de este roble sauce');
     expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.es);
   });
 });
@@ -328,6 +333,29 @@ describe('a steward who asked not to be named', () => {
     const html = await mine.text();
     expect(html).toContain('marisol_r');
     expect(html).toContain('M. R.');
+
+    // The species is stored in the casing the door sentence needs, and this
+    // screen prints it standalone as its heading: capitalized here, lowercase
+    // inside "El cantero de este roble sauce…" on the same bed's door.
+    expect(html).toContain('data-es="Roble sauce"');
+    expect(html).toContain('data-en="Willow oak"');
+    const door = await (await fetch(`${origin}/t/${TAG}?lang=es`)).text();
+    expect(door.replace(/<[^>]+>/g, '')).toContain('este roble sauce');
+
+    // A document title is a standalone label wherever the species sits in it,
+    // so every screen's Spanish title capitalizes what the sentence does not.
+    const titleOf = (page: string) => /<title>([^<]*)<\/title>/.exec(page)?.[1];
+    expect(titleOf(html)).toBe('YOUR BED · Willow oak');
+    expect(titleOf(door)).toBe('Roble sauce · TRASH TALK NYC');
+    const mineEs = await fetch(`${origin}/t/${TAG}/mine?lang=es`, { headers: { cookie: cookie! } });
+    expect(titleOf(await mineEs.text())).toBe('TU CANTERO · Roble sauce');
+    for (const [path, expected] of [
+      ['care', '¿Qué pasa? · Roble sauce'],
+      ['adopt', 'Pon tu nombre · Roble sauce'],
+    ] as const) {
+      const page = await (await fetch(`${origin}/t/${TAG}/${path}?lang=es`)).text();
+      expect(titleOf(page), path).toBe(expected);
+    }
   });
 
   it("reads what a second neighbour said about the open report", async () => {

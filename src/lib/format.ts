@@ -112,3 +112,15 @@ export function slotsJustFilledMessage(slots: number): Phrase {
     es: `${clause.es} Este cantero ya tiene quien lo cuide.`,
   };
 }
+
+/**
+ * First letter uppercased, for a value stored in the casing its commonest
+ * use needs. `Bed.treeType.es` is stored lowercase because the door frame
+ * puts it mid-sentence ("El cantero de este roble sauce…"); the steward
+ * heading and the admin bed labels print it standalone, where a lowercase
+ * initial reads as a mistake. Code-point aware, so "árbol" → "Árbol".
+ */
+export function capitalizeFirst(text: string): string {
+  const [first, ...rest] = [...text];
+  return first === undefined ? text : first.toUpperCase() + rest.join('');
+}

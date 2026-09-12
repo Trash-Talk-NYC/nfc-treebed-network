@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 import type { Store } from './store';
 import type { ProblemCategory } from './problem';
 import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
+import { GENERIC_TREE } from './tree-species';
 
 export interface Data {
   beds: Record<string, Bed>;
@@ -62,7 +63,7 @@ function normalizeBed(bed: Bed): void {
   bed.plantingSpaceId ??= null;
   bed.plantingSpaceGlobalId ??= null;
   if (typeof legacy.treeType !== 'object' || legacy.treeType === null) {
-    bed.treeType = { en: 'tree', es: 'árbol' };
+    bed.treeType = { ...GENERIC_TREE };
   }
   // A bed written before naming existed is simply a bed nobody has named.
   bed.bedName ??= null;
@@ -208,8 +209,8 @@ function w171Beds(): Bed[] {
     plantingSpaceId: args.plantingSpaceId,
     plantingSpaceGlobalId: args.plantingSpaceGlobalId,
     treeType: args.whiteOak
-      ? { en: 'White oak', es: 'Roble blanco' }
-      : { en: 'Willow oak', es: 'Roble sauce' },
+      ? { en: 'White oak', es: 'roble blanco' }
+      : { en: 'Willow oak', es: 'roble sauce' },
     treeId: args.treeId,
     bedName: null,
     tagUid: '',
@@ -357,7 +358,7 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
       // block this bed sits in.
       plantingSpaceId: '15850293',
       plantingSpaceGlobalId: null,
-      treeType: { en: 'Willow oak', es: 'Roble sauce' },
+      treeType: { en: 'Willow oak', es: 'roble sauce' },
       treeId: '08-4211',
       bedName: null,
       tagUid: '04:A2:2F:9C',
