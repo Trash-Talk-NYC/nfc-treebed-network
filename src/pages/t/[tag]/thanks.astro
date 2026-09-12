@@ -48,30 +48,28 @@ const big = applauded ? THANKS_TAKEOVER.applauded : THANKS_TAKEOVER.reported;
   lang={lang}
   presentation={presentation}
   url={Astro.url}
-  ground="clear"
+  takeover
 >
-  <div class="screen screen-clear takeover">
-    <div class="takeover-mark">
-      <div class="big" {...bi(big, lang)}>{big[lang]}</div>
-      {applauded && (
-        <p class="sub takeover-sub applause-sub" {...bi(THANKS_TAKEOVER.applaudedSub, lang)}>
-          {THANKS_TAKEOVER.applaudedSub[lang]}
-        </p>
-      )}
-      {/*
-        The mailing-list line went here and is deliberately absent: there is no
-        real signup URL yet, and sending a neighbour to an address that does not
-        exist is worse than a clean thank-you — the same reasoning the captain
-        used to refuse a dead privacy-policy link. Putting it back needs one
-        real URL on `Presentation.copy` in presentation.ts, rendered from the
-        bed's record like everything else, plus its sentence in copy.ts.
-      */}
-    </div>
-    <div class="takeover-actions">
-      <a class="btn-ghost" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}>
-        {COMMON.backToBed[lang]}
-      </a>
-    </div>
+  <div class="takeover-mark">
+    <div class="big" {...bi(big, lang)}>{big[lang]}</div>
+    {applauded && (
+      <p class="sub takeover-sub applause-sub" {...bi(THANKS_TAKEOVER.applaudedSub, lang)}>
+        {THANKS_TAKEOVER.applaudedSub[lang]}
+      </p>
+    )}
+    {/*
+      The mailing-list line went here and is deliberately absent: there is no
+      real signup URL yet, and sending a neighbour to an address that does not
+      exist is worse than a clean thank-you — the same reasoning the captain
+      used to refuse a dead privacy-policy link. Putting it back needs one
+      real URL on `Presentation.copy` in presentation.ts, rendered from the
+      bed's record like everything else, plus its sentence in copy.ts.
+    */}
+  </div>
+  <div class="takeover-actions">
+    <a class="btn-ghost" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}>
+      {COMMON.backToBed[lang]}
+    </a>
   </div>
 </Screen>
 

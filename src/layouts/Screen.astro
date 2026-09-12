@@ -15,6 +15,13 @@
 //  3. THE LANGUAGE. `<html lang>` is the active language, and the toggle is
 //     rendered here so it is on every screen — including the full-screen
 //     takeovers, which the captain named explicitly.
+//  4. THE GROUND. Since the captain's 2026-09-11 reversal the whole tap flow
+//     stands on solid Post No Bills Green with Poster Beige as the secondary,
+//     so the role is named exactly once — here. The frame class, the screen
+//     class and the browser chrome behind the notch all come off that one
+//     name, because a screen whose body disagreed with its status bar is the
+//     bug this used to be able to express. (The purple is a button role,
+//     `.btn-action`, not a ground any screen stands on.)
 import '../styles/global.css';
 import LangToggle from '../components/LangToggle.astro';
 import type { Lang } from '../lib/i18n';
@@ -27,23 +34,19 @@ interface Props {
   /** The URL the toggle rewrites — always the screen's own. */
   url: URL;
   /**
-   * Which theme role this screen stands on. It picks the browser chrome behind
-   * the notch — a takeover whose ground stops at the status bar is not a
-   * takeover — and tells the language toggle which ink to use.
+   * A full-screen takeover ("Adopted!", "Thank you"): same ground, but the
+   * centred statement exempts it from the toggle's gutter (global.css).
    */
-  ground?: 'page' | 'clear' | 'action';
+  takeover?: boolean;
 }
 
-const { title, lang, presentation, url, ground = 'page' } = Astro.props;
-const chrome = {
-  page: presentation.colors.ground,
-  clear: presentation.colors.clear,
-  action: presentation.colors.action,
-}[ground];
+const { title, lang, presentation, url, takeover = false } = Astro.props;
+const GROUND = 'clear';
+const chrome = presentation.colors[GROUND];
 ---
 
 <!doctype html>
-<html lang={lang}>
+<html lang={lang} style={themeStyle(presentation.colors)}>
   <head>
     <meta charset="utf-8" />
     {/* viewport-fit=cover: without it env(safe-area-inset-*) is 0 everywhere. */}
@@ -55,9 +58,11 @@ const chrome = {
     <link rel="icon" href="data:," />
     <title>{title}</title>
   </head>
-  <body style={themeStyle(presentation.colors)}>
-    <div class={`frame ground-${ground}`}>
-      <slot />
+  <body>
+    <div class={`frame ground-${GROUND}`}>
+      <div class={`screen screen-${GROUND}${takeover ? ' takeover' : ''}`}>
+        <slot />
+      </div>
       <LangToggle lang={lang} url={url} />
     </div>
     <script is:inline>
@@ -98,6 +103,10 @@ const chrome = {
             document.querySelectorAll(pair[0]).forEach(function (el) {
               var value = el.getAttribute(pair[1]);
               if (!value || value.indexOf('/') !== 0) return;
+              // The bookmark cue prints its own address, so what it links to
+              // has to stay that address — a language on it would make the
+              // link a steward saves differ from the one they were shown.
+              if (el.hasAttribute('data-bare')) return;
               var url = new URL(value, location.origin);
               if (lang === 'en') url.searchParams.delete('lang');
               else url.searchParams.set('lang', lang);

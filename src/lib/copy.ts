@@ -141,7 +141,27 @@ export const ADOPT_ERRORS = {
   phone: { en: 'That phone number doesn’t look right.', es: 'Ese teléfono no parece correcto.' },
 } satisfies Record<string, Phrase>;
 
-/** The full-screen purple moment straight after signing up. */
+/**
+ * The way back without tapping the tag: shown on the "Adopted!" takeover and,
+ * for a signed-in steward, at the bottom of their bed's door screen. The URL
+ * itself renders beside the sentence as its own leaf — an address is not
+ * translated.
+ *
+ * One sentence, and it points at the printed ADDRESS rather than at "this
+ * page", on both screens: the takeover's page is `/t/<tag>/adopted`, which a
+ * steward who bookmarked it literally would keep instead of the bed, and the
+ * door screen's own URL may still carry `?tg_action=1` or `?lang=` from
+ * whatever brought them there. The bare address printed beside the sentence —
+ * and linked bare — is the one thing that is true on both.
+ */
+export const BOOKMARK = {
+  cue: {
+    en: 'Save this address — bookmark it or add it to your home screen — to come back without tapping the tag:',
+    es: 'Guarda esta dirección — márcala o añádela a tu pantalla de inicio — para volver sin tocar la etiqueta:',
+  },
+} satisfies Record<string, Phrase>;
+
+/** The full-screen moment straight after signing up. */
 export const ADOPTED_TAKEOVER = {
   big: { en: 'Adopted!', es: '¡Adoptado!' },
   subBefore: { en: 'This ', es: 'Este ' },
@@ -660,8 +680,8 @@ export const ADMIN = {
   addStewardSubmit: { en: 'ADD AS PEN & PAPER', es: 'AÑADIR EN PAPEL' },
   usernameTaken: { en: 'That username is taken.', es: 'Ese nombre de usuario ya está en uso.' },
   usernameInvalid: {
-    en: 'Usernames are lowercase letters, numbers and underscores.',
-    es: 'Los nombres de usuario llevan minúsculas, números y guiones bajos.',
+    en: 'Usernames are letters, numbers and underscores, 2 to 30 characters.',
+    es: 'Los nombres de usuario llevan letras, números y guiones bajos, de 2 a 30 caracteres.',
   },
   bedFull: {
     en: 'Every slot on this bed is filled.',

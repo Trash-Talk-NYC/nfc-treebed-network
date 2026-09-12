@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { serverEnv } from './helpers/server-env';
 import { seedData } from '../src/lib/store-dataset';
-import { ADOPT } from '../src/lib/copy';
+import { ADOPT, BOOKMARK } from '../src/lib/copy';
 
 /** The seeded demo tag: bound to BED-HRL-0847, which marisol already stewards. */
 const STEWARDED_TAG = '2mq2amhv';
@@ -143,5 +143,38 @@ describe('the naming moment on the adopt form', () => {
       const html = await (await fetch(`${origin}/t/${OPEN_TAG}${search}`)).text();
       expect(html).toContain('“El Robledal”');
     }
+
+    // The takeover behind that redirect carries the bookmark cue: the bed's
+    // own /t/<tag> URL, the way back without tapping the tag. The sentence
+    // points at that printed address -- "this page" here would be the
+    // celebration, not the bed. Gated like door 2's: the new steward's
+    // session cookie is what shows it.
+    const session = posted.headers
+      .getSetCookie()
+      .find((c) => c.startsWith('tg_session='))
+      ?.split(';')[0];
+    expect(session, 'adoption handed out no session').toBeTruthy();
+    const adopted = await (
+      await fetch(`${origin}/t/${OPEN_TAG}/adopted`, { headers: { cookie: session! } })
+    ).text();
+    expect(adopted).toContain(BOOKMARK.cue.en);
+    expect(adopted).toContain(`data-es="${BOOKMARK.cue.es}"`);
+    expect(adopted).toContain(`/t/${OPEN_TAG}`);
+
+    // The href is the bare address the cue prints, in both languages -- what
+    // a steward sees is what a long-press saves.
+    for (const search of ['', '?lang=es']) {
+      const page = await (
+        await fetch(`${origin}/t/${OPEN_TAG}/adopted${search}`, { headers: { cookie: session! } })
+      ).text();
+      const cue = new RegExp(`<a href="([^"]+)"[^>]*>[^<]*/t/${OPEN_TAG}</a>`).exec(page);
+      expect(cue, `no cue anchor on ${search || 'the English takeover'}`).not.toBeNull();
+      expect(cue![1], search).toBe(`/t/${OPEN_TAG}`);
+    }
+
+    // A stranger who reaches the same plain GET is not asked to bookmark a
+    // bed that is not theirs -- the same rule door 2 applies.
+    const passerBy = await (await fetch(`${origin}/t/${OPEN_TAG}/adopted`)).text();
+    expect(passerBy).not.toContain(BOOKMARK.cue.en);
   });
 });

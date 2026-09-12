@@ -17,13 +17,29 @@
 // The palette itself is the identity the captain approved in the tap-flow
 // review (data/tap-flow-decision/design-record.md, constraint 2), with the
 // roles it assigns:
-//   Deep Purple      the positive ownership action (adopt), and its takeover
+//   Deep Purple      the ADMIN's action colour, and nothing else. It was the
+//                    positive ownership action (adopt) until the captain's
+//                    2026-09-11 ground reversal put every tap-flow screen on
+//                    the green: the purple is 1.36:1 there, so the visitor
+//                    flow now has no action colour at all and its buttons are
+//                    the beige pair — filled for the primary, outlined for
+//                    the secondary, which keeps the approved hierarchy WITHIN
+//                    each screen. What is gone is a colour that meant
+//                    "ownership action" ACROSS screens; inventing a new adopt
+//                    treatment on the green is a look change nobody asked for
 //   Street Sign Yellow attention / something needs doing — ALWAYS with Roadtop
 //                    Black on top, never white: yellow with white fails WCAG AA
-//   Post No Bills Green  all clear, adopted, and the ground the stewarded
-//                    door stands on
-//   Poster Beige     the page ground — which is also the no-steward door's
-//                    ground — and buttons placed on the green ground
+//   Post No Bills Green  all clear, adopted, and — since the captain's
+//                    2026-09-11 reversal — the solid page ground every
+//                    tap-flow screen stands on, both doors and the takeovers
+//   Poster Beige     the secondary: the ink and buttons on the green, the
+//                    paper the containers and picker tiles stand on, and the
+//                    ADMIN's page ground. On the green it is also how
+//                    AFFIRMATION reads: the green ground has no ink that
+//                    stands off its own beige body text, so a confirmed state
+//                    (the care screen's attached photo) INVERTS the fill —
+//                    beige paper with green ink, 4.59:1, the `band-clear` and
+//                    `btn-on-clear` vocabulary — rather than swapping an ink
 //   Roadtop Black    ink, dark surfaces
 //
 // Contrast, checked against WCAG AA (4.5:1 for body text, 3:1 for large text
@@ -38,6 +54,10 @@
 //   muted  #5c5b52 on beige   #eae9da   5.59:1
 //   faint  #6a695e on beige   #eae9da   4.52:1
 //   onClearMuted #e0e8e5 on green      4.50:1
+//   yellow #f3cf02 on green   #4e6e65   3.67:1  (a FILL on the green — the
+//                                               band and the error chip —
+//                                               which owes 3:1 as UI; the
+//                                               text on it is the black)
 //   purple #65409a on beige   #eae9da   6.23:1
 //   green  #4e6e65 on beige   #eae9da   4.59:1
 //   alertInk #7a6600 on beige #eae9da   4.60:1
@@ -57,7 +77,13 @@ import type { Phrase } from './i18n';
 
 /** Colour roles a screen may use. Names are roles, never hues. */
 export interface ThemeColors {
-  /** Page ground behind everything. */
+  /**
+   * The Poster Beige role: the paper the containers and picker tiles stand
+   * on, and the ADMIN's page ground. The tap flow's own page ground is
+   * `clear` since the captain's 2026-09-11 reversal — the two roles kept
+   * their names so the admin surface, which reads the same properties,
+   * stayed untouched by that reversal.
+   */
   ground: string;
   /** Ink on the page ground. */
   ink: string;
@@ -69,7 +95,11 @@ export interface ThemeColors {
   border: string;
   /** Raised surface (cards, fields) on the page ground. */
   surface: string;
-  /** The positive ownership action, and the ground of its takeover. */
+  /**
+   * The action colour — the ADMIN's, since the 2026-09-11 ground reversal.
+   * The visitor flow's buttons are the beige pair on the green; see the
+   * palette roles at the top of this file.
+   */
   action: string;
   /** Ink on `action`. */
   onAction: string;
@@ -86,7 +116,10 @@ export interface ThemeColors {
    */
   alertInk: string;
   alertEdge: string;
-  /** All-clear / adopted ground — what both door screens stand on. */
+  /**
+   * All-clear / adopted — and the solid page ground every tap-flow screen
+   * stands on (the captain's 2026-09-11 reversal; see `ground` above).
+   */
   clear: string;
   /** Ink on `clear`. */
   onClear: string;

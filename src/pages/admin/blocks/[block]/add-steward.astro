@@ -166,6 +166,12 @@ const heading = bedHeadingName(bed);
         <span {...bi(ADMIN.username, lang)}>{ADMIN.username[lang]}</span>{' '}
         <span class="field-note">· <span {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span></span>
       </label>
+      {/* No `autocapitalize` override: the shape this field exists to type is
+          the generated `<Word>Steward<number>`, so the phone keyboard's own
+          first-letter capital is the right default. The trade, chosen rather
+          than overlooked: an admin typing a legacy lowercase handle sees the
+          capital appear and corrects it — nothing else may mangle the field,
+          hence the three off switches. */}
       <input
         class="field-input"
         id="username"
@@ -173,8 +179,9 @@ const heading = bedHeadingName(bed);
         type="text"
         placeholder="@"
         value={values.username}
-        autocapitalize="none"
         autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
       />
       {
         errors.username && (

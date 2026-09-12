@@ -18,7 +18,7 @@
 // undo: a forgotten one is permanent lockout with no recovery path; a cloned
 // plaque on a public repo hands an attacker a reusable secret to harvest; and
 // a short code on a street object has no brute-force protection. The handle
-// shown on the plaque is derived from the name instead (`deriveUsername`).
+// shown on the plaque is generated instead (`generateUsername`, `@MapleSteward42`).
 //
 // What carries a steward from here is the session cookie set below, which
 // lasts a year — sign-in is rare precisely because of it. The way back in
@@ -114,8 +114,8 @@ if (Astro.request.method === 'POST') {
     } catch (err) {
       if (err instanceof RuleError && err.code === 'slots-full') {
         // The only rule this form can lose to now. Nothing here hashes, so
-        // there is no CPU bound left to be shed at, and the handle is derived
-        // rather than chosen, so there is no collision to report either.
+        // there is no CPU bound left to be shed at, and the handle is
+        // generated rather than chosen, so there is no collision to report.
         // Fully offered, so losing the last slot to somebody else is what
         // just happened; on a bed with a slot held back it never was one.
         formError =
@@ -144,170 +144,168 @@ const treeTypeLabel = {
   presentation={presentation}
   url={Astro.url}
 >
-  <div class="screen">
-    <div>
-      <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
-        >{COMMON.backToBed[lang]}</a
-      >
-      <div class="ident">
-        {bed.plantingSpaceId && <>#{bed.plantingSpaceId} · </>}
-        <span {...bi(treeTypeLabel, lang)}>{treeTypeLabel[lang]}</span>
-      </div>
+  <div>
+    <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
+      >{COMMON.backToBed[lang]}</a
+    >
+    <div class="ident">
+      {bed.plantingSpaceId && <>#{bed.plantingSpaceId} · </>}
+      <span {...bi(treeTypeLabel, lang)}>{treeTypeLabel[lang]}</span>
     </div>
-    <h1 class="title" {...bi(ADOPT.title, lang)}>{ADOPT.title[lang]}</h1>
-    {
-      openSlots === 0 ? (
-        <>
-          <p class="body-copy" {...bi(formError ?? noSlotCopy(), lang)}>
-            {(formError ?? noSlotCopy())[lang]}
+  </div>
+  <h1 class="title" {...bi(ADOPT.title, lang)}>{ADOPT.title[lang]}</h1>
+  {
+    openSlots === 0 ? (
+      <>
+        <p class="body-copy" {...bi(formError ?? noSlotCopy(), lang)}>
+          {(formError ?? noSlotCopy())[lang]}
+        </p>
+        <div class="spacer" />
+        <a
+          class="btn btn-on-clear"
+          href={langLink(ourPlaqueLink(base), lang)}
+          {...bi(COMMON.backToBed, lang)}
+          >{COMMON.backToBed[lang]}</a
+        >
+      </>
+    ) : (
+      <form method="POST" action={langLink(`${base}/adopt`, lang)} class="adopt-form">
+        {formError && (
+          <p class="field-error" {...bi(formError, lang)}>
+            {formError[lang]}
           </p>
-          <div class="spacer" />
-          <a
-            class="btn btn-action"
-            href={langLink(ourPlaqueLink(base), lang)}
-            {...bi(COMMON.backToBed, lang)}
-            >{COMMON.backToBed[lang]}</a
-          >
-        </>
-      ) : (
-        <form method="POST" action={langLink(`${base}/adopt`, lang)} class="adopt-form">
-          {formError && (
-            <p class="field-error" {...bi(formError, lang)}>
-              {formError[lang]}
-            </p>
-          )}
-          <div class="field-row">
-            <div>
-              <label class="field-label" for="firstName" {...bi(ADOPT.firstName, lang)}>
-                {ADOPT.firstName[lang]}
-              </label>
-              <input
-                class="field-input"
-                id="firstName"
-                name="firstName"
-                type="text"
-                maxlength={MAX_NAME_CHARS}
-                value={values.firstName}
-                autocomplete="given-name"
-                required
-              />
-            </div>
-            <div>
-              <label class="field-label" for="lastName" {...bi(ADOPT.lastName, lang)}>
-                {ADOPT.lastName[lang]}
-              </label>
-              <input
-                class="field-input"
-                id="lastName"
-                name="lastName"
-                type="text"
-                maxlength={MAX_NAME_CHARS}
-                value={values.lastName}
-                autocomplete="family-name"
-                required
-              />
-            </div>
-          </div>
-          {errors.firstName && (
-            <div class="field-error" {...bi(ADOPT_ERRORS.firstName, lang)}>
-              {ADOPT_ERRORS.firstName[lang]}
-            </div>
-          )}
-          {errors.lastName && (
-            <div class="field-error" {...bi(ADOPT_ERRORS.lastName, lang)}>
-              {ADOPT_ERRORS.lastName[lang]}
-            </div>
-          )}
-
+        )}
+        <div class="field-row">
           <div>
-            <label class="field-label" for="email" {...bi(ADOPT.email, lang)}>
-              {ADOPT.email[lang]}
+            <label class="field-label" for="firstName" {...bi(ADOPT.firstName, lang)}>
+              {ADOPT.firstName[lang]}
             </label>
             <input
               class="field-input"
-              id="email"
-              name="email"
-              type="email"
-              maxlength={MAX_EMAIL_CHARS}
-              value={values.email}
-              autocomplete="email"
+              id="firstName"
+              name="firstName"
+              type="text"
+              maxlength={MAX_NAME_CHARS}
+              value={values.firstName}
+              autocomplete="given-name"
               required
             />
-            {errors.email && (
-              <div class="field-error" {...bi(ADOPT_ERRORS.email, lang)}>
-                {ADOPT_ERRORS.email[lang]}
-              </div>
-            )}
           </div>
-
           <div>
-            <label class="field-label" for="phone">
-              <span {...bi(ADOPT.phone, lang)}>{ADOPT.phone[lang]}</span> ·{' '}
-              <span class="field-note" {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span>
+            <label class="field-label" for="lastName" {...bi(ADOPT.lastName, lang)}>
+              {ADOPT.lastName[lang]}
             </label>
             <input
               class="field-input"
-              id="phone"
-              name="phone"
-              type="tel"
-              value={values.phone}
-              autocomplete="tel"
+              id="lastName"
+              name="lastName"
+              type="text"
+              maxlength={MAX_NAME_CHARS}
+              value={values.lastName}
+              autocomplete="family-name"
+              required
             />
-            {errors.phone && (
-              <div class="field-error" {...bi(ADOPT_ERRORS.phone, lang)}>
-                {ADOPT_ERRORS.phone[lang]}
-              </div>
-            )}
           </div>
+        </div>
+        {errors.firstName && (
+          <div class="field-error" {...bi(ADOPT_ERRORS.firstName, lang)}>
+            {ADOPT_ERRORS.firstName[lang]}
+          </div>
+        )}
+        {errors.lastName && (
+          <div class="field-error" {...bi(ADOPT_ERRORS.lastName, lang)}>
+            {ADOPT_ERRORS.lastName[lang]}
+          </div>
+        )}
 
-          {/* The naming moment — the first steward only ("the first adopter
-              names the bed"). Optional and clearly said so: someone mid-walk
-              finishes without it and the bed simply has no name. The input is
-              set in the plaque type because this is putting a name on
-              something, not another contact field; the spacer below still
-              pins the submit to the bottom, so nothing crowds the button. */}
-          {offerNaming && (
-            <div class="bed-name-field">
-              <label class="field-label" for="bedName">
-                <span {...bi(ADOPT.nameBed, lang)}>{ADOPT.nameBed[lang]}</span> ·{' '}
-                <span class="field-note" {...bi(COMMON.optional, lang)}>
-                  {COMMON.optional[lang]}
-                </span>
-              </label>
-              <input
-                class="field-input bed-name-input"
-                id="bedName"
-                name="bedName"
-                type="text"
-                maxlength={MAX_BED_NAME_CHARS}
-                value={values.bedName}
-                autocomplete="off"
-              />
-              <p class="body-copy field-help" {...bi(ADOPT.nameBedHelp, lang)}>
-                {ADOPT.nameBedHelp[lang]}
-              </p>
+        <div>
+          <label class="field-label" for="email" {...bi(ADOPT.email, lang)}>
+            {ADOPT.email[lang]}
+          </label>
+          <input
+            class="field-input"
+            id="email"
+            name="email"
+            type="email"
+            maxlength={MAX_EMAIL_CHARS}
+            value={values.email}
+            autocomplete="email"
+            required
+          />
+          {errors.email && (
+            <div class="field-error" {...bi(ADOPT_ERRORS.email, lang)}>
+              {ADOPT_ERRORS.email[lang]}
             </div>
           )}
+        </div>
 
-          {/* Says what the form does NOT ask for, which on a street object is
-              the reassuring half: nothing to invent, nothing to forget. */}
-          <p class="body-copy field-help" {...bi(ADOPT.noSecret, lang)}>
-            {ADOPT.noSecret[lang]}
-          </p>
+        <div>
+          <label class="field-label" for="phone">
+            <span {...bi(ADOPT.phone, lang)}>{ADOPT.phone[lang]}</span> ·{' '}
+            <span class="field-note" {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span>
+          </label>
+          <input
+            class="field-input"
+            id="phone"
+            name="phone"
+            type="tel"
+            value={values.phone}
+            autocomplete="tel"
+          />
+          {errors.phone && (
+            <div class="field-error" {...bi(ADOPT_ERRORS.phone, lang)}>
+              {ADOPT_ERRORS.phone[lang]}
+            </div>
+          )}
+        </div>
 
-          {/* The privacy sentence, with no link. When there IS a policy, the
-              link goes here and nowhere else — one obvious place, left on
-              purpose (design-record.md, answered open question 1). */}
-          <p class="privacy" {...bi(ADOPT.privacy, lang)}>{ADOPT.privacy[lang]}</p>
+        {/* The naming moment — the first steward only ("the first adopter
+            names the bed"). Optional and clearly said so: someone mid-walk
+            finishes without it and the bed simply has no name. The input is
+            set in the plaque type because this is putting a name on
+            something, not another contact field; the spacer below still
+            pins the submit to the bottom, so nothing crowds the button. */}
+        {offerNaming && (
+          <div class="bed-name-field">
+            <label class="field-label" for="bedName">
+              <span {...bi(ADOPT.nameBed, lang)}>{ADOPT.nameBed[lang]}</span> ·{' '}
+              <span class="field-note" {...bi(COMMON.optional, lang)}>
+                {COMMON.optional[lang]}
+              </span>
+            </label>
+            <input
+              class="field-input bed-name-input"
+              id="bedName"
+              name="bedName"
+              type="text"
+              maxlength={MAX_BED_NAME_CHARS}
+              value={values.bedName}
+              autocomplete="off"
+            />
+            <p class="body-copy field-help" {...bi(ADOPT.nameBedHelp, lang)}>
+              {ADOPT.nameBedHelp[lang]}
+            </p>
+          </div>
+        )}
 
-          <div class="spacer" />
-          <button class="btn btn-tall btn-action" type="submit" {...bi(ADOPT.submit, lang)}>
-            {ADOPT.submit[lang]}
-          </button>
-        </form>
-      )
-    }
-  </div>
+        {/* Says what the form does NOT ask for, which on a street object is
+            the reassuring half: nothing to invent, nothing to forget. */}
+        <p class="body-copy field-help" {...bi(ADOPT.noSecret, lang)}>
+          {ADOPT.noSecret[lang]}
+        </p>
+
+        {/* The privacy sentence, with no link. When there IS a policy, the
+            link goes here and nowhere else — one obvious place, left on
+            purpose (design-record.md, answered open question 1). */}
+        <p class="privacy" {...bi(ADOPT.privacy, lang)}>{ADOPT.privacy[lang]}</p>
+
+        <div class="spacer" />
+        <button class="btn btn-tall btn-on-clear" type="submit" {...bi(ADOPT.submit, lang)}>
+          {ADOPT.submit[lang]}
+        </button>
+      </form>
+    )
+  }
 </Screen>
 
 <style>
@@ -329,6 +327,6 @@ const treeTypeLabel = {
     font-size: 13px;
     font-weight: 400;
     line-height: 1.55;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
 </style>

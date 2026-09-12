@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { signInByLink } from './helpers/steward-session';
 import { serverEnv } from './helpers/server-env';
+import { GENERATED_USERNAME_RE } from '../src/lib/service';
 
 // The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847.
 const TAG = '2mq2amhv';
@@ -566,6 +567,15 @@ describe('oversized report uploads, end to end', () => {
     const tapped = await fetch(`${origin}/t/${TAG}?utm_source=popl&utm_medium=nfc`);
     expect(tapped.status).toBe(200);
     expect(await storedTaps()).toBe(before + 1);
+
+    // A steward of this bed coming back to the bare URL is not a passer-by
+    // tapping the tag: the bookmark cue prints that plain address, so a
+    // browser bookmark of it must not inflate the count. Nothing on the URL
+    // says so — the identity does.
+    const steward = await stewardCookie();
+    const returned = await fetch(`${origin}/t/${TAG}`, { headers: { cookie: steward } });
+    expect(returned.status).toBe(200);
+    expect(await storedTaps()).toBe(before + 1);
   });
 
   it('counts applause only from a caller that already had an identity', async () => {
@@ -763,12 +773,27 @@ describe('the passwordless surface', () => {
     const data = JSON.parse(await readFile(path.join(full.dataDir, 'store.json'), 'utf8')) as {
       users: Record<
         string,
-        { username: string; hasSignInRoute: boolean; lang: string } & Record<string, unknown>
+        {
+          username: string;
+          firstName: string;
+          lastName: string;
+          hasSignInRoute: boolean;
+          lang: string;
+        } & Record<string, unknown>
       >;
     };
-    const rita = Object.values(data.users).find((u) => u.username === 'rita_o');
-    // The handle is derived from the name — nobody typed one.
+    // Found by the name the POST carried, not by the shape of the handle: a
+    // lookup that matches any generated steward would pass against somebody
+    // else's record, and would stay green if this adoption quietly wrote none.
+    const rita = Object.values(data.users).find(
+      (u) => u.firstName === 'Rita' && u.lastName === 'Okafor',
+    );
     expect(rita).toBeDefined();
+    // The handle is generated (`<Word>Steward<number>`) — nobody typed one,
+    // and nothing of the name is in it.
+    expect(rita!.username).toMatch(GENERATED_USERNAME_RE);
+    expect(rita!.username.toLowerCase()).not.toContain('rita');
+    expect(rita!.username.toLowerCase()).not.toContain('okafor');
     // No secret was stored, because none was collected — and the email IS
     // the sign-in route now.
     expect(rita?.pinHash).toBeUndefined();

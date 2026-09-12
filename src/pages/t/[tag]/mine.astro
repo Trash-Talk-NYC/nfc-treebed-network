@@ -89,119 +89,117 @@ const visibleStewards = stewards.filter(
   presentation={presentation}
   url={Astro.url}
 >
-  <div class="screen">
-    <div class="top-row">
-      <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
-        >{COMMON.backToBed[lang]}</a
-      >
-      <span class="kicker" {...bi(MINE.yourBed, lang)}>{MINE.yourBed[lang]}</span>
-    </div>
-    <div class="card">
-      <h1 class="title" {...bi(treeTypeHeading, lang)}>{treeTypeHeading[lang]}</h1>
-      {/* The bed's given name, as typed, in both languages — the same leaf
-          the door screens carry. Nothing renders on an unnamed bed. */}
-      {bed.bedName !== null && <div class="bed-name">“{bed.bedName}”</div>}
-      <div class="ident bed-ident">
-        {bed.plantingSpaceId && <>#{bed.plantingSpaceId} · </>}
-        {bed.crossStreets}
-      </div>
-      <div class="stewards stewards-gap">
-        {
-          visibleStewards.map(({ adoption, user }) => {
-            const since = sinceLabel(new Date(adoption.adoptedAt));
-            return (
-            <div class="steward">
-              <span class="av">{publicInitials(user).replace(/[.\s]/g, '')}</span>
-              <span class="who">
-                <span class="handle">{publicHandle(user)}</span>
-                <span class="initials">
-                  {publicInitials(user)} ·{' '}
-                  <span {...bi(since, lang)}>{since[lang]}</span>
-                </span>
-              </span>
-            </div>
-            );
-          })
-        }
-        {openSlots > 0 && <div class="slot-open">{openSlots} / {bed.slots}</div>}
-      </div>
-    </div>
-    {
-      openReport && openProblems.length > 0 && openAge && (
-        <div class="band band-alert">
-          <div class="band-title" {...bi(MINE.openReport, lang)}>
-            {MINE.openReport[lang]}
-          </div>
-          <div class="band-sub">
-            {openProblems.map((problem) => (
-              <Fragment>
-                <span {...bi(problem.label, lang)}>{problem.label[lang]}</span> ·{' '}
-              </Fragment>
-            ))}
-            <span {...bi(openAge, lang)}>{openAge[lang]}</span>
-          </div>
-        </div>
-      )
-    }
-    {openReport?.note && <p class="body-copy note-echo">“{openReport.note}”</p>}
-    {
-      alsoSaid.length > 0 && (
-        <div class="also-block">
-          <div class="also-title" {...bi(MINE.alsoSaid, lang)}>
-            {MINE.alsoSaid[lang]}
-          </div>
-          <ul class="also-said">
-            {alsoSaid.map(({ problems, note }) => (
-              <li>
-                {problems.length > 0 && (
-                  <span class="also-cat">
-                    <span {...bi(MINE.alsoReported, lang)}>{MINE.alsoReported[lang]}</span>{' '}
-                    {problems.map((problem, i) => (
-                      <Fragment>
-                        {i > 0 && <span class="also-sep">·</span>}
-                        <span class="also-label" {...bi(problem.label, lang)}>
-                          {problem.label[lang]}
-                        </span>
-                      </Fragment>
-                    ))}
-                  </span>
-                )}
-                {note && <span class="also-note">“{note}”</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )
-    }
-    {
-      clearedByMe && clearedAge && (
-        <div class="band band-clear">
-          <div class="band-title" {...bi(MINE.cleared, lang)}>
-            {MINE.cleared[lang]}
-          </div>
-          <div class="band-sub" {...bi(clearedAge, lang)}>
-            {clearedAge[lang]}
-          </div>
-        </div>
-      )
-    }
-    <div class="spacer" />
-    <div class="stats">
-      <span>
-        <span class="stat">{me.points}</span>{' '}
-        <span {...bi(MINE.points, lang)}>{MINE.points[lang]}</span>
-      </span>
-    </div>
-    {
-      openReport && (
-        <form method="POST" action={langLink(`${base}/clear`, lang)}>
-          <button class="btn btn-outline" type="submit" {...bi(MINE.clearIt, lang)}>
-            {MINE.clearIt[lang]}
-          </button>
-        </form>
-      )
-    }
+  <div class="top-row">
+    <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
+      >{COMMON.backToBed[lang]}</a
+    >
+    <span class="kicker" {...bi(MINE.yourBed, lang)}>{MINE.yourBed[lang]}</span>
   </div>
+  <div class="card">
+    <h1 class="title" {...bi(treeTypeHeading, lang)}>{treeTypeHeading[lang]}</h1>
+    {/* The bed's given name, as typed, in both languages — the same leaf
+        the door screens carry. Nothing renders on an unnamed bed. */}
+    {bed.bedName !== null && <div class="bed-name">“{bed.bedName}”</div>}
+    <div class="ident bed-ident">
+      {bed.plantingSpaceId && <>#{bed.plantingSpaceId} · </>}
+      {bed.crossStreets}
+    </div>
+    <div class="stewards stewards-gap">
+      {
+        visibleStewards.map(({ adoption, user }) => {
+          const since = sinceLabel(new Date(adoption.adoptedAt));
+          return (
+          <div class="steward">
+            <span class="av">{publicInitials(user).replace(/[.\s]/g, '')}</span>
+            <span class="who">
+              <span class="handle">{publicHandle(user)}</span>
+              <span class="initials">
+                {publicInitials(user)} ·{' '}
+                <span {...bi(since, lang)}>{since[lang]}</span>
+              </span>
+            </span>
+          </div>
+          );
+        })
+      }
+      {openSlots > 0 && <div class="slot-open">{openSlots} / {bed.slots}</div>}
+    </div>
+  </div>
+  {
+    openReport && openProblems.length > 0 && openAge && (
+      <div class="band band-alert">
+        <div class="band-title" {...bi(MINE.openReport, lang)}>
+          {MINE.openReport[lang]}
+        </div>
+        <div class="band-sub">
+          {openProblems.map((problem) => (
+            <Fragment>
+              <span {...bi(problem.label, lang)}>{problem.label[lang]}</span> ·{' '}
+            </Fragment>
+          ))}
+          <span {...bi(openAge, lang)}>{openAge[lang]}</span>
+        </div>
+      </div>
+    )
+  }
+  {openReport?.note && <p class="body-copy note-echo">“{openReport.note}”</p>}
+  {
+    alsoSaid.length > 0 && (
+      <div class="also-block">
+        <div class="also-title" {...bi(MINE.alsoSaid, lang)}>
+          {MINE.alsoSaid[lang]}
+        </div>
+        <ul class="also-said">
+          {alsoSaid.map(({ problems, note }) => (
+            <li>
+              {problems.length > 0 && (
+                <span class="also-cat">
+                  <span {...bi(MINE.alsoReported, lang)}>{MINE.alsoReported[lang]}</span>{' '}
+                  {problems.map((problem, i) => (
+                    <Fragment>
+                      {i > 0 && <span class="also-sep">·</span>}
+                      <span class="also-label" {...bi(problem.label, lang)}>
+                        {problem.label[lang]}
+                      </span>
+                    </Fragment>
+                  ))}
+                </span>
+              )}
+              {note && <span class="also-note">“{note}”</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+  {
+    clearedByMe && clearedAge && (
+      <div class="band band-clear">
+        <div class="band-title" {...bi(MINE.cleared, lang)}>
+          {MINE.cleared[lang]}
+        </div>
+        <div class="band-sub" {...bi(clearedAge, lang)}>
+          {clearedAge[lang]}
+        </div>
+      </div>
+    )
+  }
+  <div class="spacer" />
+  <div class="stats">
+    <span>
+      <span class="stat">{me.points}</span>{' '}
+      <span {...bi(MINE.points, lang)}>{MINE.points[lang]}</span>
+    </span>
+  </div>
+  {
+    openReport && (
+      <form method="POST" action={langLink(`${base}/clear`, lang)}>
+        <button class="btn btn-on-clear-outline" type="submit" {...bi(MINE.clearIt, lang)}>
+          {MINE.clearIt[lang]}
+        </button>
+      </form>
+    )
+  }
 </Screen>
 
 <style>
@@ -221,7 +219,7 @@ const visibleStewards = stewards.filter(
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.09em;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
   .also-said {
     list-style: none;
@@ -231,10 +229,10 @@ const visibleStewards = stewards.filter(
     flex-direction: column;
     gap: 6px;
     font-size: 13px;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
-  .also-said .also-label { font-weight: 600; color: var(--theme-ink); }
-  .also-said .also-sep { color: var(--theme-faint); padding: 0 2px; }
+  .also-said .also-label { font-weight: 600; color: var(--ink-strong); }
+  .also-said .also-sep { color: var(--ink-quiet); padding: 0 2px; }
   .also-said .also-cat + .also-note { margin-left: 6px; }
   .also-said .also-note { font-style: italic; }
   .stats {
@@ -243,8 +241,8 @@ const visibleStewards = stewards.filter(
     gap: 22px;
     font-size: 13px;
     font-weight: 500;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
     text-align: center;
   }
-  .stats .stat { font-size: 17px; font-weight: 700; color: var(--theme-ink); }
+  .stats .stat { font-size: 17px; font-weight: 700; color: var(--ink-strong); }
 </style>

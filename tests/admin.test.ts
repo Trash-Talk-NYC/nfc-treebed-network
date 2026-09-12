@@ -2,7 +2,7 @@
 // visitor rules are tested through: a real LocalStore on a temp file, and the
 // service layer in front of it.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -16,6 +16,7 @@ import {
   type Data,
 } from '../src/lib/store-dataset';
 import {
+  GENERATED_USERNAME_RE,
   MAX_ADDRESS_CHARS,
   MAX_BED_NOTE_CHARS,
   MAX_BED_SLOTS,
@@ -734,7 +735,9 @@ describe('writing a steward in, pen and paper', () => {
     expect(user.email).toBe('');
     expect(user.hasSignInRoute).toBe(false);
     expect(user.recordHeldOnBehalf).toBe(true);
-    expect(user.username).toBe('dani_t');
+    // The handle is generated, the same <Word>Steward<number> shape the tap
+    // adopt flow hands out -- pen and paper is not a second-class signup.
+    expect(user.username).toMatch(GENERATED_USERNAME_RE);
     const view = await getBlockView(store, W171_BLOCK_ID);
     const bed = view!.beds.find((b) => b.bed.plate === W171_PLATE)!;
     expect(bed.stewards).toHaveLength(1);
@@ -775,6 +778,25 @@ describe('writing a steward in, pen and paper', () => {
     ).rejects.toMatchObject({ code: 'slots-full' });
   });
 
+  it('rolls a fresh handle past one the store already holds', async () => {
+    // Pin the rng so every random roll is the same candidate: the first
+    // steward takes it, and the second must be walked to the next free one
+    // inside the transaction rather than written as a duplicate.
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const store = freshStore();
+      const first = await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
+      expect(first.username).toBe('MapleSteward10');
+      const second = await addStewardByAdmin(store, {
+        plate: 'BED-WH-1712',
+        input: stewardInput({ firstName: 'Luz', lastName: 'Vega' }),
+      });
+      expect(second.username).toBe('OakSteward10');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('takes a typed username but refuses a collision rather than mutating it', async () => {
     const store = freshStore();
     const typed = await addStewardByAdmin(store, {
@@ -788,6 +810,28 @@ describe('writing a steward in, pen and paper', () => {
         input: stewardInput({ firstName: 'Delia', username: 'dtorres' }),
       }),
     ).rejects.toMatchObject({ code: 'invalid-input' });
+  });
+
+  it('keeps a typed handle as typed and still folds case on collision', async () => {
+    // A typed handle may take the generated shape verbatim -- the store holds
+    // one handle alphabet -- and lookups fold case, so a differently-cased
+    // spelling of an existing handle is the same handle, refused not stored.
+    const store = freshStore();
+    const typed = await addStewardByAdmin(store, {
+      plate: W171_PLATE,
+      input: stewardInput({ username: '@MapleSteward42' }),
+    });
+    expect(typed.username).toBe('MapleSteward42');
+    expect(await store.getUserByUsername('maplesteward42')).toMatchObject({ id: typed.id });
+    await expect(
+      addStewardByAdmin(store, {
+        plate: 'BED-WH-1712',
+        input: stewardInput({ firstName: 'Delia', username: 'MAPLESTEWARD42' }),
+      }),
+    ).rejects.toMatchObject({ code: 'invalid-input' });
+    expect(validateAdminStewardInput(stewardInput({ username: 'DTorres' })).values.username).toBe(
+      'DTorres',
+    );
   });
 
   it('validates what is present and requires only the name', () => {

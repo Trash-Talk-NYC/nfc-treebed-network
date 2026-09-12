@@ -50,7 +50,7 @@ const signedIn = isAdminSession(Astro.cookies);
 ---
 
 <!doctype html>
-<html lang={lang}>
+<html lang={lang} style={themeStyle(presentation.colors)}>
   <head>
     <meta charset="utf-8" />
     {/* viewport-fit=cover: without it env(safe-area-inset-*) is 0 everywhere. */}
@@ -60,7 +60,7 @@ const signedIn = isAdminSession(Astro.cookies);
     <link rel="icon" href="data:," />
     <title>{title}</title>
   </head>
-  <body style={themeStyle(presentation.colors)}>
+  <body>
     <div class="admin-frame">
       <header class="admin-bar">
         <span class="brand"

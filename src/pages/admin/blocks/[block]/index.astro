@@ -1145,12 +1145,12 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
   .seg-opt + .seg-opt span { border-left: 1px solid var(--theme-border); }
   .seg-opt input:checked + span {
-    background: var(--theme-clear);
-    color: var(--theme-on-clear);
+    background: var(--fill-affirm);
+    color: var(--on-fill-affirm);
   }
   .seg-opt input:focus-visible + span {
     outline: 3px solid var(--theme-ink);
@@ -1176,7 +1176,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     border-left: 4px solid var(--theme-alert);
     border-radius: 8px;
     background: color-mix(in srgb, var(--theme-alert) 14%, var(--theme-surface));
-    color: var(--theme-ink);
+    color: var(--ink-strong);
   }
   .report-cats { display: flex; flex-wrap: wrap; gap: 6px; }
   .report-cat {
@@ -1190,10 +1190,10 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   .report-photo {
     background: transparent;
     border: 1px dashed var(--theme-muted);
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
   .report-note { margin: 10px 0 0; font-size: 13px; font-style: italic; overflow-wrap: anywhere; }
-  .report-meta { margin-top: 8px; font-size: 11px; font-weight: 500; color: var(--theme-muted); }
+  .report-meta { margin-top: 8px; font-size: 11px; font-weight: 500; color: var(--ink-quiet); }
   /* What the neighbours added, under the first reporter's own words — read
      only, like the rest of the band. */
   .report-also { margin-top: 10px; border-top: 1px solid var(--theme-border); padding-top: 8px; }
@@ -1202,12 +1202,12 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
   .report-also-list { margin: 6px 0 0; padding: 0; list-style: none; }
   .report-also-list li { font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
   .report-also-cats { font-weight: 500; }
-  .report-also-sep { margin: 0 4px; color: var(--theme-muted); }
+  .report-also-sep { margin: 0 4px; color: var(--ink-quiet); }
   .report-also-note { font-style: italic; margin-left: 6px; }
   .profile-head { margin-top: 22px; }
   .note-field { margin: 12px 0 4px; }
@@ -1272,12 +1272,12 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     font-weight: 700;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
   .retired-note {
     margin: 4px 0 10px;
     font-size: 12px;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
   /* Same list component as the street above it, so two deleted rows do not
      butt their borders together. */
@@ -1297,7 +1297,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     opacity: 0.55;
   }
   .retired-row .nm {
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
   .restore-act {
     flex: none;
@@ -1313,7 +1313,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     margin-top: 10px;
     font-size: 12px;
     font-weight: 600;
-    color: var(--theme-muted);
+    color: var(--ink-quiet);
   }
   /* Reads exactly as the field it stands in for, minus the caret. */
   .addr-static {
@@ -1322,7 +1322,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     padding: 8px 0;
     font-size: 16px;
     font-weight: 600;
-    color: var(--theme-ink);
+    color: var(--ink-strong);
   }
 </style>
 

@@ -30,33 +30,32 @@
 // rules add their weight to the open report rather than sending them to a
 // screen about a rule (service.ts, `reportProblem`).
 //
-// The two doors stand on different GROUNDS, deliberately. Door 1 is Poster
-// Beige — the page ground — and its headline carries no highlight, so it reads
-// as one plain sentence; door 2 is Post No Bills Green with the tree type
-// picked out in beige. The captain changed door 1 to beige after the review, so
-// this asymmetry is the design, not an oversight to normalize: do not put
-// `.hl` back on door 1 or move it back onto the green.
+// BOTH doors stand on solid Post No Bills Green with Poster Beige as the
+// secondary — the captain's 2026-09-11 reversal of his earlier beige door 1.
+// Door 1's headline still carries no highlight, so it reads as one plain
+// sentence; door 2 keeps the tree type picked out in beige (`.hl`). Both use
+// the beige-on-green button pair (`btn-on-clear` / `btn-on-clear-outline`),
+// which is what door 2 always used; beige on green is 4.59:1 and
+// `tests/presentation.test.ts` holds every pair to AA.
 //
-// Door 1's buttons had to change colour with the ground, because beige on
-// beige is invisible. They take the page ground's own pair — Deep Purple for
-// the adopt action, which is the palette's positive-ownership role and what
-// the adopt form's own submit already uses, and the Roadtop Black outline for
-// the secondary. Both clear WCAG AA on beige (7.63:1 and 16.04:1), and no
-// yellow appears on that screen at all, so the one pairing that cannot work on
-// this ground never arises. `tests/presentation.test.ts` holds every pair.
+// A signed-in steward of this bed also gets the bookmark cue at the bottom of
+// door 2 — the bed's own /t/<tag> URL, so they can come back without tapping
+// the tag. Nobody else sees it: a passer-by is not asked to bookmark a bed
+// that is not theirs. A steward's return logs no tap whichever way they came
+// back, because the suppression reads their identity rather than the URL.
 //
 // Option A — the plaque-first screen this replaced — is scrapped, not flagged
 // off. Do not restore it.
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
 import { engravedStewards, getBedView, logTap } from '../../../lib/service';
-import { getActorId } from '../../../lib/session';
+import { getActorId, getSessionUserId } from '../../../lib/session';
 import { isPostAction } from '../../../lib/plaque-url';
 import { resolveTagParam } from '../../../lib/tag-bindings';
 import { abandonBody } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
 import { capitalizeFirst } from '../../../lib/format';
-import { ABOUT, COMMON, DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, UNBOUND } from '../../../lib/copy';
+import { ABOUT, BOOKMARK, COMMON, DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, UNBOUND } from '../../../lib/copy';
 import { langLink, resolveLang } from '../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../lib/presentation';
 import { publicHandle, publicInitials } from '../../../lib/types';
@@ -110,18 +109,29 @@ if (view === null) Astro.response.status = 404;
 
 const actor = view === null ? null : getActorId(Astro.cookies);
 
+// A steward of THIS bed is never a passer-by tapping the tag: they are coming
+// back to their own bed, whichever way they arrived — the bookmark cue's link,
+// a browser bookmark of the bare URL, history, or the tag itself. The cue
+// prints the plain /t/<tag> address precisely so that what a steward saves and
+// what the link carries are the same thing; making the identity decide instead
+// of a query flag is what makes every one of those return paths agree.
+const sessionUserId = view === null ? null : getSessionUserId(Astro.cookies);
+const isOwnSteward =
+  sessionUserId !== null && (view?.stewards ?? []).some((s) => s.user.id === sessionUserId);
+
 // A tap is a person opening the URL on the chip: a GET, never a hand-built
-// POST or a monitor's HEAD, and never one of our own navigations back here
-// (plaque-url.ts). The language toggle rides the same rule for free — it is a
-// link with `?lang=`, which is not one of the suppressing flags, so switching
-// language on the plaque is a fresh render but not a fresh tap only because
-// `isPostAction` also sees `tg_action` on every link of ours. On the plaque
-// itself the toggle re-renders the same URL, so it does count a second view;
-// that is one visitor at one tree either way, and the alternative — treating
-// `lang` as a suppressing flag — would let any decorated URL carrying `lang`
-// silently stop counting.
+// POST or a monitor's HEAD, never one of our own navigations back here
+// (plaque-url.ts), and never this bed's own steward returning. The language
+// toggle rides the same rule for free — it is a link with `?lang=`, which is
+// not one of the suppressing flags, so switching language on the plaque is a
+// fresh render but not a fresh tap only because `isPostAction` also sees
+// `tg_action` on every link of ours. On the plaque itself the toggle
+// re-renders the same URL, so it does count a second view; that is one visitor
+// at one tree either way, and the alternative — treating `lang` as a
+// suppressing flag — would let any decorated URL carrying `lang` silently stop
+// counting.
 const tapShaped = Astro.request.method === 'GET';
-if (view !== null && actor !== null && tapShaped && !isPostAction(url)) {
+if (view !== null && actor !== null && tapShaped && !isPostAction(url) && !isOwnSteward) {
   try {
     await logTap(store, { plate: view.bed.plate, actorId: actor });
   } catch (err) {
@@ -158,11 +168,10 @@ const title = bed
   lang={lang}
   presentation={presentation}
   url={url}
-  ground={stewarded ? 'clear' : 'page'}
 >
   {
     view === null && (
-      <div class="screen">
+      <Fragment>
         <div class="kicker">{presentation.copy.wordmark}</div>
         <div class="card">
           <div class="title" {...bi(UNBOUND.title, lang)}>
@@ -176,14 +185,14 @@ const title = bed
           {UNBOUND.body[lang]}
         </div>
         <div class="spacer" />
-      </div>
+      </Fragment>
     )
   }
 
   {
     bed && !stewarded && (
-      <div class="screen">
-        {/* Poster Beige, and no highlight — see the header. */}
+      <Fragment>
+        {/* Solid green like door 2, but still no highlight — see the header. */}
         <div>
           <div class="kicker">
             {presentation.copy.wordmark}
@@ -210,11 +219,11 @@ const title = bed
           </p>
         </div>
         {openSlots > 0 && (
-          <a class="btn btn-tall btn-action" href={adopt} {...bi(DOOR_UNSTEWARDED.adopt, lang)}>
+          <a class="btn btn-tall btn-on-clear" href={adopt} {...bi(DOOR_UNSTEWARDED.adopt, lang)}>
             {DOOR_UNSTEWARDED.adopt[lang]}
           </a>
         )}
-        <a class="btn btn-outline" href={care} {...bi(COMMON.needsCare, lang)}>
+        <a class="btn btn-on-clear-outline" href={care} {...bi(COMMON.needsCare, lang)}>
           {COMMON.needsCare[lang]}
         </a>
         {/* A small text link, deliberately not a third big button: the door
@@ -222,13 +231,13 @@ const title = bed
         <a class="btn-ghost" href={about} {...bi(ABOUT.fromDoor, lang)}>
           {ABOUT.fromDoor[lang]}
         </a>
-      </div>
+      </Fragment>
     )
   }
 
   {
     bed && stewarded && (
-      <div class="screen screen-clear">
+      <Fragment>
         <div>
           <div class="kicker">
             {presentation.copy.wordmark}
@@ -286,7 +295,19 @@ const title = bed
         <a class="btn-ghost" href={about} {...bi(ABOUT.fromDoor, lang)}>
           {ABOUT.fromDoor[lang]}
         </a>
-      </div>
+        {/* The way back without tapping the tag — stewards only, and the URL
+            is its own leaf: an address is not translated. The href is the bare
+            bed URL, the same address the text prints, so a steward who saves
+            it with the browser's own bookmark saves what we showed them; the
+            tap is suppressed by their being this bed's steward, not by a flag
+            riding the link. */}
+        {isOwnSteward && (
+          <p class="bookmark-cue">
+            <span {...bi(BOOKMARK.cue, lang)}>{BOOKMARK.cue[lang]}</span>{' '}
+            <a href={base} data-bare>{url.host}{base}</a>
+          </p>
+        )}
+      </Fragment>
     )
   }
 </Screen>
@@ -311,5 +332,5 @@ const title = bed
   .stewards-gap { margin-top: 11px; }
   /* Two full-width actions on the green ground, tight to each other so they
      read as one pair rather than two decisions. */
-  .screen-clear form + .btn { margin-top: -4px; }
+  form + .btn { margin-top: -4px; }
 </style>
