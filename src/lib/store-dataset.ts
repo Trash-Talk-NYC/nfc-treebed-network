@@ -365,7 +365,7 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
     email: 'seed-marisol@example.invalid',
     phone: '+1 555 010 0847',
     points: 340,
-    streakWeeks: 7,
+    streakWeeks: 0,
     createdAt: '2026-05-02T14:00:00.000Z',
   };
   const beds: Record<string, Bed> = {

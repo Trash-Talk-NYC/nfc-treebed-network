@@ -183,13 +183,13 @@ const visibleStewards = stewards.filter(
         </div>
       )
     }
+    <div class="spacer" />
     <div class="stats">
       <span>
         <span class="stat">{me.points}</span>{' '}
         <span {...bi(MINE.points, lang)}>{MINE.points[lang]}</span>
       </span>
     </div>
-    <div class="spacer" />
     {
       openReport && (
         <form method="POST" action={langLink(`${base}/clear`, lang)}>
