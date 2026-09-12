@@ -189,7 +189,11 @@ describe('the six earlier W 171st beds', () => {
     const html = await response.text();
     // Willow oak, door 1, and still no adoption invitation: the captain has
     // not opened these six, and the named scheme changed nothing about them.
-    expect(html).toContain('Willow oak');
+    // The door frame puts the species mid-sentence, so it reads lowercase
+    // there whatever casing the stored row was written in, while the
+    // standalone document title capitalizes at the render site.
+    expect(html.replace(/<[^>]+>/g, '')).toContain('This willow oak');
+    expect(html).toContain('<title>Willow oak · ');
     expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.en);
   });
 });

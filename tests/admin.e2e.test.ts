@@ -435,15 +435,49 @@ describe('the admin door', () => {
     expect(named.status).toBe(303);
     const after = await panel();
     expect(after).not.toContain(ADMIN.speciesUnsetSub.en);
-    expect(after).toMatch(/name="tree-type-en"[^>]*value="Willow oak"/);
+    // Both names are stored the way the door frame needs them — the English
+    // one lowercased on write like the Spanish, because its commonest use is
+    // mid-sentence there.
+    expect(after).toMatch(/name="tree-type-en"[^>]*value="willow oak"/);
     // The Spanish name came from the checked-in table, lowercase, because
     // its commonest use is mid-sentence in the door frame.
     expect(after).toMatch(/name="tree-type-es"[^>]*value="roble sauce"/);
 
-    // And the door says it now, in both languages, instead of "this tree".
+    // And the door says it now, in both languages, instead of "this tree" —
+    // mid-sentence, so lowercase in both.
     const door = await (await fetch(`${origin}/t/5shfw171`)).text();
-    expect(door).toContain('Willow oak');
+    expect(door.replace(/<[^>]+>/g, '')).toContain('This willow oak');
     expect(door).toContain('roble sauce');
+
+    // The row arrives pre-filled, so correcting only the English name posts
+    // the OLD species' Spanish back. It was the table's answer, not a
+    // person's, so it follows the new name rather than putting a willow oak's
+    // Spanish on a red maple on the neighbour's own street.
+    await fetch(`${origin}${runPath}?bed=5SHFW171`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({
+        plate: '5SHFW171',
+        'tree-type-en': 'Red maple',
+        'tree-type-es': 'roble sauce',
+      }),
+      redirect: 'manual',
+    });
+    const corrected = await panel();
+    expect(corrected).toMatch(/name="tree-type-en"[^>]*value="red maple"/);
+    expect(corrected).toMatch(/name="tree-type-es"[^>]*value="arce rojo"/);
+
+    // Back to the willow oak for the rest of this test.
+    await fetch(`${origin}${runPath}?bed=5SHFW171`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({
+        plate: '5SHFW171',
+        'tree-type-en': 'Willow oak',
+        'tree-type-es': 'arce rojo',
+      }),
+      redirect: 'manual',
+    });
 
     // A save that carries neither field keeps it — the whole profile's rule.
     await fetch(`${origin}${runPath}?bed=5SHFW171`, {
@@ -452,7 +486,7 @@ describe('the admin door', () => {
       body: new URLSearchParams({ plate: '5SHFW171', guard: 'wood' }),
       redirect: 'manual',
     });
-    expect(await panel()).toMatch(/name="tree-type-en"[^>]*value="Willow oak"/);
+    expect(await panel()).toMatch(/name="tree-type-en"[^>]*value="willow oak"/);
 
     // A cleared English name is the way back to NOT YET RECORDED.
     const cleared = await fetch(`${origin}${runPath}?bed=5SHFW171`, {

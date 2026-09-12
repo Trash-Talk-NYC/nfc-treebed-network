@@ -52,11 +52,15 @@ const SECRET_QUERY_PARAMS: readonly string[] = ['token'];
 /**
  * The query string one of our redirects may carry forward.
  *
- * Everything else rides along, as the plaque's own canonical redirect does:
- * it may hold the language a cookie-refusing visitor picked, our post-action
- * flag, or a decoration (UTM, a link shortener) the tag URL was given.
+ * Everything else rides along: it may hold the language a cookie-refusing
+ * visitor picked, our post-action flag, or a decoration (UTM, a link
+ * shortener) the tag URL was given.
+ *
+ * Exported because the two redirects outside this file — the plaque's own
+ * canonical-spelling hop and the `/m` decoration hop — answer the same
+ * question, and a rule kept at three of four call sites is not a rule.
  */
-function forwardableSearch(request: Request): string {
+export function forwardableSearch(request: Request): string {
   const url = new URL(request.url);
   for (const param of SECRET_QUERY_PARAMS) url.searchParams.delete(param);
   return url.search;

@@ -1055,7 +1055,70 @@ describe('the panel’s species row', () => {
       bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Willow oak', es: '' } }),
     });
     const bed = await store.getBed(RUN_PLATE);
-    expect(bed!.treeType).toEqual({ en: 'Willow oak', es: 'roble sauce' });
+    // Stored for its commonest use, mid-sentence in the door frame, so the
+    // English name's leading capital comes off the same way the Spanish's does.
+    expect(bed!.treeType).toEqual({ en: 'willow oak', es: 'roble sauce' });
+  });
+
+  it('re-derives a Spanish name the table gave when the English name is corrected', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Willow oak', es: '' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('roble sauce');
+
+    // The row arrives PRE-FILLED, so correcting only the English name posts
+    // the OLD species' Spanish back untouched. It is the table's answer, not
+    // a person's, so it follows the new name rather than pinning "roble
+    // sauce" to a red maple on the neighbour's own street.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Red maple', es: 'roble sauce' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      en: 'red maple',
+      es: 'arce rojo',
+    });
+
+    // And an unknown species degrades to the generic word rather than keeping
+    // the table's answer for a species this bed no longer is.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Dragon tree', es: 'arce rojo' } }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('árbol');
+  });
+
+  it('keeps a human-typed Spanish name across an English correction', async () => {
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        plate: RUN_PLATE,
+        treeType: { en: 'Willow oak', es: 'el roble de la esquina' },
+      }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType!.es).toBe('el roble de la esquina');
+
+    // Nothing the table owns, so it is a person's words: re-deriving would
+    // lose a real translation and make them type it again.
+    await saveBlockSettings(store, {
+      blockId: SOUTH_RUN_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({
+        plate: RUN_PLATE,
+        treeType: { en: 'Red maple', es: 'el roble de la esquina' },
+      }),
+    });
+    expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
+      en: 'red maple',
+      es: 'el roble de la esquina',
+    });
   });
 
   it('lets a typed Spanish name win, and stores the table’s own name lowercase', async () => {
@@ -1085,7 +1148,7 @@ describe('the panel’s species row', () => {
       bed: bedSave({ plate: RUN_PLATE, treeType: { en: 'Dragon tree', es: '' } }),
     });
     expect((await store.getBed(RUN_PLATE))!.treeType).toEqual({
-      en: 'Dragon tree',
+      en: 'dragon tree',
       es: 'árbol',
     });
   });
@@ -1164,7 +1227,7 @@ describe('adding a bed', () => {
       blockId: W171_BLOCK_ID,
       treeType: { en: 'Dragon tree', es: '' },
     });
-    expect(bed.treeType!.en).toBe('Dragon tree');
+    expect(bed.treeType!.en).toBe('dragon tree');
     // Never the English name and never a transliteration: "árbol" is the
     // same wording normalizeData gives a bed with no tree type at all.
     expect(bed.treeType!.es).toBe('árbol');

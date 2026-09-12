@@ -52,6 +52,7 @@ import { engravedStewards, getBedView, logTap } from '../../../lib/service';
 import { getActorId, getSessionUserId } from '../../../lib/session';
 import { isPostAction } from '../../../lib/plaque-url';
 import { resolveTagParam } from '../../../lib/tag-bindings';
+import { forwardableSearch } from '../../../lib/tag-route';
 import { abandonBody } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
 import { capitalizeFirst, speciesShown } from '../../../lib/format';
@@ -73,15 +74,18 @@ if (resolved.state === 'invalid') {
 }
 // One canonical URL per tag: a mistyped or hand-decorated ID (case, hyphens,
 // lookalikes) lands here, then reads and shares as the address the chip
-// carries. The query string rides along — it may hold our own post-action
-// flag, the language, a decorator's UTM tags, or (later) an NTAG424's
-// parameters.
+// carries. The query string rides along minus anything secret
+// (`forwardableSearch`) — it may hold our own post-action flag, the language,
+// a decorator's UTM tags, or (later) an NTAG424's parameters.
 if (Astro.params.tag !== resolved.tag) {
   // 303 for anything that arrived with a body, as every other redirect that can
   // answer a POST does: a 302 invites a client reading RFC 9110 to repeat the
   // POST at the canonical plaque, which is the one screen that logs a tap.
   const seeOther = Astro.request.method !== 'GET' && Astro.request.method !== 'HEAD';
-  return Astro.redirect(`/t/${resolved.tag}${url.search}`, seeOther ? 303 : 302);
+  return Astro.redirect(
+    `/t/${resolved.tag}${forwardableSearch(Astro.request)}`,
+    seeOther ? 303 : 302,
+  );
 }
 
 const lang = resolveLang(url, Astro.cookies);

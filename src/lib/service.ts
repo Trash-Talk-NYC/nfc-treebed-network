@@ -21,7 +21,7 @@ import type {
 import type { Lang, Phrase } from './i18n';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
-import { nyCalendarDay } from './format';
+import { lowercaseFirst, nyCalendarDay } from './format';
 import { signingSecret } from './signing-secret';
 import { CarryRefusal, carrySteward } from './steward-carry';
 import { GENERIC_TREE, spanishSpeciesFor, tableSpeciesCasingFor } from './tree-species';
@@ -1295,7 +1295,10 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       slots: pending.slots,
       offeredSlots: pending.offeredSlots,
       bedName: wanted.clearBedName ? null : bed.bedName,
-      treeType: wanted.treeType === undefined ? bed.treeType : resolveSpecies(wanted.treeType),
+      treeType:
+        wanted.treeType === undefined
+          ? bed.treeType
+          : resolveSpecies(wanted.treeType, bed.treeType),
       guard: wanted.guard === undefined ? bed.guard : wanted.guard,
       treePresent: wanted.treePresent === undefined ? bed.treePresent : wanted.treePresent,
       plantsPresent: wanted.plantsPresent === undefined ? bed.plantsPresent : wanted.plantsPresent,
@@ -1498,17 +1501,35 @@ export async function carryStewardByAdmin(
  * and storing an empty string would print an empty word inside the door
  * frame. Whether that is a refusal (adding a bed) or the way back to
  * not-yet-recorded (the panel) is the caller's call.
+ *
+ * `stored` is what the bed holds today, and it exists for the one form that
+ * PRE-FILLS both fields — the bed panel's species row. There, a Spanish field
+ * the admin never touched still arrives filled, which without this would read
+ * as a human's name and pin the old species' Spanish to a corrected English
+ * one ("red maple" / "roble sauce" on the neighbour's own street). So a typed
+ * Spanish name that is exactly what the table itself gave the OLD English
+ * name is the table's answer, not a person's, and re-derives from the new
+ * name; anything a human actually wrote survives the correction untouched.
  */
-export function resolveSpecies(typed: { en: string; es: string }): Phrase | null {
-  const en = capped(typed.en, MAX_TREE_TYPE_CHARS);
+export function resolveSpecies(
+  typed: { en: string; es: string },
+  stored?: Phrase | null,
+): Phrase | null {
+  // The leading character only, the inverse of `capitalizeFirst`: a species
+  // is stored for its commonest use, mid-sentence inside the door frame, and
+  // a proper noun inside the name ("roble de Shumard") keeps its capital.
+  const en = lowercaseFirst(capped(typed.en, MAX_TREE_TYPE_CHARS));
   if (en === '') return null;
   const typedEs = capped(typed.es, MAX_TREE_TYPE_CHARS);
+  const carriedTableDefault =
+    typedEs !== '' && stored != null && tableSpeciesCasingFor(stored.en, typedEs) !== null;
   // A typed name that is the table's own modulo casing is the table's, so it
   // is stored the way the door frame needs it; anything else is a name and
   // keeps every character the admin typed.
-  const es = typedEs
-    ? (tableSpeciesCasingFor(en, typedEs) ?? typedEs)
-    : (spanishSpeciesFor(en) ?? GENERIC_TREE.es);
+  const es =
+    typedEs !== '' && !carriedTableDefault
+      ? (tableSpeciesCasingFor(en, typedEs) ?? typedEs)
+      : (spanishSpeciesFor(en) ?? GENERIC_TREE.es);
   return { en, es };
 }
 

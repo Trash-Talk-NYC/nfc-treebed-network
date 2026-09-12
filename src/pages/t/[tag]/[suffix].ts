@@ -22,6 +22,7 @@ import type { APIRoute } from 'astro';
 
 import { abandonBody } from '../../../lib/request-body';
 import { normalizeTagId } from '../../../lib/tag-id';
+import { forwardableSearch } from '../../../lib/tag-route';
 
 /** The suffixes a chip may carry, lowercase. Today: `m`, the metal-guard marker. */
 const DECORATIONS = new Set(['m']);
@@ -47,6 +48,8 @@ export const ALL: APIRoute = async ({ params, request }) => {
   const seeOther = request.method !== 'GET' && request.method !== 'HEAD';
   return new Response(null, {
     status: seeOther ? 303 : 302,
-    headers: { location: `/t/${tag}${new URL(request.url).search}` },
+    // The query string rides along minus anything secret, through the one
+    // helper every redirect of ours answers that question with.
+    headers: { location: `/t/${tag}${forwardableSearch(request)}` },
   });
 };

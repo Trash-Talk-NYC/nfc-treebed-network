@@ -6,10 +6,16 @@
 // verbatim would put it in a `location` header (what platform access logs
 // keep) and then in the door screen's address bar, whose language-toggle
 // links are built from the URL it arrived on. Both hops out of a sub-page
-// live in tag-route.ts, so both are pinned here.
+// live in tag-route.ts, so both are pinned here — and so is the helper the
+// two redirects OUTSIDE this file answer the same question with, because a
+// rule kept at two of four call sites is not a rule.
 
 import { describe, expect, it } from 'vitest';
-import { refuseMissingBedScreen, requireBoundTagForForm } from '../src/lib/tag-route';
+import {
+  forwardableSearch,
+  refuseMissingBedScreen,
+  requireBoundTagForForm,
+} from '../src/lib/tag-route';
 
 /** The seeded demo tag (tag-bindings.ts). */
 const TAG = '2mq2amhv';
@@ -54,5 +60,23 @@ describe('the hop out of an unbound tag', () => {
     const location = refused!.headers.get('location')!;
     expect(location).not.toContain(TOKEN);
     expect(location).toBe(`/t/${UNBOUND_TAG}?lang=es`);
+  });
+});
+
+describe('the query string one of our redirects may carry', () => {
+  it('drops the token and keeps everything a decorated tag URL holds', () => {
+    const request = new Request(
+      `https://trashtalknyc.org/t/${TAG}/m?token=${TOKEN}&lang=es&utm_source=popl`,
+    );
+
+    const search = forwardableSearch(request);
+    expect(search).not.toContain(TOKEN);
+    expect(search).not.toContain('token');
+    expect(search).toContain('lang=es');
+    expect(search).toContain('utm_source=popl');
+  });
+
+  it('is an empty string for a bare URL, so no redirect grows a "?"', () => {
+    expect(forwardableSearch(new Request(`https://trashtalknyc.org/t/${TAG}/m`))).toBe('');
   });
 });

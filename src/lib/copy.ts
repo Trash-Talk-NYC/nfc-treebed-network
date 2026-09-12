@@ -777,6 +777,16 @@ export const ADMIN = {
     en: 'optional — known species fill it in on their own',
     es: 'opcional: las especies conocidas se completan solas',
   },
+  /**
+   * The same field on the bed panel, where it arrives PRE-FILLED, so the
+   * add-bed note above ("fills itself in") would promise what a filled field
+   * cannot do. What the row actually does: a Spanish name the table gave is
+   * re-derived when the English name changes, and one a human wrote is kept.
+   */
+  treeTypeEsStored: {
+    en: 'optional — a known species follows the English name; a name you type is kept',
+    es: 'opcional: una especie conocida sigue al nombre en inglés; un nombre que escribas se conserva',
+  },
   addBedSubmit: { en: 'ADD THE BED', es: 'AÑADIR EL CANTERO' },
   treeTypeMissing: { en: 'Name the tree.', es: 'Dinos el árbol.' },
   /**
