@@ -779,12 +779,12 @@ export function refusalResponse(refusal: Refusal, subject: string): Response {
  * Read and drop the body of a form that carries no fields, and answer for it
  * if it turns out to carry one after all.
  *
- * Applause and clear are a single button each, so
- * there is nothing to parse — but a body left unread is not the same as no
- * body: Node answers and then destroys the socket under a request it never
- * finished reading, which can cost the caller the redirect this route just
- * wrote. Reading it to its end under the smallest cap puts every public POST
- * on the same bounds, with no route quietly exempt.
+ * Applause and clear are a single button each, so there is nothing to parse —
+ * but a body left unread is not the same as no body: Node answers and then
+ * destroys the socket under a request it never finished reading, which can
+ * cost the caller the redirect this route just wrote. Reading it to its end
+ * under the smallest cap puts every public POST on the same bounds, with no
+ * route quietly exempt.
  */
 export async function discardBody(request: Request, subject: string): Promise<Response | null> {
   const { refusal } = await readCappedHead(request, MAX_FORM_BYTES, formBounds(MAX_FORM_BYTES));
