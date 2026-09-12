@@ -22,6 +22,9 @@ const DOOR1_TAG = 'jjhq9gfj';
 const PLANTS_NOTE = 'Daffodils and a hosta along the guard side.';
 const RECOMMENDED_NOTE = 'Native perennials — swamp milkweed does well here.';
 const CARE_NOTE = 'Water twice a week through the summer.';
+/** Notes left on the W 171st door-1 bed's record with both switches OFF. */
+const OFF_PLANTS_NOTE = 'Tulips that came out last spring.';
+const OFF_RECOMMENDED_NOTE = 'Nothing until the guard is in.';
 
 let server: ChildProcessWithoutNullStreams;
 let origin = '';
@@ -45,6 +48,12 @@ beforeAll(async () => {
   demo.plantingRecommended = true;
   demo.recommendedPlantsNote = RECOMMENDED_NOTE;
   demo.careNote = CARE_NOTE;
+  // The door-1 bed keeps typed notes under switches that are OFF.
+  const door1 = data.beds['BED-WH-1711']!;
+  door1.plantsPresent = false;
+  door1.plantsNote = OFF_PLANTS_NOTE;
+  door1.plantingRecommended = false;
+  door1.recommendedPlantsNote = OFF_RECOMMENDED_NOTE;
 
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-about-'));
   await writeFile(path.join(dataDir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
@@ -138,13 +147,24 @@ describe('the profile, in both languages', () => {
   });
 
   it('answers the profile defaults honestly on an untouched bed', async () => {
-    // The W 171st beds seed with the defaults: no guard on record, a tree
+    // The W 171st beds seed with the defaults: guard not yet recorded, a tree
     // standing, nothing planted, no recommendation, no notes.
     const html = await (await fetch(`${origin}/t/${DOOR1_TAG}/about`)).text();
-    expect(html).toContain(ABOUT.guardNone.en);
+    // Nobody has recorded the guard, so the page says NOTHING about it —
+    // neither a material nor "none", which would deny a guard the tag rides.
+    expect(html).not.toContain(ABOUT.guardLabel.en);
+    expect(html).not.toContain(ABOUT.guardNone.en);
     expect(html).toContain(ABOUT.plantsNo.en);
     expect(html).toContain(ABOUT.plantingNo.es);
     expect(html).toContain(ABOUT.careNone.en);
+  });
+
+  it('shows a typed note only under the switch it describes', async () => {
+    // A note kept on the record while its switch is off (the admin never
+    // loses the words) must not contradict the switch out loud.
+    const html = await (await fetch(`${origin}/t/${DOOR1_TAG}/about`)).text();
+    expect(html).not.toContain(OFF_PLANTS_NOTE);
+    expect(html).not.toContain(OFF_RECOMMENDED_NOTE);
   });
 });
 

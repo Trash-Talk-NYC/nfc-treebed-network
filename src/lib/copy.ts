@@ -246,16 +246,16 @@ export const ABOUT_FAQ = {
   },
   reportQ: { en: 'How do I report a problem?', es: '¿Cómo reporto un problema?' },
   reportA: {
-    en: 'Tap the tag and press THIS BED NEEDS CARE. Pick what’s wrong — a photo is optional — and someone will come take a look.',
-    es: 'Toca la etiqueta y pulsa ESTE CANTERO NECESITA CUIDADO. Elige qué pasa —la foto es opcional— y alguien vendrá a mirar.',
+    en: 'Tap the tag and press THIS BED NEEDS CARE. Pick what’s wrong — a photo is optional — and Trash Talk NYC sees the report, as does the bed’s steward if it has one.',
+    es: 'Toca la etiqueta y pulsa ESTE CANTERO NECESITA CUIDADO. Elige qué pasa —la foto es opcional— y Trash Talk NYC ve el reporte, igual que quien cuida el cantero, si lo tiene.',
   },
   plantsQ: {
     en: 'I steward a bed — how do I update what’s planted?',
     es: 'Cuido un cantero, ¿cómo actualizo lo que está plantado?',
   },
   plantsA: {
-    en: 'Tell Trash Talk what changed and we’ll update this page. Updating it yourself is coming.',
-    es: 'Cuéntale a Trash Talk qué cambió y actualizaremos esta página. Pronto podrás actualizarla directamente.',
+    en: 'Tell Trash Talk what changed. For now the block admin updates this page, so it may take a little while to show.',
+    es: 'Cuéntale a Trash Talk qué cambió. Por ahora la administración de la cuadra actualiza esta página, así que puede tardar un poco en verse.',
   },
   whoQ: { en: 'What is Trash Talk NYC?', es: '¿Qué es Trash Talk NYC?' },
   whoA: {
@@ -367,6 +367,8 @@ export const ADMIN = {
   guardNone: { en: 'no guard', es: 'sin protector' },
   guardWood: { en: 'wood guard', es: 'protector de madera' },
   guardMetal: { en: 'metal guard', es: 'protector de metal' },
+  /** The same line while nobody has recorded the guard yet (`Bed.guard` null). */
+  guardUnset: { en: 'guard not set', es: 'protector sin registrar' },
   /**
    * The panel's three-way guard choice — the captain's own framing: "guard
    * there yes or no, and if there is a guard there, whether it wood or metal".
@@ -375,6 +377,15 @@ export const ADMIN = {
   guardChoiceSub: {
     en: 'If there’s a guard, what it’s made of',
     es: 'Si hay protector, de qué está hecho',
+  },
+  /**
+   * The panel while the guard is not yet recorded: the mark beside the label
+   * and the sub-line that replaces `guardChoiceSub` until the admin picks.
+   */
+  guardUnsetMark: { en: 'NOT SET', es: 'SIN REGISTRAR' },
+  guardUnsetSub: {
+    en: 'Not recorded yet — the public page says nothing about the guard until you pick one and save.',
+    es: 'Aún sin registrar: la página pública no dice nada del protector hasta que elijas uno y guardes.',
   },
   guardOptNone: { en: 'None', es: 'Ninguno' },
   guardOptWood: { en: 'Wood', es: 'Madera' },
@@ -473,8 +484,8 @@ export const ADMIN = {
   },
   addBedTitle: { en: 'Add a bed', es: 'Añadir un cantero' },
   addBedBody: {
-    en: 'A new bed starts closed, with one slot, no guard and no NYC number — the NYC bed is matched from the city’s own data, never typed.',
-    es: 'Un cantero nuevo empieza cerrado, con un lugar, sin protector y sin número NYC: el cantero NYC se empareja con los datos de la ciudad, nunca se escribe a mano.',
+    en: 'A new bed starts closed, with one slot, its guard not yet recorded and no NYC number — the NYC bed is matched from the city’s own data, never typed.',
+    es: 'Un cantero nuevo empieza cerrado, con un lugar, el protector sin registrar y sin número NYC: el cantero NYC se empareja con los datos de la ciudad, nunca se escribe a mano.',
   },
   treeTypeEn: { en: 'Tree type (English)', es: 'Tipo de árbol (inglés)' },
   treeTypeEs: { en: 'Tree type (Spanish)', es: 'Tipo de árbol (español)' },

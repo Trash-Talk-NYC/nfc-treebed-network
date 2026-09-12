@@ -125,11 +125,16 @@ export interface Bed {
    * or no, and if there is a guard there, whether it wood or metal". One field
    * answers both — `'none'` is no guard, and a material is a guard. Replaces
    * the earlier ordered/installed date pair (whose values older stored rows
-   * still carry, untouched — normalization is additive); a record from before
-   * this field reads as `'none'` and the admin sets the material when a guard
-   * goes in.
+   * still carry, untouched — normalization is additive).
+   *
+   * `null` is NOT YET RECORDED: nobody who has stood at the bed has said. A
+   * record from before this field, every seeded bed and a bed the admin adds
+   * all start here, because the old dates never said what a guard is made of
+   * and a tag may ride a guard the record knows nothing about. The public
+   * screen omits the guard entirely while unset rather than asserting a fact
+   * nobody entered; the admin panel shows it as not set until the admin picks.
    */
-  guard: GuardMaterial;
+  guard: GuardMaterial | null;
   /**
    * The bed's own profile — what a passer-by reading "About this bed" is told,
    * because every bed is different (the captain: "every tree is specialized").
@@ -142,11 +147,20 @@ export interface Bed {
   treePresent: boolean;
   /** Whether anything is planted in the bed besides the tree. */
   plantsPresent: boolean;
-  /** What is planted, when `plantsPresent` — admin-typed, shown as typed. */
+  /**
+   * What is planted — admin-typed, shown as typed, and shown ONLY while
+   * `plantsPresent` is on. The note is kept in the record whichever way the
+   * switch stands, so flipping it off and back on restores the words; the
+   * switch decides whether the public screen states them.
+   */
   plantsNote: string;
   /** Whether Trash Talk recommends planting in this bed. */
   plantingRecommended: boolean;
-  /** What to plant, when `plantingRecommended` — admin-typed, shown as typed. */
+  /**
+   * What to plant — admin-typed, shown as typed, and shown ONLY while
+   * `plantingRecommended` is on; kept in the record either way, like
+   * `plantsNote`, so the switch never costs the words.
+   */
   recommendedPlantsNote: string;
   /** The care this bed needs right now — admin-typed, shown as typed. */
   careNote: string;
@@ -352,7 +366,9 @@ export function publicInitials(user: User): string {
 /**
  * What stands at the bed: no guard, or a guard and its material. One value
  * rather than a flag plus a material, so "wood guard with the material
- * unset" is not a state anything can hold.
+ * unset" is not a state anything can hold. `Bed.guard` is additionally
+ * nullable — null is "not yet recorded", which is a different thing from
+ * "none" and is never one of these.
  */
 export const GUARD_MATERIALS = ['none', 'wood', 'metal'] as const;
 export type GuardMaterial = (typeof GUARD_MATERIALS)[number];

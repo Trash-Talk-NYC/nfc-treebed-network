@@ -867,9 +867,12 @@ export interface BlockSaveInput {
     plate: string;
     /**
      * The guard standing at the bed — the panel's three-way choice, never a
-     * flag plus a material: 'none', or a guard and what it is made of.
+     * flag plus a material: 'none', or a guard and what it is made of. Null
+     * is a press that picked nothing, which keeps the guard as it stands: a
+     * bed nobody has recorded stays not-yet-recorded, and a bed with a
+     * material on record is never blanked by a form that omitted the radio.
      */
-    guard: GuardMaterial;
+    guard: GuardMaterial | null;
     /** The bed profile's switches — the facts "About this bed" states. */
     treePresent: boolean;
     plantsPresent: boolean;
@@ -986,7 +989,7 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       slots,
       offeredSlots,
       bedName: args.bed.clearBedName ? null : bed.bedName,
-      guard: args.bed.guard,
+      guard: args.bed.guard ?? bed.guard,
       treePresent: args.bed.treePresent,
       plantsPresent: args.bed.plantsPresent,
       plantingRecommended: args.bed.plantingRecommended,
@@ -1122,7 +1125,7 @@ export async function addStewardByAdmin(
  * "+ ADD A BED" on the block admin page.
  *
  * The new bed starts the way the six seeded ones did: one slot, nothing
- * offered, no guard, no tag — and NO NYC identifiers. A planting space ID is
+ * offered, the guard not yet recorded, no tag — and NO NYC identifiers. A planting space ID is
  * resolved against NYC's own data or left null, never typed free-hand and
  * never generated: a fabricated identifier is indistinguishable from a real
  * one and wrong in a way nobody can see. The admin page prints the unresolved
@@ -1165,7 +1168,7 @@ export async function addBedByAdmin(
       address: block.referenceAddress,
       slots: 1,
       offeredSlots: 0,
-      guard: 'none',
+      guard: null,
       treePresent: true,
       plantsPresent: false,
       plantsNote: '',

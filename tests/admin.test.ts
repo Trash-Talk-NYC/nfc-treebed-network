@@ -39,7 +39,7 @@ type BedSave = NonNullable<Parameters<typeof saveBlockSettings>[1]['bed']>;
 function bedSave(overrides: Partial<BedSave> = {}): BedSave {
   return {
     plate: W171_PLATE,
-    guard: 'none',
+    guard: null,
     treePresent: true,
     plantsPresent: false,
     plantingRecommended: false,
@@ -91,13 +91,13 @@ describe('the six real beds on W 171st', () => {
     expect(new Set(globals).size).toBe(6);
   });
 
-  it('seeds every bed with the profile defaults: no guard on record, a tree standing, nothing else', async () => {
-    // Guards are ordered in the real world but none is IN, so the profile —
-    // which records what stands at the bed — says none; the material goes in
-    // on the admin page when the guards do.
+  it('seeds every bed with the profile defaults: guard not yet recorded, a tree standing, nothing else', async () => {
+    // Guards are ordered in the real world and tags go in with them, so the
+    // profile asserts nothing about the guard — null, never 'none' — until
+    // the captain records the material on the admin page.
     const view = await getBlockView(freshStore(), W171_BLOCK_ID);
     for (const { bed } of view!.beds) {
-      expect(bed.guard, bed.plate).toBe('none');
+      expect(bed.guard, bed.plate).toBeNull();
       expect(bed.treePresent, bed.plate).toBe(true);
       expect(bed.plantsPresent, bed.plate).toBe(false);
       expect(bed.plantingRecommended, bed.plate).toBe(false);
@@ -165,9 +165,10 @@ describe('the block reaches a store seeded before it existed', () => {
     expect(bed.offeredSlots).toBe(2);
     expect(bed.blockId).toBe(DEMO_BLOCK_ID);
     // The profile backfills to its defaults — the old dates never said what a
-    // guard is MADE of, so the material stays the captain's to set — and the
-    // legacy date survives untouched: additive and lossless.
-    expect(bed.guard).toBe('none');
+    // guard is MADE of, so the guard is not yet recorded rather than 'none',
+    // which would publicly deny the guard the old date says went in — and
+    // the legacy date survives untouched: additive and lossless.
+    expect(bed.guard).toBeNull();
     expect(bed.treePresent).toBe(true);
     expect(bed.plantsPresent).toBe(false);
     expect(bed.plantingRecommended).toBe(false);
@@ -350,13 +351,19 @@ describe('saving the block admin page', () => {
 
   it('saves the guard as one of three states, and back to none without losing anything else', async () => {
     const store = freshStore();
-    const save = (guard: 'none' | 'wood' | 'metal') =>
+    const save = (guard: 'none' | 'wood' | 'metal' | null) =>
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
         bed: bedSave({ guard, careNote: 'Water on hot weeks.' }),
       });
+    // A press that picked nothing on a bed nobody has recorded keeps it so.
+    await save(null);
+    expect((await store.getBed(W171_PLATE))!.guard).toBeNull();
     await save('wood');
+    expect((await store.getBed(W171_PLATE))!.guard).toBe('wood');
+    // A form that omits the radio never blanks a material on record.
+    await save(null);
     expect((await store.getBed(W171_PLATE))!.guard).toBe('wood');
     await save('metal');
     expect((await store.getBed(W171_PLATE))!.guard).toBe('metal');
@@ -365,6 +372,28 @@ describe('saving the block admin page', () => {
     expect(off.guard).toBe('none');
     // The rest of the press rode along: the guard choice never costs a note.
     expect(off.careNote).toBe('Water on hot weeks.');
+  });
+
+  it('keeps a typed note on the record when its switch is turned off, so switching back restores it', async () => {
+    const store = freshStore();
+    const save = (plantsPresent: boolean, plantingRecommended: boolean) =>
+      saveBlockSettings(store, {
+        blockId: W171_BLOCK_ID,
+        referenceAddress: '',
+        bed: bedSave({
+          plantsPresent,
+          plantingRecommended,
+          plantsNote: 'Daffodils and a hosta',
+          recommendedPlantsNote: 'Swamp milkweed',
+        }),
+      });
+    await save(true, true);
+    await save(false, false);
+    const off = (await store.getBed(W171_PLATE))!;
+    expect(off.plantsPresent).toBe(false);
+    expect(off.plantingRecommended).toBe(false);
+    expect(off.plantsNote).toBe('Daffodils and a hosta');
+    expect(off.recommendedPlantsNote).toBe('Swamp milkweed');
   });
 
   it('saves the bed profile — the switches and the typed notes, capped and stripped', async () => {

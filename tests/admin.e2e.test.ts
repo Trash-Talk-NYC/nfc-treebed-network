@@ -249,6 +249,49 @@ describe('the admin door', () => {
     expect(html).toContain('Ese lugar ya no existe');
     expect(html).not.toContain('Open slots run in order');
   });
+
+  it('marks a guard nobody has recorded as not set, until the admin picks one and saves', async () => {
+    const cookie = await adminCookie();
+    const headers = { 'content-type': 'application/x-www-form-urlencoded', origin, cookie };
+    // Seeded beds start with the guard not yet recorded: no radio is checked,
+    // the panel says so in both languages, and the list line agrees.
+    const before = await (
+      await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, { headers: { cookie } })
+    ).text();
+    expect(before).toContain('NOT SET');
+    expect(before).toContain('SIN REGISTRAR');
+    expect(before).toContain('guard not set');
+    expect(before).not.toMatch(/name="guard"[^>]*checked/);
+
+    // A save that carries no radio — the admin touched something else — keeps
+    // the guard unrecorded rather than reading it as "none".
+    const untouched = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({ plate: 'BED-WH-1712' }),
+      redirect: 'manual',
+    });
+    expect(untouched.status).toBe(303);
+    const still = await (
+      await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, { headers: { cookie } })
+    ).text();
+    expect(still).toContain('NOT SET');
+    expect(still).not.toMatch(/name="guard"[^>]*checked/);
+
+    const picked = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({ plate: 'BED-WH-1712', guard: 'wood' }),
+      redirect: 'manual',
+    });
+    expect(picked.status).toBe(303);
+    const after = await (
+      await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, { headers: { cookie } })
+    ).text();
+    expect(after).not.toContain('NOT SET');
+    expect(after).toMatch(/name="guard" value="wood"[^>]*checked/);
+    expect(after).toContain('wood guard');
+  });
 });
 
 describe('adding a bed through the real form', () => {

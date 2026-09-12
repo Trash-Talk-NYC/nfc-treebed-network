@@ -100,19 +100,27 @@ const back = langLink(ourPlaqueLink(base), lang);
           )
         }
       </div>
-      <div class="fact">
-        <span class="fact-label" {...bi(ABOUT.guardLabel, lang)}>{ABOUT.guardLabel[lang]}</span>
-        <span class="fact-value" {...bi(GUARD_VALUE[bed.guard], lang)}>
-          {GUARD_VALUE[bed.guard][lang]}
-        </span>
-      </div>
+      {/* Omitted entirely while the guard is not yet recorded (types.ts):
+          a public screen states what somebody entered, never a default. */}
+      {bed.guard !== null && (
+        <div class="fact">
+          <span class="fact-label" {...bi(ABOUT.guardLabel, lang)}>{ABOUT.guardLabel[lang]}</span>
+          <span class="fact-value" {...bi(GUARD_VALUE[bed.guard], lang)}>
+            {GUARD_VALUE[bed.guard][lang]}
+          </span>
+        </div>
+      )}
       <div class="fact">
         <span class="fact-label" {...bi(ABOUT.plantsLabel, lang)}>{ABOUT.plantsLabel[lang]}</span>
         <span class="fact-value" {...bi(bed.plantsPresent ? ABOUT.plantsYes : ABOUT.plantsNo, lang)}>
           {(bed.plantsPresent ? ABOUT.plantsYes : ABOUT.plantsNo)[lang]}
         </span>
-        {/* The admin's own words, as typed — no data-en/data-es pair. */}
-        {bed.plantsNote !== '' && <span class="fact-note">{bed.plantsNote}</span>}
+        {/* The admin's own words, as typed — no data-en/data-es pair — and
+            only under the switch they describe: a note kept on the record
+            while "nothing planted" is on would contradict it out loud. */}
+        {bed.plantsPresent && bed.plantsNote !== '' && (
+          <span class="fact-note">{bed.plantsNote}</span>
+        )}
       </div>
       <div class="fact">
         <span class="fact-label" {...bi(ABOUT.plantingLabel, lang)}>{ABOUT.plantingLabel[lang]}</span>
@@ -122,7 +130,7 @@ const back = langLink(ourPlaqueLink(base), lang);
         >
           {(bed.plantingRecommended ? ABOUT.plantingYes : ABOUT.plantingNo)[lang]}
         </span>
-        {bed.recommendedPlantsNote !== '' && (
+        {bed.plantingRecommended && bed.recommendedPlantsNote !== '' && (
           <span class="fact-note">{bed.recommendedPlantsNote}</span>
         )}
       </div>

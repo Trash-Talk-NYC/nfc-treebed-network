@@ -52,7 +52,7 @@ const blockId = Astro.params.block ?? '';
 let slotError: Phrase | null = null;
 let submitted: {
   address: string;
-  guard: GuardMaterial;
+  guard: GuardMaterial | null;
   treePresent: boolean;
   plantsPresent: boolean;
   plantingRecommended: boolean;
@@ -71,9 +71,11 @@ if (Astro.request.method === 'POST') {
   if (refused) return refused;
   const plate = String(form.get('plate') ?? '');
   const referenceAddress = String(form.get('referenceAddress') ?? '');
-  // A radio always submits one of the three; anything else is a hand-built
-  // POST, read as the no-guard state rather than invented into a material.
-  const guard = guardMaterialFrom(form.get('guard')) ?? 'none';
+  // A radio submits one of the three once one is picked. Nothing arrives
+  // while the guard is not yet recorded and the admin left it so — or from a
+  // hand-built POST — and either way null means "not chosen", which the save
+  // keeps as it stands rather than reading as a material or as no guard.
+  const guard = guardMaterialFrom(form.get('guard'));
   const treePresent = form.get('tree-present') !== null;
   const plantsPresent = form.get('plants-present') !== null;
   const plantingRecommended = form.get('planting-recommended') !== null;
@@ -211,6 +213,9 @@ const GUARD_LABEL: Record<GuardMaterial, Phrase> = {
   wood: ADMIN.guardWood,
   metal: ADMIN.guardMetal,
 };
+/** The list line for a guard nobody has recorded yet — distinct from "no guard". */
+const guardLabel = (guard: GuardMaterial | null): Phrase =>
+  guard === null ? ADMIN.guardUnset : GUARD_LABEL[guard];
 const GUARD_OPTION: Record<GuardMaterial, Phrase> = {
   none: ADMIN.guardOptNone,
   wood: ADMIN.guardOptWood,
@@ -297,7 +302,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
             beds.map((b) => {
               const state = bedState(b);
               const name = bedName(b);
-              const guard = GUARD_LABEL[b.bed.guard];
+              const guard = guardLabel(b.bed.guard);
               return (
                 <a class:list={['tree', { sel: b.bed.plate === selected?.bed.plate }]} href={bedLink(b.bed.plate)}>
                   <span class={`dot ${state.dot}`} />
@@ -454,14 +459,25 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               {/* The captain's own framing, as one control: "guard there yes
                   or no, and if there is a guard there, whether it wood or
                   metal". Three radios, so no state can say "a guard, material
-                  unset" — and a plain submit carries it with no script. */}
+                  unset" — and a plain submit carries it with no script. A bed
+                  nobody has recorded yet (types.ts) has no radio checked and
+                  says so in its sub-line until the admin picks one. */}
               <div class="toggle-row guard-row">
                 <span>
                   <span class="t-lbl">
                     <span {...bi(ADMIN.guardChoice, lang)}>{ADMIN.guardChoice[lang]}</span>
+                    {selected.bed.guard === null && (
+                      <span class="guard-unset" {...bi(ADMIN.guardUnsetMark, lang)}>
+                        {ADMIN.guardUnsetMark[lang]}
+                      </span>
+                    )}
                   </span>
                   <span class="t-sub">
-                    <span {...bi(ADMIN.guardChoiceSub, lang)}>{ADMIN.guardChoiceSub[lang]}</span>
+                    {selected.bed.guard === null ? (
+                      <span {...bi(ADMIN.guardUnsetSub, lang)}>{ADMIN.guardUnsetSub[lang]}</span>
+                    ) : (
+                      <span {...bi(ADMIN.guardChoiceSub, lang)}>{ADMIN.guardChoiceSub[lang]}</span>
+                    )}
                   </span>
                 </span>
                 <span class="seg">
@@ -722,6 +738,18 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   }
   .guard-row {
     margin-top: 16px;
+  }
+  /* "Not set" beside the label: attention, so black on yellow, never white. */
+  .guard-unset {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    background: var(--theme-alert);
+    color: var(--theme-on-alert);
   }
   /* The three-way guard choice: real radios drawn as a segmented row, so it
      posts with no script — same law as the `.sw` switches beside it. */

@@ -73,12 +73,14 @@ function normalizeBed(bed: Bed): void {
   // already true rather than closing a bed nobody closed.
   bed.offeredSlots ??= bed.slots;
   // The bed profile ("About this bed"). A record from before it reads as the
-  // seeded defaults: no guard on record — the earlier ordered/installed dates
-  // stay in the stored row untouched (additive, lossless), but they never
-  // said what a guard is MADE of, so the material is the captain's to set on
-  // the admin page rather than a guess — a tree standing (the network began
-  // on live street trees), nothing planted, no recommendation, no notes.
-  bed.guard ??= 'none';
+  // seeded defaults: the guard NOT YET RECORDED (null) — never 'none', which
+  // would put "no guard" on a public screen for a bed whose tag rides one.
+  // The earlier ordered/installed dates stay in the stored row untouched
+  // (additive, lossless), but they never said what a guard is MADE of, so the
+  // material is the captain's to set on the admin page rather than a guess —
+  // a tree standing (the network began on live street trees), nothing
+  // planted, no recommendation, no notes.
+  bed.guard ??= null;
   bed.treePresent ??= true;
   bed.plantsPresent ??= false;
   bed.plantsNote ??= '';
@@ -196,11 +198,14 @@ function checkedInBlocks(): Block[] {
  * W 171st curb line) is past it.
  *
  * Five guards are ordered in the real world — one per willow oak, none for
- * the white oak — and none is installed, so every bed seeds `guard: 'none'`:
- * the profile records what stands at the bed, and the material goes in on the
- * admin page when the guards do. Tags go in with guards (tag-bindings.ts), so
- * `tagUid` is empty and every bed starts unoffered (`offeredSlots: 0`) until
- * the captain opens it on the admin page — which is the page's whole point.
+ * the white oak — and none is installed today, but every bed seeds
+ * `guard: null` (not yet recorded) rather than 'none': tags go in WITH the
+ * guards (tag-bindings.ts), so by the time anyone can tap a W 171st bed a
+ * guard is standing there, and the public screen must not say otherwise until
+ * the captain has recorded the material on the admin page. For the same
+ * reason `tagUid` is empty and every bed starts unoffered (`offeredSlots: 0`)
+ * until the captain opens it on the admin page — which is the page's whole
+ * point.
  */
 function w171Beds(): Bed[] {
   const LOOKED_UP_AT = '2026-09-10T00:00:00.000Z';
@@ -226,7 +231,7 @@ function w171Beds(): Bed[] {
     address: args.address,
     slots: 1,
     offeredSlots: 0,
-    guard: 'none',
+    guard: null,
     treePresent: true,
     plantsPresent: false,
     plantsNote: '',
@@ -380,9 +385,9 @@ export async function seedData(demoPin: string | null = DEMO_STEWARD_PIN): Promi
       slots: 2,
       offeredSlots: 2,
       // The mockup bed's guard is in (the tag rides it), material unrecorded
-      // anywhere real — 'none' like every backfilled bed, until somebody who
-      // has stood at it sets the material on the admin page.
-      guard: 'none',
+      // anywhere real — not yet recorded, like every backfilled bed, until
+      // somebody who has stood at it sets the material on the admin page.
+      guard: null,
       treePresent: true,
       plantsPresent: false,
       plantsNote: '',
