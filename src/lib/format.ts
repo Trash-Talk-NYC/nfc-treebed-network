@@ -57,6 +57,28 @@ export function slotsFilledLabel(filled: number, total: number): Phrase {
   };
 }
 
+/** The admin panel's line for when a report was opened, e.g. "Opened Sep 11, 3:42 PM". */
+export function openedLabel(date: Date): Phrase {
+  const when = (lang: (typeof LANGUAGES)[number]): string =>
+    new Intl.DateTimeFormat(LOCALE[lang], {
+      timeZone: NY,
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(date);
+  return { en: `Opened ${when('en')}`, es: `Abierto el ${when('es')}` };
+}
+
+/** How many neighbours added their weight to an open report (`Report.confirmedBy`). */
+export function confirmationsLabel(count: number): Phrase {
+  if (count <= 0) {
+    return { en: 'No one else has reported it yet', es: 'Nadie más lo ha reportado todavía' };
+  }
+  if (count === 1) return { en: '1 neighbour also reported it', es: '1 vecino más lo reportó' };
+  return { en: `${count} neighbours also reported it`, es: `${count} vecinos más lo reportaron` };
+}
+
 /** Steward chip suffix, e.g. "since May 2026" / "desde mayo de 2026". */
 export function sinceLabel(date: Date): Phrase {
   // Intl carries the month name in each language, so nothing here holds a

@@ -17,6 +17,7 @@ It is where a block's beds are opened for adoption one slot at a time (`Bed.offe
 Adding a bed there asks only for the English species name: the Spanish one defaults from a checked-in table (`src/lib/tree-species.ts`), a typed Spanish name wins over it, and a species the table doesn't know falls back to the generic "árbol" rather than a guess — nobody has to go and look a translation up.
 It is also where each bed's profile is kept: the guard (none, wood or metal — or not yet recorded, which is where every bed starts and what the public page then says nothing about), whether a tree and plants are present, whether Trash Talk recommends planting, and the admin's typed notes on what is planted, what to plant and what care the bed needs.
 That profile is what the public "About this bed" page (`/t/<tag>/about`, a small text link under either door's buttons) states, above a network-wide FAQ and links to NYC Parks and 311.
+The same panel states the bed's open report read-only — what was picked, the note, when it was opened and how many neighbours added their weight — so a report filed at the tag is seen there; closing it stays the steward's act.
 
 ## Run it
 

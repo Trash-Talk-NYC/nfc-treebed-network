@@ -25,6 +25,7 @@ import {
   adoptBed,
   getBedView,
   getBlockView,
+  reportProblem,
   saveBlockSettings,
   validateAdminStewardInput,
 } from '../src/lib/service';
@@ -239,6 +240,42 @@ describe('the block reaches a store seeded before it existed', () => {
     ensureCheckedInBlocks(data);
     expect(data.blocks[W171_BLOCK_ID]!.referenceAddress).toBe('710 W 171st St');
     expect(data.beds[W171_PLATE]!.offeredSlots).toBe(1);
+  });
+});
+
+describe('the admin sees a bed’s open report', () => {
+  const report = (store: LocalStore, actorId: string, categories: Array<'litter' | 'other'>, note = '') =>
+    reportProblem(store, { plate: W171_PLATE, actorId, categories, note, photoAttached: false });
+  const opened = async (store: LocalStore) =>
+    (await getBlockView(store, W171_BLOCK_ID))!.beds.find((b) => b.bed.plate === W171_PLATE)!
+      .openReport;
+
+  it('carries the open report — what was picked, the note, and the weight added to it', async () => {
+    const store = freshStore();
+    expect(await opened(store)).toBeNull();
+
+    await report(store, 'visitor-a', ['litter', 'other'], 'bolsas en la esquina');
+    const filed = await opened(store);
+    expect(filed?.categories).toEqual(['litter', 'other']);
+    expect(filed?.note).toBe('bolsas en la esquina');
+    expect(filed?.confirmedBy).toEqual([]);
+
+    // A second neighbour adds weight rather than a second report, and the
+    // panel reads the same one with their weight on it.
+    await report(store, 'visitor-b', ['litter']);
+    const weighted = await opened(store);
+    expect(weighted?.id).toBe(filed?.id);
+    expect(weighted?.confirmedBy).toEqual(['visitor-b']);
+  });
+
+  it('reads nothing once the report is closed, and never touches it', async () => {
+    const store = freshStore();
+    const { report: filed } = await report(store, 'visitor-a', ['litter']);
+    await store.transaction(async (tx) => {
+      await tx.updateReport({ ...filed!, closedAt: new Date().toISOString(), closedBy: 'steward' });
+    });
+    expect(await opened(store)).toBeNull();
+    expect((await store.getReports(W171_PLATE)).map((r) => r.id)).toEqual([filed!.id]);
   });
 });
 

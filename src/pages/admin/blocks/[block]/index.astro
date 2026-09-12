@@ -15,9 +15,10 @@ import AdminScreen from '../../../../layouts/AdminScreen.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
 import { ADMIN, ADOPT, AUTH, COMMON } from '../../../../lib/copy';
-import { capitalizeFirst, sinceLabel, slotsFilledLabel } from '../../../../lib/format';
+import { capitalizeFirst, confirmationsLabel, openedLabel, sinceLabel, slotsFilledLabel } from '../../../../lib/format';
 import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../../lib/presentation';
+import { problemFor } from '../../../../lib/problem';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
 import {
   MAX_ADDRESS_CHARS,
@@ -35,6 +36,7 @@ import {
   publicHandle,
   publicInitials,
   type GuardMaterial,
+  type Report,
 } from '../../../../lib/types';
 
 const lang: Lang = resolveLang(Astro.url, Astro.cookies);
@@ -237,6 +239,20 @@ function bedState(b: AdminBedView): { dot: string; badge: Phrase; badgeClass: st
   return { dot: 'dot-closed', badge: ADMIN.badgeClosed, badgeClass: 'b-closed' };
 }
 
+/**
+ * The opened bed's open report as the panel states it — read-only, sourced
+ * from the same record the steward's view reads (`AdminBedView.openReport`).
+ * The admin sees it here; closing it is the steward's act on their own view.
+ */
+const openReportLines = (report: Report) => ({
+  problems: report.categories.map(problemFor),
+  opened: openedLabel(new Date(report.openedAt)),
+  confirmations: confirmationsLabel(report.confirmedBy.length),
+  note: report.note,
+  photo: report.photoAttached,
+});
+const openReport = selected?.openReport ? openReportLines(selected.openReport) : null;
+
 // `submitted` is set by a refused save and by an add-slot press alike, and
 // both leave something on the page the store does not have yet.
 const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.noUnsaved;
@@ -429,6 +445,39 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                 {selected.bed.plate}
               </div>
               <input type="hidden" name="plate" value={selected.bed.plate} />
+
+              {/* The bed's open report, read-only. A report filed at the tag
+                  is SEEN here — the public FAQ says so — and that is all this
+                  block does: nothing on it writes, and closing the report
+                  stays the steward's act on their own view. */}
+              <div class="panel-title report-head" {...bi(ADMIN.reportHead, lang)}>
+                {ADMIN.reportHead[lang]}
+              </div>
+              {openReport ? (
+                <div class="report-band">
+                  <div class="report-cats">
+                    {openReport.problems.map((problem) => (
+                      <span class="report-cat" {...bi(problem.label, lang)}>
+                        {problem.label[lang]}
+                      </span>
+                    ))}
+                    {openReport.photo && (
+                      <span class="report-cat report-photo" {...bi(ADMIN.reportPhoto, lang)}>
+                        {ADMIN.reportPhoto[lang]}
+                      </span>
+                    )}
+                  </div>
+                  {openReport.note !== '' && <p class="report-note">“{openReport.note}”</p>}
+                  <div class="report-meta">
+                    <span {...bi(openReport.opened, lang)}>{openReport.opened[lang]}</span> ·{' '}
+                    <span {...bi(openReport.confirmations, lang)}>{openReport.confirmations[lang]}</span>
+                  </div>
+                </div>
+              ) : (
+                <div class="blockmeta" {...bi(ADMIN.noOpenReport, lang)}>
+                  {ADMIN.noOpenReport[lang]}
+                </div>
+              )}
 
               {/* Only a NAMED bed gets this row: the switch removes the
                   first steward's name from the public screens (visitor free
@@ -760,7 +809,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     border-radius: 8px;
     overflow: hidden;
   }
-  .seg-opt { display: flex; }
+  .seg-opt { display: flex; position: relative; }
   .seg-opt input {
     position: absolute;
     width: 1px;
@@ -785,6 +834,33 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     outline: 3px solid var(--theme-ink);
     outline-offset: -3px;
   }
+  /* The open report, stated: the ink and the tint are the attention role,
+     with the page's own ink on it — never white on yellow. */
+  .report-head { margin-top: 18px; }
+  .report-band {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border-left: 4px solid var(--theme-alert);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--theme-alert) 14%, var(--theme-surface));
+    color: var(--theme-ink);
+  }
+  .report-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+  .report-cat {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 9px;
+    border-radius: 20px;
+    background: var(--theme-alert);
+    color: var(--theme-on-alert);
+  }
+  .report-photo {
+    background: transparent;
+    border: 1px dashed var(--theme-muted);
+    color: var(--theme-muted);
+  }
+  .report-note { margin: 10px 0 0; font-size: 13px; font-style: italic; overflow-wrap: anywhere; }
+  .report-meta { margin-top: 8px; font-size: 11px; font-weight: 500; color: var(--theme-muted); }
   .profile-head { margin-top: 22px; }
   .note-field { margin: 12px 0 4px; }
   .note-field .freetext { min-height: 0; }

@@ -833,6 +833,12 @@ export interface AdminBedView {
   bed: Bed;
   /** Active stewards, oldest first — the admin list is the click-through to contact details. */
   stewards: Array<{ adoption: Adoption; user: User }>;
+  /**
+   * The bed's one open report, read-only: the admin panel states what was
+   * picked, the note, when it was opened and how many neighbours added their
+   * weight. Closing it stays the steward's act on `mine.astro` (`/clear`).
+   */
+  openReport: Report | null;
 }
 
 /** The block admin page's read: the block and its beds, in block order. */
@@ -852,7 +858,7 @@ export async function getBlockView(store: Store, blockId: string): Promise<Block
       const user = await store.getUser(adoption.userId);
       if (user) stewards.push({ adoption, user });
     }
-    beds.push({ bed, stewards });
+    beds.push({ bed, stewards, openReport: (await store.getOpenReport(bed.plate)) ?? null });
   }
   return { block, beds };
 }
@@ -915,7 +921,6 @@ export interface BlockSaveInput {
      */
     clearBedName?: boolean;
   };
-  now?: Date;
 }
 
 /**
@@ -966,7 +971,6 @@ function offeredSlotCount(numbers: number[], filled: number, slots: number): num
 }
 
 export async function saveBlockSettings(store: Store, args: BlockSaveInput): Promise<void> {
-  const now = args.now ?? new Date();
   await store.transaction(async (tx) => {
     const block = await tx.getBlock(args.blockId);
     if (!block) throw new RuleError('bed-not-found', `No block ${args.blockId}`);

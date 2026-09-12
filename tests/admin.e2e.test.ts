@@ -339,6 +339,43 @@ describe('adding a bed through the real form', () => {
   });
 });
 
+describe('the admin sees what a neighbour reported', () => {
+  it('states the open report read-only in the bed panel, in both languages', async () => {
+    const cookie = await adminCookie();
+    const panel = () =>
+      fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1713`, { headers: { cookie } }).then((r) => r.text());
+    const send = (body: string) =>
+      fetch(`${origin}/t/729v19w4/report`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+        body,
+        redirect: 'manual',
+      });
+
+    const before = await panel();
+    expect(before).toContain('No open report right now.');
+    expect(before).toContain('No hay ningún reporte abierto ahora mismo.');
+
+    // Two cookie-less presses are two identities (`/report` mints): the first
+    // files, the second adds weight to the same report.
+    expect((await send('category=litter&category=other&note=bolsas+en+la+esquina')).status).toBe(303);
+    expect((await send('category=litter')).status).toBe(303);
+
+    const after = await panel();
+    expect(after).not.toContain('No open report right now.');
+    expect(after).toContain('Litter');
+    expect(after).toContain('Basura');
+    expect(after).toContain('Something else');
+    expect(after).toContain('bolsas en la esquina');
+    expect(after).toMatch(/data-en="Opened [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M"/);
+    expect(after).toContain('Abierto el ');
+    expect(after).toContain('1 neighbour also reported it');
+    expect(after).toContain('1 vecino más lo reportó');
+    // Read-only: the panel offers no way to close it.
+    expect(after).not.toContain('/clear');
+  });
+});
+
 describe('the way out of the admin', () => {
   it('offers sign-out on the admin page and clears the session cookie', async () => {
     const cookie = await adminCookie();

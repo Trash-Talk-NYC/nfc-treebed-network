@@ -417,6 +417,17 @@ export const ADMIN = {
     en: 'Care this bed needs right now',
     es: 'Cuidados que necesita ahora mismo',
   },
+  /**
+   * The bed's open report, stated read-only in the panel: this is where a
+   * report filed at the tag is seen, which is what the public FAQ promises.
+   * Closing one stays the steward's act.
+   */
+  reportHead: { en: 'Open report', es: 'Reporte abierto' },
+  noOpenReport: {
+    en: 'No open report right now. What a neighbour reports at the tag shows here.',
+    es: 'No hay ningún reporte abierto ahora mismo. Lo que un vecino reporte en la etiqueta aparece aquí.',
+  },
+  reportPhoto: { en: 'Photo attached', es: 'Con foto' },
   /** `#<NYC id> · ours BED-…` — the one surface that shows our plate. */
   oursLabel: { en: 'ours', es: 'la nuestra' },
   /**
