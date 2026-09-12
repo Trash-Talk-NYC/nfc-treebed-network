@@ -487,3 +487,26 @@
   line-height: 1.1;
   padding-bottom: 3px;
 }
+
+/* ── Admin buttons ────────────────────────────────────────────────────
+   `.btn` itself is global.css's; these are the two variants only the
+   admin uses. Without them the destructive button rendered as the
+   browser's own grey control and the cancel link as default link blue —
+   neither colour is in the palette.
+
+   `.btn-alert` is the attention role, so it carries Roadtop Black and
+   never white (10.97:1); Street Sign Yellow is 1.4:1 on the beige ground,
+   so the edge role draws the button's boundary (3.09:1, what a UI border
+   owes). `.btn-outline` is the quiet secondary beside it — no fill, the
+   ink of the page, and the same mixed hairline the admin bar's own
+   secondary controls use.                                              */
+.btn-alert {
+  background: var(--theme-alert);
+  color: var(--theme-on-alert);
+  border: 2px solid var(--theme-alert-edge);
+}
+.btn-outline {
+  background: transparent;
+  color: var(--theme-ink);
+  border: 2px solid color-mix(in srgb, var(--theme-ground) 45%, var(--theme-ink));
+}
