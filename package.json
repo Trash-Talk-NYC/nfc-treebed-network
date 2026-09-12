@@ -16,18 +16,18 @@
     "check": "astro check",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
-    "test:netlify-build": "TREEBED_ADAPTER=netlify npm run build && node scripts/smoke-netlify.mjs"
+    "test:netlify-build": "TREEBED_ADAPTER=netlify npm run build && node scripts/smoke-netlify.mjs && node scripts/smoke-digest-function.mjs"
   },
   "dependencies": {
     "@astrojs/netlify": "8.2.3",
     "@astrojs/node": "11.1.1",
     "@netlify/blobs": "10.7.13",
-    "astro": "7.2.1",
-    "bcryptjs": "^3.0.3"
+    "astro": "7.2.1"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.6",
     "@types/node": "^26.2.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   }

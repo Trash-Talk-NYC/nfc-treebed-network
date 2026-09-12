@@ -1,14 +1,33 @@
 ---
-// Sign in — username + PIN. The PIN never appears in any response or log;
-// verification happens server-side against the bcrypt hash only.
+// Sign in — passwordless, by emailed link (the captain's standing decision,
+// adopt-name-split-r5): enter the email you adopted with, get a single-use
+// link that works for minutes. No secret is invented, stored, or emailed —
+// the store holds only a hash of the token (service.ts), and this screen
+// never logs or echoes it.
 //
-// Not part of the tap flow the captain reviewed: nothing on either door links
-// here. It is how a steward who already put their name on a bed gets back to
-// it, and it is kept in the identity and both languages like everything else.
+// The answer is "check your inbox" whether or not the email is known:
+// whether an address adopted here is not a public question. What still
+// differs between the two is the time the mail call takes for a real
+// steward — a residual timing signal, accepted and noted here rather than
+// padded over, the same tier as the per-IP limiting recorded as owed in
+// request-body.ts. The rate limit (per email and per bed, in the store) is
+// what keeps the probe from being free either way.
+//
+// Not part of the tap flow the captain reviewed: nothing on either door
+// links here. It is how a steward who cleared cookies gets back to their
+// bed, in both languages and with no script, like everything else.
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
-import { RuleError, getBedView, signIn } from '../../../lib/service';
-import { getSessionUserId, setSessionUser } from '../../../lib/session';
+import {
+  MAX_EMAIL_CHARS,
+  RuleError,
+  getBedView,
+  isValidEmail,
+  requestSignInLink,
+} from '../../../lib/service';
+import { getSessionUserId } from '../../../lib/session';
+import { mailAvailable, publicOrigin, sendMail } from '../../../lib/mail';
+import { buildSignInMail } from '../../../lib/signin-mail';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../lib/request-body';
 import { bi } from '../../../lib/bilingual';
 import { AUTH, COMMON } from '../../../lib/copy';
@@ -36,37 +55,69 @@ if (Astro.request.method === 'GET' && getSessionUserId(Astro.cookies)) {
   return Astro.redirect(langLink(`${base}/mine`, lang), 303);
 }
 
+// The link needs an origin the recipient can trust: TREEBED_PUBLIC_ORIGIN in
+// production (a Host-derived origin would let a caller mint a link for
+// somebody else's email that points at a host of their choosing), and the
+// request's own origin as the dev/e2e convenience. No origin, or no mail
+// transport, both mean the same honest screen: email sign-in isn't ready.
+const origin = publicOrigin(Astro.url.origin);
+const available = mailAvailable() && origin !== null;
+
 let error: Phrase | null = null;
-let username = '';
+let email = '';
+// `?sent=1` is the post-redirect "check your inbox" state — an unknown query
+// param everywhere else, per the tag-URL rules, and harmless typed by hand:
+// it reveals nothing and requests nothing.
+const sent = Astro.request.method === 'GET' && Astro.url.searchParams.get('sent') === '1';
+
 if (Astro.request.method === 'POST') {
-  // Public and unauthenticated, like every POST here: two short text fields
-  // never need more, and an unbounded body is free memory exhaustion.
+  // Public and unauthenticated, like every POST here: one short text field
+  // never needs more, and an unbounded body is free memory exhaustion.
   const { form, refused } = await readFormOrRefuse(Astro.request, MAX_FORM_BYTES, 'sign-in');
-  // Each reason gets its own answer: a 413 would send somebody off to shorten
-  // a sign-in that was never long.
   if (refused) return refused;
-  username = String(form.get('username') ?? '');
-  const pin = String(form.get('pin') ?? '');
-  try {
-    const user = await signIn(store, { username, pin });
-    setSessionUser(Astro.cookies, user.id);
-    return Astro.redirect(langLink(`${base}/mine`, lang), 303);
-  } catch (err) {
-    if (err instanceof RuleError && err.code === 'invalid-credentials') {
-      // Deliberately the same answer for an unknown handle and a wrong PIN —
-      // the constant-time compare in `signIn` is only worth anything if the
-      // screen says the same thing either way.
-      error = AUTH.bad;
-    } else if (err instanceof RuleError && err.code === 'busy') {
-      // Shed because too many PIN hashes are already running. Same screen with
-      // the username still in it, not a bare 503: this is a retry, and the
-      // visitor should have to retype nothing but the PIN — which this form
-      // never re-fills anyway.
-      error = AUTH.busy;
-      Astro.response.status = 503;
-      Astro.response.headers.set('retry-after', '5');
-    } else {
-      throw err;
+  email = String(form.get('email') ?? '').slice(0, MAX_EMAIL_CHARS);
+  if (!available) {
+    error = AUTH.unavailable;
+    Astro.response.status = 503;
+  } else if (!isValidEmail(email)) {
+    // A shape check only, answered the same for every address: this is about
+    // not spending a rate-limit slot on a typo, not about which emails exist.
+    error = AUTH.emailInvalid;
+    Astro.response.status = 422;
+  } else {
+    try {
+      const outcome = await requestSignInLink(store, { plate, email });
+      if (outcome.kind === 'sent') {
+        // The token's only journey: into this link, into the mail. The URL
+        // itself is built with URLSearchParams so the token is carried
+        // verbatim, and `origin` is the trusted one resolved above.
+        const params = new URLSearchParams({ token: outcome.token });
+        const link = `${origin}${langLink(`${base}/signin?${params.toString()}`, lang)}`;
+        const delivery = await sendMail(buildSignInMail({ email: outcome.user.email, lang, link }));
+        if (!delivery.ok) {
+          // The token row stays; the visitor retries and gets a fresh one.
+          // The failure detail goes to the log (mail.ts already kept the
+          // message out of it), the visitor gets words they can act on.
+          console.error(`[auth] sign-in mail failed: ${delivery.detail}`);
+          error = AUTH.sendFailed;
+          Astro.response.status = 503;
+          Astro.response.headers.set('retry-after', '10');
+        }
+      }
+      if (!error) {
+        // One redirect for a known and an unknown address alike.
+        return Astro.redirect(langLink(`${base}/auth?sent=1`, lang), 303);
+      }
+    } catch (err) {
+      if (err instanceof RuleError && err.code === 'rate-limited') {
+        // Decided by the hashed ledger alone (service.ts), so this answer is
+        // identical whether or not the email is anybody's.
+        error = AUTH.rateLimited;
+        Astro.response.status = 429;
+        Astro.response.headers.set('retry-after', '600');
+      } else {
+        throw err;
+      }
     }
   }
 }
@@ -82,43 +133,60 @@ if (Astro.request.method === 'POST') {
     <a class="back-link" href={langLink(ourPlaqueLink(base), lang)} {...bi(COMMON.backToBed, lang)}
       >{COMMON.backToBed[lang]}</a
     >
-    <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
-    <p class="body-copy" {...bi(AUTH.sub, lang)}>{AUTH.sub[lang]}</p>
-    <form method="POST" action={langLink(`${base}/auth`, lang)} class="auth-form">
-      <div>
-        <label class="field-label" for="username" {...bi(AUTH.username, lang)}>
-          {AUTH.username[lang]}
-        </label>
-        <input
-          class="field-input"
-          id="username"
-          name="username"
-          type="text"
-          placeholder="@"
-          value={username}
-          autocomplete="username"
-          autocapitalize="none"
-          required
-        />
-      </div>
-      <div>
-        <label class="field-label" for="pin" {...bi(AUTH.pin, lang)}>{AUTH.pin[lang]}</label>
-        <input
-          class="field-input"
-          id="pin"
-          name="pin"
-          type="password"
-          inputmode="numeric"
-          autocomplete="current-password"
-          required
-        />
-      </div>
-      {error && <div class="field-error" {...bi(error, lang)}>{error[lang]}</div>}
-      <div class="spacer" />
-      <button class="btn btn-tall btn-action" type="submit" {...bi(AUTH.submit, lang)}>
-        {AUTH.submit[lang]}
-      </button>
-    </form>
+    {
+      sent ? (
+        <>
+          <h1 class="title" {...bi(AUTH.sentTitle, lang)}>{AUTH.sentTitle[lang]}</h1>
+          <p class="body-copy" {...bi(AUTH.sentBody, lang)}>{AUTH.sentBody[lang]}</p>
+          <div class="spacer" />
+          <a
+            class="btn btn-action"
+            href={langLink(ourPlaqueLink(base), lang)}
+            {...bi(COMMON.backToBed, lang)}
+            >{COMMON.backToBed[lang]}</a
+          >
+        </>
+      ) : !available ? (
+        <>
+          <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
+          <p class="body-copy" {...bi(AUTH.unavailable, lang)}>{AUTH.unavailable[lang]}</p>
+          <div class="spacer" />
+          <a
+            class="btn btn-action"
+            href={langLink(ourPlaqueLink(base), lang)}
+            {...bi(COMMON.backToBed, lang)}
+            >{COMMON.backToBed[lang]}</a
+          >
+        </>
+      ) : (
+        <>
+          <h1 class="title" {...bi(AUTH.title, lang)}>{AUTH.title[lang]}</h1>
+          <p class="body-copy" {...bi(AUTH.sub, lang)}>{AUTH.sub[lang]}</p>
+          <form method="POST" action={langLink(`${base}/auth`, lang)} class="auth-form">
+            <div>
+              <label class="field-label" for="email" {...bi(AUTH.email, lang)}>
+                {AUTH.email[lang]}
+              </label>
+              <input
+                class="field-input"
+                id="email"
+                name="email"
+                type="email"
+                maxlength={MAX_EMAIL_CHARS}
+                value={email}
+                autocomplete="email"
+                required
+              />
+            </div>
+            {error && <div class="field-error" {...bi(error, lang)}>{error[lang]}</div>}
+            <div class="spacer" />
+            <button class="btn btn-tall btn-action" type="submit" {...bi(AUTH.submit, lang)}>
+              {AUTH.submit[lang]}
+            </button>
+          </form>
+        </>
+      )
+    }
   </div>
 </Screen>
 

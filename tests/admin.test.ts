@@ -142,7 +142,7 @@ describe('the six real beds on W 171st', () => {
 
 describe('the block reaches a store seeded before it existed', () => {
   it('backfills the blocks and beds additively into an older dataset', async () => {
-    const data = await seedData();
+    const data = seedData();
     // A dataset from before blocks existed: strip everything this build added.
     delete (data as Partial<Data>).blocks;
     for (const plate of Object.keys(data.beds)) {
@@ -194,7 +194,7 @@ describe('the block reaches a store seeded before it existed', () => {
     // Live rows carry one `category`; the picker now files a list. Additive
     // normalization reads the old field into the new one on the way in and
     // deletes nothing, so an old row still says what it always said.
-    const data = await seedData();
+    const data = seedData();
     data.reports.push({
       id: 'RPT-2216-0847',
       bedPlate: 'BED-HRL-0847',
@@ -243,7 +243,7 @@ describe('the block reaches a store seeded before it existed', () => {
   });
 
   it('never overwrites what the captain has edited', async () => {
-    const data = await seedData();
+    const data = seedData();
     data.blocks[W171_BLOCK_ID]!.referenceAddress = '710 W 171st St';
     data.beds[W171_PLATE]!.offeredSlots = 1;
     ensureCheckedInBlocks(data);
@@ -732,7 +732,6 @@ describe('writing a steward in, pen and paper', () => {
     const store = freshStore();
     const user = await addStewardByAdmin(store, { plate: W171_PLATE, input: stewardInput() });
     expect(user.email).toBe('');
-    expect(user.pinHash).toBeNull();
     expect(user.hasSignInRoute).toBe(false);
     expect(user.recordHeldOnBehalf).toBe(true);
     expect(user.username).toBe('dani_t');
@@ -740,6 +739,21 @@ describe('writing a steward in, pen and paper', () => {
     const bed = view!.beds.find((b) => b.bed.plate === W171_PLATE)!;
     expect(bed.stewards).toHaveLength(1);
     expect(bed.stewards[0]!.adoption.stewardKind).toBe('pen-and-paper');
+  });
+
+  it('gives a written-in steward with an email the same emailed sign-in route as anyone else', async () => {
+    // Sign-in is the emailed link, so an email on the admin form IS a
+    // sign-in route — pen-and-paper stewards included — while the record is
+    // still held on their behalf.
+    const store = freshStore();
+    const user = await addStewardByAdmin(store, {
+      plate: W171_PLATE,
+      input: stewardInput({ email: 'dani@example.com' }),
+      lang: 'es',
+    });
+    expect(user.hasSignInRoute).toBe(true);
+    expect(user.recordHeldOnBehalf).toBe(true);
+    expect(user.lang).toBe('es');
   });
 
   it('fills a slot the public switches never offered — writing in is the captain’s act', async () => {
@@ -885,7 +899,7 @@ describe('deleting a bed', () => {
     // `ensureCheckedInBlocks` re-inserts a MISSING seeded bed on every load,
     // so a hard delete of one of the six would quietly resurrect. The
     // tombstone occupies the key, and insert-only means it is never touched.
-    const data = await seedData();
+    const data = seedData();
     data.beds[W171_PLATE]!.retiredAt = '2026-09-10T12:00:00.000Z';
     ensureCheckedInBlocks(data);
     expect(data.beds[W171_PLATE]!.retiredAt).toBe('2026-09-10T12:00:00.000Z');

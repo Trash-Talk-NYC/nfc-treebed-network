@@ -1,0 +1,117 @@
+---
+// Unsubscribe from the steward digest.
+//
+// The link arrives only inside a digest mail, signed over the user id with
+// the same secret the session cookies use (unsubscribe-link.ts): holding
+// the mail IS the authorization, so no sign-in stands in the way. But the
+// GET itself flips NOTHING — the captain's call after review: mail
+// gateways prefetch links, and a scanner silently opting a steward out
+// with no recovery path was not acceptable. The GET renders a one-button
+// confirm; the plain-form POST behind it is what sets `digestOptedOut`,
+// which is also what RFC 8058 means by one-click (a POST to the
+// List-Unsubscribe URL). The recovery half lives on the admin's steward
+// detail, which can clear the flag with the steward's say-so.
+//
+// The confirm form posts back to this same URL, query string intact, so
+// the POST reads `u` and `s` from the query — the shape an RFC 8058
+// client POST has too. Residual, stated: Astro's cross-origin guard
+// answers a form-content-type POST with no Origin header 403 before any
+// app code runs (request-body.ts records why that guard stays on), and a
+// provider-initiated one-click POST is exactly that — so for those
+// clients the advertised One-Click falls back to opening this page, where
+// the confirm button is the one tap. Our own confirm form is same-origin
+// and unaffected.
+//
+// A bad or truncated link is a machine case, answered in plain text like
+// the other refusals of that kind. The screens are bilingual like every
+// other screen — the link carries the steward's stored language.
+import Screen from '../../layouts/Screen.astro';
+import { getStore } from '../../lib/store';
+import { verifyUnsubscribe } from '../../lib/unsubscribe-link';
+import { bi } from '../../lib/bilingual';
+import { UNSUB } from '../../lib/copy';
+import { resolveLang } from '../../lib/i18n';
+import { defaultPresentation } from '../../lib/presentation';
+import { abandonBody, discardBody } from '../../lib/request-body';
+
+const userId = Astro.url.searchParams.get('u') ?? '';
+const mac = Astro.url.searchParams.get('s') ?? '';
+const method = Astro.request.method;
+if (
+  (method !== 'GET' && method !== 'POST') ||
+  userId === '' ||
+  !verifyUnsubscribe(userId, mac)
+) {
+  await abandonBody(Astro.request);
+  return new Response('Not a valid link.', { status: 404 });
+}
+
+// Same reason as the sign-in interstitial: this URL carries a signed token
+// that stands in for the steward's say-so, so no intermediary may keep it.
+Astro.response.headers.set('cache-control', 'no-store');
+
+let done = false;
+if (method === 'POST') {
+  // The press that opts out. The body is read and dropped under the short
+  // form bounds — our own confirm form sends nothing, and an RFC 8058
+  // client sends one small field — and the values that matter rode the
+  // query string, already verified above.
+  const refused = await discardBody(Astro.request, 'unsubscribe');
+  if (refused) return refused;
+  // Idempotent inside a transaction like every read-check-write; a link for
+  // a user that no longer exists still lands on the calm done screen —
+  // there is nothing left to mail either way, and "did this id ever exist"
+  // is not worth answering.
+  //
+  // Whether there is anything to flip is decided on a plain read FIRST,
+  // because BlobsStore.transaction commits a revision even when the callback
+  // writes nothing: this link never expires, so a scanner or a forwarded
+  // digest replaying the POST would otherwise mint one whole-dataset
+  // re-serialization per request forever. The transaction still re-decides,
+  // so the claim stays race-safe; the answer is the same screen either way.
+  const store = getStore();
+  const existing = await store.getUser(userId);
+  if (existing && !existing.digestOptedOut) {
+    await store.transaction(async (tx) => {
+      const user = await tx.getUser(userId);
+      if (user && !user.digestOptedOut) {
+        await tx.updateUser({ ...user, digestOptedOut: true });
+      }
+    });
+  }
+  done = true;
+}
+
+const lang = resolveLang(Astro.url, Astro.cookies);
+const presentation = defaultPresentation();
+---
+
+<Screen
+  title={`${(done ? UNSUB.title : UNSUB.confirmTitle)[lang]} · ${presentation.copy.wordmark}`}
+  lang={lang}
+  presentation={presentation}
+  url={Astro.url}
+>
+  <div class="screen">
+    {
+      done ? (
+        <>
+          <h1 class="title" {...bi(UNSUB.title, lang)}>{UNSUB.title[lang]}</h1>
+          <p class="body-copy" {...bi(UNSUB.body, lang)}>{UNSUB.body[lang]}</p>
+          <div class="spacer" />
+        </>
+      ) : (
+        <>
+          <h1 class="title" {...bi(UNSUB.confirmTitle, lang)}>{UNSUB.confirmTitle[lang]}</h1>
+          <p class="body-copy" {...bi(UNSUB.confirmBody, lang)}>{UNSUB.confirmBody[lang]}</p>
+          <div class="spacer" />
+          <form method="POST" action={`${Astro.url.pathname}${Astro.url.search}`}>
+            <button class="btn btn-tall btn-action" type="submit" {...bi(UNSUB.confirmSubmit, lang)}>
+              {UNSUB.confirmSubmit[lang]}
+            </button>
+          </form>
+        </>
+      )
+    }
+  </div>
+</Screen>

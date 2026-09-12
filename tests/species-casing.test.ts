@@ -14,7 +14,7 @@ import { seedData } from '../src/lib/store-dataset';
 
 /** The store as it was seeded before the casing rule — "Roble sauce". */
 async function datasetSeededCapitalized() {
-  const data = await seedData(null);
+  const data = seedData();
   for (const bed of Object.values(data.beds)) {
     const [first, ...rest] = [...bed.treeType.es];
     bed.treeType.es = first.toUpperCase() + rest.join('');

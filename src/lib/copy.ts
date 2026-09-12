@@ -335,26 +335,111 @@ export const TOO_LARGE = {
 } satisfies Record<string, Phrase>;
 
 /**
- * Sign-in, for a steward coming back.
- *
- * Pre-existing, and untouched on purpose: the captain's passwordless decision
- * removes the secret from the ADOPT form, and migrating these screens to a
- * tap-to-sign-in link is `adopt-name-split-r5`. Nobody created by the new
- * adopt form has a PIN, so nobody created by it can use this screen yet.
+ * Sign-in, for a steward coming back: passwordless, by emailed link
+ * (adopt-name-split-r5). The screen asks for the email they adopted with and
+ * answers "check your inbox" either way — whether an address is on the
+ * network is not a public question, so the two outcomes share one sentence.
  */
 export const AUTH = {
   title: { en: 'Sign in', es: 'Entrar' },
-  username: { en: 'Username', es: 'Nombre de usuario' },
-  pin: { en: 'PIN', es: 'PIN' },
   sub: {
-    en: 'Your username and the PIN you picked.',
-    es: 'Tu nombre de usuario y el PIN que elegiste.',
+    en: 'Enter the email you adopted with and we’ll send you a sign-in link.',
+    es: 'Escribe el correo con el que adoptaste y te enviaremos un enlace para entrar.',
   },
-  submit: { en: 'SIGN IN', es: 'ENTRAR' },
-  bad: { en: 'Username and PIN don’t match.', es: 'El nombre de usuario y el PIN no coinciden.' },
-  busy: {
-    en: 'Too many people are signing in at once. Give it a moment and try again.',
-    es: 'Demasiada gente está entrando a la vez. Espera un momento e inténtalo otra vez.',
+  email: { en: 'Email', es: 'Correo electrónico' },
+  submit: { en: 'EMAIL ME A SIGN-IN LINK', es: 'ENVÍAME UN ENLACE' },
+  sentTitle: { en: 'Check your inbox.', es: 'Revisa tu correo.' },
+  // One sentence for a known and an unknown address alike, on purpose.
+  // The "15 minutes" matches SIGNIN_TOKEN_TTL_MS in service.ts.
+  sentBody: {
+    en: 'If that email adopted a bed on this network, a sign-in link is on its way. It works once, for 15 minutes.',
+    es: 'Si con ese correo se adoptó un cantero en esta red, un enlace para entrar va en camino. Funciona una vez, durante 15 minutos.',
+  },
+  emailInvalid: { en: 'That email doesn’t look right.', es: 'Ese correo no parece correcto.' },
+  rateLimited: {
+    en: 'Too many link requests just now. Wait a few minutes and try again.',
+    es: 'Demasiadas solicitudes de enlace por ahora. Espera unos minutos e inténtalo otra vez.',
+  },
+  sendFailed: {
+    en: 'We couldn’t send the link just now. Give it a moment and try again.',
+    es: 'No pudimos enviar el enlace en este momento. Espera un poco e inténtalo otra vez.',
+  },
+  // Production with the mail plane unconfigured (mail.ts): honest, and the
+  // rest of the flow — adopting, reporting, applause — carries on.
+  unavailable: {
+    en: 'Email sign-in isn’t ready on this network yet. The phone you adopted with still remembers you.',
+    es: 'Entrar por correo todavía no está listo en esta red. El teléfono con el que adoptaste aún te recuerda.',
+  },
+  /**
+   * The interstitial the emailed link lands on. Opening the link spends
+   * nothing — mail gateways prefetch URLs — so the page asks for the one
+   * tap that does, and says why it is safe to take.
+   */
+  openBody: {
+    en: 'You followed your sign-in link. One tap finishes it — this phone stays signed in for a year.',
+    es: 'Seguiste tu enlace para entrar. Un toque lo completa: este teléfono queda con la sesión abierta durante un año.',
+  },
+  openSubmit: { en: 'SIGN IN', es: 'ENTRAR' },
+  /** The landing for a link that is expired, spent, or not ours. One answer for all three. */
+  linkInvalidTitle: {
+    en: 'That sign-in link doesn’t work any more.',
+    es: 'Ese enlace para entrar ya no funciona.',
+  },
+  linkInvalidBody: {
+    en: 'Links work once and expire after 15 minutes. Ask for a fresh one and try again.',
+    es: 'Los enlaces funcionan una sola vez y caducan a los 15 minutos. Pide uno nuevo e inténtalo otra vez.',
+  },
+  requestNew: { en: 'GET A NEW LINK', es: 'PEDIR UN ENLACE NUEVO' },
+} satisfies Record<string, Phrase>;
+
+/**
+ * The sign-in mail itself — rendered in the language the auth screen spoke
+ * when the link was requested, since that is the person's own choice made
+ * seconds earlier.
+ */
+export const SIGNIN_MAIL = {
+  subject: { en: 'Your sign-in link', es: 'Tu enlace para entrar' },
+  body: {
+    en: 'Tap the button to sign in to your tree bed. The link works once and expires in 15 minutes. If you didn’t ask for it, you can ignore this email.',
+    es: 'Toca el botón para entrar a tu cantero. El enlace funciona una sola vez y caduca en 15 minutos. Si no lo pediste, puedes ignorar este correo.',
+  },
+  button: { en: 'SIGN IN TO YOUR BED', es: 'ENTRAR A TU CANTERO' },
+} satisfies Record<string, Phrase>;
+
+/**
+ * The steward digest (digest.ts) — one periodic email per steward with an
+ * email, in the steward's stored language.
+ */
+export const DIGEST_MAIL = {
+  subject: { en: 'How your tree bed is doing', es: 'Cómo va tu cantero' },
+  greeting: { en: 'Hi', es: 'Hola' },
+  openReport: { en: 'A neighbour reported', es: 'Alguien del barrio reportó' },
+  noOpenReport: { en: 'No open care reports', es: 'Sin reportes de cuidado abiertos' },
+  applause: { en: 'Applause since your last digest', es: 'Aplausos desde tu último resumen' },
+  careReminder: {
+    en: 'A quick soak for the soil and a minute of litter picking keep the bed thriving.',
+    es: 'Un buen riego para la tierra y un minuto recogiendo basura mantienen el cantero sano.',
+  },
+  viewBed: { en: 'See your bed', es: 'Ver tu cantero' },
+  unsubscribe: { en: 'Stop these emails', es: 'Dejar de recibir estos correos' },
+} satisfies Record<string, Phrase>;
+
+/**
+ * The unsubscribe landing (/digest/unsubscribe): a one-button confirm on
+ * GET — mail gateways prefetch links, so opening one changes nothing — and
+ * the done screen after the POST that does.
+ */
+export const UNSUB = {
+  confirmTitle: { en: 'Stop the digest emails?', es: '¿Dejar de recibir los resúmenes?' },
+  confirmBody: {
+    en: 'One tap and no more digests reach this address. Your adoption is untouched — the bed stays yours.',
+    es: 'Un toque y no llegarán más resúmenes a este correo. Tu adopción sigue igual: el cantero sigue siendo tuyo.',
+  },
+  confirmSubmit: { en: 'STOP THE EMAILS', es: 'DETENER LOS CORREOS' },
+  title: { en: 'You’re unsubscribed.', es: 'Cancelaste los correos.' },
+  body: {
+    en: 'No more digest emails will reach this address. Your adoption is untouched — the bed is still yours.',
+    es: 'Ya no llegarán más resúmenes a este correo. Tu adopción sigue igual: el cantero sigue siendo tuyo.',
   },
 } satisfies Record<string, Phrase>;
 
@@ -519,6 +604,31 @@ export const ADMIN = {
   kvKind: { en: 'Signed up', es: 'Se apuntó' },
   save: { en: 'SAVE CHANGES', es: 'GUARDAR CAMBIOS' },
   saveAddress: { en: 'SAVE ADDRESS', es: 'GUARDAR DIRECCIÓN' },
+  /** The network-wide digest cadence, edited on the admin index. */
+  digestTitle: { en: 'Email digest', es: 'Resumen por correo' },
+  digestSub: {
+    en: 'How often stewards who gave an email hear how their bed is doing. One setting for the whole network.',
+    es: 'Cada cuánto quienes dieron un correo reciben noticias de su cantero. Un solo ajuste para toda la red.',
+  },
+  cadenceOff: { en: 'Off', es: 'Apagado' },
+  cadenceWeekly: { en: 'Weekly', es: 'Semanal' },
+  cadenceBiweekly: { en: 'Every two weeks', es: 'Cada dos semanas' },
+  cadenceMonthly: { en: 'Monthly', es: 'Mensual' },
+  saveCadence: { en: 'SAVE CADENCE', es: 'GUARDAR FRECUENCIA' },
+  /**
+   * The steward detail's digest row: the recovery path for an unsubscribe a
+   * mail scanner tripped without the person knowing (the emailed link is the
+   * only other writer of the flag).
+   */
+  digestOptedOutNote: {
+    en: 'Unsubscribed from the digest by email link.',
+    es: 'Canceló los resúmenes desde el enlace del correo.',
+  },
+  digestResume: { en: 'RESUME THEIR DIGEST', es: 'REANUDAR SU RESUMEN' },
+  digestResumeSub: {
+    en: 'Only with their say-so — a mail scanner can trip the link without them knowing.',
+    es: 'Solo si la persona lo pide: un escáner de correo puede activar el enlace sin que lo sepa.',
+  },
   noUnsaved: { en: 'No unsaved changes', es: 'No hay cambios sin guardar' },
   unsaved: { en: 'Unsaved changes', es: 'Hay cambios sin guardar' },
   saved: { en: 'Changes saved', es: 'Cambios guardados' },
@@ -535,6 +645,8 @@ export const ADMIN = {
     en: 'No email — they cannot sign in, and the record is held on their behalf. A missing email is never consent to be contacted.',
     es: 'Sin correo: no puede iniciar sesión y el registro se guarda en su nombre. Que falte el correo nunca es permiso para contactar.',
   },
+  /** The steward's public handle — typed on the add form, shown in the detail. */
+  username: { en: 'Username', es: 'Nombre de usuario' },
   addStewardTitle: { en: 'Add a steward', es: 'Añadir a alguien que lo cuide' },
   addStewardBody: {
     en: 'They said yes on the sidewalk. Their tag still works for reporting care.',

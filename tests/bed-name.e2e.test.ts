@@ -15,6 +15,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { serverEnv } from './helpers/server-env';
 import { seedData } from '../src/lib/store-dataset';
 import { ADOPT } from '../src/lib/copy';
 
@@ -40,7 +41,7 @@ beforeAll(async () => {
   if (built.status !== 0) throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
 
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-bed-name-'));
-  const data = await seedData();
+  const data = seedData();
   // The stewarded demo bed carries a name, as if its first steward gave one.
   data.beds['BED-HRL-0847']!.bedName = GIVEN_NAME;
   // One empty W 171st bed offered, so its adopt form fronts a FIRST steward.
@@ -48,13 +49,12 @@ beforeAll(async () => {
   await writeFile(path.join(dataDir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
 
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
-    env: {
-      ...process.env,
+    env: serverEnv({
       TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
       TREEBED_DATA_DIR: dataDir,
       HOST: '127.0.0.1',
       PORT: '0',
-    },
+    }),
   }) as ChildProcessWithoutNullStreams;
   let log = '';
   child.stderr.on('data', (buf: Buffer) => {

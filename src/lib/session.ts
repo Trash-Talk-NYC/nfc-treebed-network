@@ -14,6 +14,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AstroCookies } from 'astro';
 
+import { devFallbackSecret } from './signing-secret';
+
 const SESSION_COOKIE = 'tg_session';
 const VISITOR_COOKIE = 'tg_visitor';
 const YEAR_SECONDS = 60 * 60 * 24 * 365;
@@ -37,16 +39,11 @@ function getSecret(): string {
       'TREEBED_SESSION_SECRET must be set in production — refusing to sign cookies with a generated secret.',
     );
   }
-  // Local-dev fallback: generate once and keep next to the JSON store.
-  const dir = process.env.TREEBED_DATA_DIR ?? path.resolve('.data');
-  const file = path.join(dir, 'session-secret');
-  try {
-    secret = readFileSync(file, 'utf8').trim();
-  } catch {
-    secret = randomBytes(32).toString('hex');
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(file, secret, { mode: 0o600 });
-  }
+  // Local-dev fallback, owned by signing-secret.ts so there is one place that
+  // decides where the dev secret lives and one copy of it: this module and the
+  // no-`import.meta` resolver the scheduled function uses must key the same
+  // MACs, and two independent generators could race the file and disagree.
+  secret = devFallbackSecret();
   return secret;
 }
 
@@ -119,15 +116,15 @@ const cookieOptions = {
 // /admin route is gated here.
 //
 // The gate is one shared high-entropy key, `TREEBED_ADMIN_KEY`, held in the
-// environment like the session secret — NOT a username+PIN, deliberately:
-// the /auth PIN screens are a dead end nothing new may build on (AGENTS.md),
-// and a short memorable secret on an un-rate-limited form is the exact trap
-// they document. Comparing a long random key is constant-time and costs no
-// bcrypt, so the sign-in form cannot be used to queue CPU work the way /auth
-// can (`MAX_INFLIGHT_PIN_HASHES`), and there is no username to enumerate.
-// What it does not have is per-IP throttling — the same platform-tier gap
-// every bound in request-body.ts records as owed — which the key's entropy,
-// not the form, is what covers until then.
+// environment like the session secret — NOT a typed account secret,
+// deliberately: a short memorable secret on an un-rate-limited form is the
+// trap the retired PIN screens documented, and the steward flow's emailed
+// link is not for the admin either (the admin is a role, not a steward's
+// mailbox). Comparing a long random key is constant-time, costs no hashing,
+// and offers no username to enumerate. What it does not have is per-IP
+// throttling — the same platform-tier gap every bound in request-body.ts
+// records as owed — which the key's entropy, not the form, is what covers
+// until then.
 //
 // Unset in production, the admin surface answers 404 everywhere: a deploy
 // that never configured a key has no admin, rather than an open one. Dev

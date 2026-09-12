@@ -29,7 +29,19 @@
 // a disk flush. A rule must therefore never be enforced from a read taken
 // outside the transaction that acts on it.
 
-import type { Adoption, Bed, BedEvent, Block, Report, Severity, User } from './types';
+import type {
+  Adoption,
+  Bed,
+  BedEvent,
+  Block,
+  NetworkSettings,
+  Report,
+  Severity,
+  SignInMissWindow,
+  SignInRequest,
+  SignInToken,
+  User,
+} from './types';
 import { BUILD_TARGET } from './build-target';
 import { LocalStore } from './store-local';
 import { BlobsStore } from './store-blobs';
@@ -66,12 +78,18 @@ export interface Store {
   // -- users -----------------------------------------------------------
   getUser(id: string): Promise<User | null>;
   getUserByUsername(username: string): Promise<User | null>;
+  /** Case-insensitive; the sign-in link's lookup. */
+  getUserByEmail(email: string): Promise<User | null>;
+  /** Every user, stable order. The digest run's iteration; nothing public reads it. */
+  getUsers(): Promise<User[]>;
   createUser(user: User): Promise<void>;
   updateUser(user: User): Promise<void>;
 
   // -- adoptions -------------------------------------------------------
   /** Active (non-released) adoptions for a bed, oldest first. */
   getActiveAdoptions(bedPlate: string): Promise<Adoption[]>;
+  /** Active adoptions held by one user, oldest first — the digest's beds. */
+  getActiveAdoptionsForUser(userId: string): Promise<Adoption[]>;
   createAdoption(adoption: Adoption): Promise<void>;
 
   // -- reports ---------------------------------------------------------
@@ -88,9 +106,42 @@ export interface Store {
   appendEvent(event: BedEvent): Promise<void>;
   /** Events for a bed, newest first, optionally filtered by type. */
   getEvents(bedPlate: string, eventType?: BedEvent['eventType']): Promise<BedEvent[]>;
+
+  // -- sign-in links (hashed; the raw token never reaches the store) ---
+  getSignInToken(tokenHash: string): Promise<SignInToken | null>;
+  createSignInToken(token: SignInToken): Promise<void>;
+  deleteSignInToken(tokenHash: string): Promise<void>;
+  /** Housekeeping: drop rows whose expiry is at or before `now` (ISO). */
+  deleteSignInTokensExpiredBy(now: string): Promise<void>;
+
+  // -- sign-in rate limit window (hashed emails; see types.ts) ---------
+  getSignInRequestsSince(since: string): Promise<SignInRequest[]>;
+  appendSignInRequest(request: SignInRequest): Promise<void>;
+  /** Housekeeping: drop rows older than the rate-limit window. */
+  deleteSignInRequestsBefore(cutoff: string): Promise<void>;
+  /** The bed's unresolved-attempt counter for the current window, if any. */
+  getSignInMissWindow(bedPlate: string): Promise<SignInMissWindow | null>;
+  /** Write the bed's counter, replacing whatever window it held. */
+  putSignInMissWindow(window: SignInMissWindow): Promise<void>;
+
+  // -- network settings (the admin's digest cadence) --------------------
+  getNetworkSettings(): Promise<NetworkSettings>;
+  updateNetworkSettings(settings: NetworkSettings): Promise<void>;
 }
 
-export type { Adoption, Bed, BedEvent, Block, Report, Severity, User };
+export type {
+  Adoption,
+  Bed,
+  BedEvent,
+  Block,
+  NetworkSettings,
+  Report,
+  Severity,
+  SignInMissWindow,
+  SignInRequest,
+  SignInToken,
+  User,
+};
 
 let instance: Store | null = null;
 

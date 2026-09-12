@@ -7,21 +7,17 @@ import { MAX_NOTE_CHARS } from '../src/lib/problem';
 import {
   MAX_BED_NAME_CHARS,
   MAX_CONFIRMATIONS,
-  MAX_INFLIGHT_PIN_HASHES,
   RuleError,
   adoptBed,
   closeReport,
   engravedStewards,
   escalateReport,
   getBedView,
-  hashPin,
   deriveUsername,
   logTap,
   reportProblem,
   sendApplause,
-  signIn,
   validateAdoptInput,
-  verifyPin,
 } from '../src/lib/service';
 
 const PLATE = 'BED-HRL-0847';
@@ -74,32 +70,30 @@ beforeEach(() => {
   store = freshStore();
 });
 
-describe('PIN hashing', () => {
-  it('round-trips a PIN and rejects a wrong one', async () => {
-    const hash = await hashPin('4321');
-    expect(hash).not.toContain('4321');
-    expect(await verifyPin('4321', hash)).toBe(true);
-    expect(await verifyPin('4322', hash)).toBe(false);
-  });
-
+describe('passwordless adoption', () => {
   it('stores no secret at all for a steward who adopts at the tag', async () => {
-    // The captain chose passwordless and ordered the field dropped: a
-    // forgotten secret is permanent lockout, and a cloned plaque on a public
-    // repo is a reusable secret to harvest. The form collects none, so there
-    // is none to store — and `hasSignInRoute` says so plainly, rather than
-    // leaving a null hash for somebody to read as an accident.
+    // The captain chose passwordless: a forgotten secret is permanent
+    // lockout, and a cloned plaque on a public repo is a reusable secret to
+    // harvest. The form collects none, so there is none to store — the way
+    // back in is the emailed link, so `hasSignInRoute` follows the email.
     const user = await adoptBed(store, { plate: PLATE, input: adoptInput() });
-    expect(user.pinHash).toBeNull();
-    expect(user.hasSignInRoute).toBe(false);
+    expect(user.hasSignInRoute).toBe(true);
+    expect(user.digestOptedOut).toBe(false);
+    expect(user.digestLastSentAt).toBeNull();
     // Not the pen-and-paper case: they signed themselves up and gave an email.
     expect(user.recordHeldOnBehalf).toBe(false);
   });
 
-  it('refuses to sign in a steward who has no secret, at the same price as any other miss', async () => {
-    await adoptBed(store, { plate: PLATE, input: adoptInput() });
-    await expect(signIn(store, { username: 'rita_o', pin: '1234' })).rejects.toMatchObject({
-      code: 'invalid-credentials',
+  it('records the language the screen spoke, defaulting to English', async () => {
+    const es = await adoptBed(store, { plate: PLATE, input: adoptInput(), lang: 'es' });
+    expect(es.lang).toBe('es');
+    const bed = (await store.getBed('BED-WH-1711'))!;
+    await store.updateBed({ ...bed, offeredSlots: 1 });
+    const en = await adoptBed(store, {
+      plate: 'BED-WH-1711',
+      input: adoptInput({ firstName: 'Tam', email: 'tam@example.com' }),
     });
+    expect(en.lang).toBe('en');
   });
 });
 
@@ -613,56 +607,7 @@ describe('store contract', () => {
   });
 });
 
-describe('sign in', () => {
-  it('accepts the seeded demo steward and rejects a wrong PIN with one generic error', async () => {
-    const user = await signIn(store, { username: '@marisol_r', pin: '1234' });
-    expect(user.username).toBe('marisol_r');
-    await expect(signIn(store, { username: 'marisol_r', pin: '0000' })).rejects.toMatchObject({
-      code: 'invalid-credentials',
-    });
-    await expect(signIn(store, { username: 'ghost', pin: '1234' })).rejects.toMatchObject({
-      code: 'invalid-credentials',
-    });
-  });
-
-  it('sheds the attempts past MAX_INFLIGHT_PIN_HASHES instead of queueing their CPU', async () => {
-    const attempts = Array.from({ length: MAX_INFLIGHT_PIN_HASHES + 3 }, () =>
-      signIn(store, { username: 'marisol_r', pin: '1234' }).catch((err: unknown) => err),
-    );
-    const outcomes = await Promise.all(attempts);
-    const shed = outcomes.filter((o) => o instanceof RuleError && o.code === 'busy');
-    expect(shed).toHaveLength(3);
-    // Whatever was admitted still got its real answer, and the shed ones freed
-    // their slots again — the bound is on concurrency, not on attempts.
-    expect(outcomes.filter((o) => !(o instanceof Error))).toHaveLength(MAX_INFLIGHT_PIN_HASHES);
-    await expect(signIn(store, { username: 'marisol_r', pin: '1234' })).resolves.toMatchObject({
-      username: 'marisol_r',
-    });
-  });
-
-  it('sheds an unknown username exactly like a known one, so the refusal leaks nothing', async () => {
-    const attempts = [
-      ...Array.from({ length: MAX_INFLIGHT_PIN_HASHES }, () =>
-        signIn(store, { username: 'marisol_r', pin: '1234' }).catch((err: unknown) => err),
-      ),
-      signIn(store, { username: 'ghost', pin: '1234' }).catch((err: unknown) => err),
-    ];
-    const outcomes = await Promise.all(attempts);
-    expect(outcomes.at(-1)).toMatchObject({ code: 'busy' });
-  });
-
-  it('leaves adoption alone at the PIN-hash bound, because adoption hashes nothing', async () => {
-    // /adopt used to buy a bcrypt and be shed at this bound with the rest.
-    // Passwordless removed the hash, so a saturated sign-in path no longer
-    // costs anybody a slot — which is the good half of the trade.
-    const held = Array.from({ length: MAX_INFLIGHT_PIN_HASHES }, () =>
-      signIn(store, { username: 'marisol_r', pin: '1234' }).catch(() => null),
-    );
-    const user = await adoptBed(store, { plate: PLATE, input: adoptInput() });
-    expect(user.username).toBe('rita_o');
-    await Promise.all(held);
-  });
-
+describe('adoption under load', () => {
   it('refuses a full bed on three cheap reads, which is what sheds a flood', async () => {
     await adoptBed(store, { plate: PLATE, input: adoptInput() });
     await expect(

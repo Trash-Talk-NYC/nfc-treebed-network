@@ -18,6 +18,8 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { signInByLink } from './helpers/steward-session';
+import { serverEnv } from './helpers/server-env';
 
 // The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847.
 const TAG = '2mq2amhv';
@@ -67,14 +69,13 @@ interface Served {
 async function startServer(env: Record<string, string> = {}): Promise<Served> {
   const dir = await mkdtemp(path.join(tmpdir(), 'treebed-e2e-'));
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
-    env: {
-      ...process.env,
+    env: serverEnv({
       TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
       TREEBED_DATA_DIR: dir,
       HOST: '127.0.0.1',
       PORT: '0',
       ...env,
-    },
+    }),
   }) as ChildProcessWithoutNullStreams;
 
   let log = '';
@@ -164,18 +165,16 @@ async function visitorCookie(): Promise<string> {
 /**
  * The steward's identity. `/clear` is gated on a signed-in steward of this
  * bed, so closing a report goes through the sign-in the only clear button in
- * the build already sits behind. Uses the seeded steward, and taps nothing.
+ * the build already sits behind: the emailed link, read out of the dev
+ * outbox the server writes when no mail transport is configured. Memoized —
+ * the session cookie lasts a year, and link requests are rate limited per
+ * email, so asking once is also what a real steward does.
  */
+let cachedStewardCookie: string | null = null;
 async function stewardCookie(): Promise<string> {
-  const posted = await fetch(`${origin}/t/${TAG}/auth`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
-    body: 'username=marisol_r&pin=1234',
-    redirect: 'manual',
-  });
-  const set = posted.headers.getSetCookie().find((cookie) => cookie.startsWith('tg_session='));
-  if (!set) throw new Error(`sign-in handed out no session cookie (${posted.status})`);
-  return set.split(';')[0]!;
+  if (cachedStewardCookie) return cachedStewardCookie;
+  cachedStewardCookie = await signInByLink(origin, dataDir, TAG);
+  return cachedStewardCookie;
 }
 
 /** Close whatever report is open, the way the steward view's button does. */
@@ -709,7 +708,7 @@ describe('oversized report uploads, end to end', () => {
     const posted = await fetch(`${origin}/t/${TAG}/auth`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
-      body: `username=${'a'.repeat(200 * 1024)}&pin=1234`,
+      body: `email=${'a'.repeat(200 * 1024)}%40example.com`,
       redirect: 'manual',
     });
     expect(posted.status).toBe(413);
@@ -717,50 +716,19 @@ describe('oversized report uploads, end to end', () => {
   });
 });
 
-describe('a sign-in that arrives past the PIN-hash bound', () => {
-  // What bounds /auth is the CPU a bcrypt costs, so the shed path opens only
-  // when hashes overlap — and how many overlap depends on how fast the box is,
-  // which is no basis for an assertion. Driven instead with a server whose
-  // bound is zero, the way the shed-read paths above are: the question worth
-  // measuring is what the visitor actually receives, and that is the same
-  // answer at any bound.
-  //
-  // `/adopt` used to be shed here too. It collects no secret any more (the
-  // captain's passwordless decision), so it hashes nothing and this bound no
-  // longer reaches it — which is what the second case below measures.
+describe('the passwordless surface', () => {
+  // A server of its own: these cases adopt a steward and spend sign-in link
+  // requests, and the shared server's counts must not absorb either.
   let full: Served;
 
   beforeAll(async () => {
-    full = await startServer({ TREEBED_MAX_INFLIGHT_PIN_HASHES: '0' });
+    full = await startServer();
   }, 60_000);
 
   afterAll(async () => {
     full?.process.kill();
     if (full?.dataDir) await rm(full.dataDir, { recursive: true, force: true });
   });
-
-  it('hands the sign-in form back with the username in it, not a bare error', async () => {
-    withServerLog(() => full.log());
-    const posted = await fetch(`${full.origin}/t/${TAG}/auth`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
-      body: 'username=marisol_r&pin=1234',
-      redirect: 'manual',
-    });
-
-    expect(posted.status).toBe(503);
-    expect(posted.headers.get('retry-after')).toBe('5');
-    const html = await posted.text();
-    expect(html).toContain('signing in at once');
-    // The screen, with everything typed still in it except the PIN — which no
-    // response ever carries back.
-    expect(html).toContain('value="marisol_r"');
-    expect(html).toContain('SIGN IN');
-    expect(html).not.toContain('1234');
-    // Both languages ride in the markup, so the toggle is instant and the
-    // server render is already right with no script at all.
-    expect(html).toContain('data-es="ENTRAR"');
-  }, 60_000);
 
   it('never renders a password, PIN or code field on the adopt form', async () => {
     withServerLog(() => full.log());
@@ -776,11 +744,10 @@ describe('a sign-in that arrives past the PIN-hash bound', () => {
       expect(html).toContain('name="email"');
     }
   }, 60_000);
-  it('still takes an adoption while sign-in is saturated, because it hashes nothing', async () => {
+
+  it('takes an adoption and stores no secret, only the emailed sign-in route', async () => {
     withServerLog(() => full.log());
-    // The good half of the passwordless trade: a slot is no longer lost to a
-    // busy sign-in path, because adoption never buys a bcrypt to be shed at.
-    const posted = await fetch(`${full.origin}/t/${TAG}/adopt`, {
+    const posted = await fetch(`${full.origin}/t/${TAG}/adopt?lang=es`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
       body: 'firstName=Rita&lastName=Okafor&email=r.okafor%40example.com&phone=%2B1+555+010+1234',
@@ -788,22 +755,50 @@ describe('a sign-in that arrives past the PIN-hash bound', () => {
     });
 
     expect(posted.status).toBe(303);
-    expect(posted.headers.get('location')).toBe(`/t/${TAG}/adopted`);
-    // And the session cookie is what carries them from here: it is the only
-    // return path a steward has until the tap-to-sign-in link lands.
+    expect(posted.headers.get('location')).toBe(`/t/${TAG}/adopted?lang=es`);
+    // The session cookie is what carries them from here; the emailed link is
+    // the way back in after it is lost.
     expect(posted.headers.getSetCookie().some((c) => c.startsWith('tg_session='))).toBe(true);
 
     const data = JSON.parse(await readFile(path.join(full.dataDir, 'store.json'), 'utf8')) as {
-      users: Record<string, { username: string; pinHash: string | null; hasSignInRoute: boolean }>;
+      users: Record<
+        string,
+        { username: string; hasSignInRoute: boolean; lang: string } & Record<string, unknown>
+      >;
     };
     const rita = Object.values(data.users).find((u) => u.username === 'rita_o');
     // The handle is derived from the name — nobody typed one.
     expect(rita).toBeDefined();
-    // And no secret was stored, because none was collected.
-    expect(rita?.pinHash).toBeNull();
-    expect(rita?.hasSignInRoute).toBe(false);
+    // No secret was stored, because none was collected — and the email IS
+    // the sign-in route now.
+    expect(rita?.pinHash).toBeUndefined();
+    expect(rita?.hasSignInRoute).toBe(true);
+    // The language the screen spoke rode onto the record, for the digest.
+    expect(rita?.lang).toBe('es');
   }, 60_000);
 
+  it('hands the sign-in form back with the email in it when rate limited', async () => {
+    withServerLog(() => full.log());
+    const ask = () =>
+      fetch(`${full.origin}/t/${TAG}/auth`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', origin: full.origin },
+        body: 'email=somebody%40example.com',
+        redirect: 'manual',
+      });
+    // The per-email cap is 3 per window (service.ts); the fourth is refused
+    // with the form intact — a retry, not a dead end — and the same answer
+    // whether or not the address is anybody's.
+    for (let i = 0; i < 3; i += 1) expect((await ask()).status).toBe(303);
+    const refused = await ask();
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get('retry-after')).toBe('600');
+    const html = await refused.text();
+    expect(html).toContain('value="somebody@example.com"');
+    // Both languages ride in the markup, so the toggle is instant and the
+    // server render is already right with no script at all.
+    expect(html).toContain('data-es="ENVÍAME UN ENLACE"');
+  }, 60_000);
 });
 
 describe('an upload that arrives past the shed count', () => {

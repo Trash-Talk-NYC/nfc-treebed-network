@@ -14,7 +14,7 @@ import {
   requireAdmin,
 } from '../../../../lib/admin-route';
 import { bi, biAttr } from '../../../../lib/bilingual';
-import { ADMIN, ADOPT, ADOPT_ERRORS, AUTH, COMMON } from '../../../../lib/copy';
+import { ADMIN, ADOPT, ADOPT_ERRORS, COMMON } from '../../../../lib/copy';
 import { bedHeadingName } from '../../../../lib/format';
 import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
 import { presentationFor } from '../../../../lib/presentation';
@@ -52,7 +52,9 @@ if (!bed || bed.blockId !== blockId) {
 if (bed.retiredAt !== null) {
   return await redirectAdminWithBody(Astro.request, langLink(`${base}?deleted=1`, lang));
 }
-const bedLink = langLink(`${base}?bed=${plate}`, lang);
+// Encoded rather than interpolated: `plate` comes off the query string, and an
+// `&` or a CR/LF in it would retarget this redirect or throw building it.
+const bedLink = langLink(`${base}?${new URLSearchParams({ bed: plate })}`, lang);
 
 let values: AdminStewardInput = { firstName: '', lastName: '', username: '', email: '', phone: '' };
 let errors: AdminStewardErrors = {};
@@ -73,7 +75,9 @@ if (Astro.request.method === 'POST') {
   errors = checked.errors;
   if (Object.keys(errors).length === 0) {
     try {
-      await addStewardByAdmin(store, { plate, input: values });
+      // The screen's language is the best guess at the language of the
+      // sidewalk conversation, and what any mail to this steward speaks.
+      await addStewardByAdmin(store, { plate, input: values, lang });
       return Astro.redirect(bedLink, 303);
     } catch (err) {
       if (err instanceof RuleError && err.code === 'bed-not-found') {
@@ -159,7 +163,7 @@ const heading = bedHeadingName(bed);
 
     <div>
       <label class="field-label" for="username">
-        <span {...bi(AUTH.username, lang)}>{AUTH.username[lang]}</span>{' '}
+        <span {...bi(ADMIN.username, lang)}>{ADMIN.username[lang]}</span>{' '}
         <span class="field-note">· <span {...bi(COMMON.optional, lang)}>{COMMON.optional[lang]}</span></span>
       </label>
       <input

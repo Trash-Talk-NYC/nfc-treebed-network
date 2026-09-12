@@ -3,7 +3,7 @@
 // tap flow actually reads and writes. `events` is append-only — rows are never
 // updated or deleted (spec §4).
 
-import type { Phrase } from './i18n';
+import type { Lang, Phrase } from './i18n';
 import type { ProblemCategory } from './problem';
 
 export type Severity = 'light' | 'heavy' | 'dumping';
@@ -232,20 +232,16 @@ export interface User {
   /** Handle without the leading @; rendered as @username. Public. */
   username: string;
   /**
-   * bcrypt hash of the numeric PIN, or null for a steward with no sign-in
-   * route (see `hasSignInRoute`). The plaintext PIN must never be stored,
-   * logged, or returned in any response (see AGENTS.md — MVP auth decision).
-   */
-  pinHash: string | null;
-  /**
    * Whether this person can sign in at all.
    *
-   * False for a pen-and-paper steward: somebody who agreed on the sidewalk and
-   * gave no email, which the sidewalk case requires us to allow
-   * (design-record.md, answered open question 3). Recorded explicitly rather
-   * than inferred from a null `pinHash`, so the state is findable the moment a
-   * contact route exists — and so nothing ever reads a missing email as
-   * consent to be contacted.
+   * Sign-in is passwordless — an emailed single-use link (`service.ts`,
+   * `requestSignInLink`) — so this is true exactly for a steward with an
+   * email on record, pen-and-paper stewards the admin entered with one
+   * included. False only for a steward with no email: somebody who agreed on
+   * the sidewalk and gave none, which the sidewalk case requires us to allow
+   * (design-record.md, answered open question 3). `normalizeData` re-derives
+   * it from the email on every load, so a record written under the retired
+   * PIN scheme reads correctly without a migration.
    */
   hasSignInRoute: boolean;
   /**
@@ -257,6 +253,25 @@ export interface User {
   email: string;
   /** PII — stored only, never rendered on any public screen or payload. */
   phone: string;
+  /**
+   * The language this steward's screens spoke when they adopted (the
+   * `tg_lang` cookie at that moment), and the language every email to them is
+   * written in. A preference, not an identity, so it defaults to English
+   * rather than refusing anything.
+   */
+  lang: Lang;
+  /**
+   * One-click unsubscribe pressed (`/digest/unsubscribe`): no digest reaches
+   * this steward while true, whatever the network cadence says. Per-user
+   * because the cadence itself is a network setting (`NetworkSettings`).
+   */
+  digestOptedOut: boolean;
+  /**
+   * When this steward's last digest was claimed for sending, or null before
+   * the first. The claim is written before the send (`runDigest`), so a crash
+   * between the two costs one period's digest rather than sending it twice.
+   */
+  digestLastSentAt: string | null;
   /** Rendered from stored values; earning rules are out of MVP scope. */
   points: number;
   /**
@@ -267,6 +282,89 @@ export interface User {
    */
   streakWeeks: number;
   createdAt: string;
+}
+
+/**
+ * How often the steward digest goes out. One setting for the whole network —
+ * the captain has not picked a frequency yet ("x frequency, i havent decided
+ * yet"), so it is a stored setting rather than a constant, edited on the
+ * admin index. It DEFAULTS TO `off` by his explicit instruction ("do not
+ * send anything"): nothing mails anybody until he turns it on there. `off`
+ * holds every send without touching any per-user state.
+ */
+export type DigestCadence = 'off' | 'weekly' | 'biweekly' | 'monthly';
+
+export const DIGEST_CADENCES: readonly DigestCadence[] = ['off', 'weekly', 'biweekly', 'monthly'];
+
+/** Network-wide settings the block admin edits. Stored in the dataset. */
+export interface NetworkSettings {
+  digestCadence: DigestCadence;
+}
+
+/**
+ * One outstanding tap-to-sign-in link (spec: passwordless, adopt-name-split-r5).
+ *
+ * The RAW token — 32 random bytes, base64url — exists only inside the emailed
+ * link: what the store holds is its SHA-256, so a copy of the dataset (a
+ * Blobs revision, a local store file) is never a bag of live sign-in links.
+ * Single use: verifying deletes the row. Bound to the bed whose auth screen
+ * minted it as well as to the user, so a link cannot be replayed against a
+ * different tag's sign-in URL.
+ */
+export interface SignInToken {
+  /** SHA-256 of the raw token, hex. Never the token itself. */
+  tokenHash: string;
+  userId: string;
+  /** The bed whose auth screen the link was requested from. */
+  bedPlate: string;
+  createdAt: string;
+  /** Minutes out (`SIGNIN_TOKEN_TTL_MS`); expired rows are pruned as new ones are minted. */
+  expiresAt: string;
+}
+
+/**
+ * One sign-in link request, kept only long enough to rate-limit the next one.
+ *
+ * In the store rather than in memory because function instances scale
+ * horizontally — a per-process counter would be a separate allowance per
+ * instance. The email is stored as a keyed hash (`hashSignInEmail`), never
+ * raw: most requests name addresses that adopted nothing, and a rate-limit
+ * ledger must not become a checkable list of typed-in emails.
+ */
+export interface SignInRequest {
+  /** HMAC-SHA-256 of the lowercased email, hex (`hashSignInEmail`). */
+  emailHash: string;
+  bedPlate: string;
+  requestedAt: string;
+  /**
+   * Whether the address resolved to a steward who can be mailed — i.e. whether
+   * this request actually sent something. A row is appended either way, so the
+   * answer a caller sees is identical for both; only the per-bed cap filters on
+   * it (`MAX_SIGNIN_REQUESTS_PER_BED`).
+   */
+  resolved: boolean;
+}
+
+/**
+ * How many requests one bed's auth screen has taken in the current window that
+ * resolved to nobody — one row per bed, rewritten in place.
+ *
+ * It exists because the per-bed send cap counts only requests that resolved
+ * (`MAX_SIGNIN_REQUESTS_PER_BED`), which leaves the misses bounded per address
+ * but not per bed: a script cycling fresh addresses trips no cap and every one
+ * of its requests is a full commit on the Blobs backend. This counter is what
+ * bounds those writes (`MAX_SIGNIN_MISSES_PER_BED`), and it is a counter rather
+ * than the ledger's own rows so what gates the writes can never be the thing
+ * the writes grow.
+ *
+ * A tumbling window, not a sliding one: `windowStart` is when counting began
+ * and the row is started afresh once it is a whole `SIGNIN_RATE_WINDOW_MS` old.
+ */
+export interface SignInMissWindow {
+  bedPlate: string;
+  /** ISO instant the current window began. */
+  windowStart: string;
+  count: number;
 }
 
 /** How a steward came to be on the bed. The admin page shows this; the public screens do not. */

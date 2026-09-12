@@ -22,7 +22,18 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Store } from './store';
-import type { Adoption, Bed, BedEvent, Block, Report, User } from './types';
+import type {
+  Adoption,
+  Bed,
+  BedEvent,
+  Block,
+  NetworkSettings,
+  Report,
+  SignInMissWindow,
+  SignInRequest,
+  SignInToken,
+  User,
+} from './types';
 import { type Data, TransactionStore, detach, normalizeData, ops, seedData } from './store-dataset';
 
 // `.data/` beside the repo, unless TREEBED_DATA_DIR moves it — session.ts keeps
@@ -58,7 +69,7 @@ export class LocalStore implements Store {
       data = normalizeData(JSON.parse(await fs.readFile(this.file, 'utf8')) as Data);
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-      data = await seedData();
+      data = seedData();
       // Published only once it is on disk: while `this.data` is still null,
       // everyone else waits on this read. Publishing first lets the next
       // request's write persist alongside the seed, and the two renames of
@@ -146,6 +157,14 @@ export class LocalStore implements Store {
     return ops.getUserByUsername(await this.load(), username);
   }
 
+  async getUserByEmail(email: string): Promise<User | null> {
+    return ops.getUserByEmail(await this.load(), email);
+  }
+
+  async getUsers(): Promise<User[]> {
+    return ops.getUsers(await this.load());
+  }
+
   async createUser(user: User): Promise<void> {
     await this.mutate((data) => ops.putUser(data, user));
   }
@@ -156,6 +175,10 @@ export class LocalStore implements Store {
 
   async getActiveAdoptions(bedPlate: string): Promise<Adoption[]> {
     return ops.getActiveAdoptions(await this.load(), bedPlate);
+  }
+
+  async getActiveAdoptionsForUser(userId: string): Promise<Adoption[]> {
+    return ops.getActiveAdoptionsForUser(await this.load(), userId);
   }
 
   async createAdoption(adoption: Adoption): Promise<void> {
@@ -192,5 +215,49 @@ export class LocalStore implements Store {
 
   async getEvents(bedPlate: string, eventType?: BedEvent['eventType']): Promise<BedEvent[]> {
     return ops.getEvents(await this.load(), bedPlate, eventType);
+  }
+
+  async getSignInToken(tokenHash: string): Promise<SignInToken | null> {
+    return ops.getSignInToken(await this.load(), tokenHash);
+  }
+
+  async createSignInToken(token: SignInToken): Promise<void> {
+    await this.mutate((data) => ops.createSignInToken(data, token));
+  }
+
+  async deleteSignInToken(tokenHash: string): Promise<void> {
+    await this.mutate((data) => ops.deleteSignInToken(data, tokenHash));
+  }
+
+  async deleteSignInTokensExpiredBy(now: string): Promise<void> {
+    await this.mutate((data) => ops.deleteSignInTokensExpiredBy(data, now));
+  }
+
+  async getSignInRequestsSince(since: string): Promise<SignInRequest[]> {
+    return ops.getSignInRequestsSince(await this.load(), since);
+  }
+
+  async appendSignInRequest(request: SignInRequest): Promise<void> {
+    await this.mutate((data) => ops.appendSignInRequest(data, request));
+  }
+
+  async deleteSignInRequestsBefore(cutoff: string): Promise<void> {
+    await this.mutate((data) => ops.deleteSignInRequestsBefore(data, cutoff));
+  }
+
+  async getSignInMissWindow(bedPlate: string): Promise<SignInMissWindow | null> {
+    return ops.getSignInMissWindow(await this.load(), bedPlate);
+  }
+
+  async putSignInMissWindow(window: SignInMissWindow): Promise<void> {
+    await this.mutate((data) => ops.putSignInMissWindow(data, window));
+  }
+
+  async getNetworkSettings(): Promise<NetworkSettings> {
+    return ops.getNetworkSettings(await this.load());
+  }
+
+  async updateNetworkSettings(settings: NetworkSettings): Promise<void> {
+    await this.mutate((data) => ops.updateNetworkSettings(data, settings));
   }
 }

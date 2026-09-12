@@ -17,7 +17,7 @@
 import AdminScreen from '../../../../layouts/AdminScreen.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
-import { ADMIN, ADOPT, AUTH, COMMON } from '../../../../lib/copy';
+import { ADMIN, ADOPT, COMMON } from '../../../../lib/copy';
 import {
   bedHeadingName,
   bedRowName,
@@ -527,7 +527,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   <dd>{steward.user.lastName}</dd>
                 </div>
                 <div>
-                  <dt {...bi(AUTH.username, lang)}>{AUTH.username[lang]}</dt>
+                  <dt {...bi(ADMIN.username, lang)}>{ADMIN.username[lang]}</dt>
                   <dd>{publicHandle(steward.user)}</dd>
                 </div>
                 <div>
@@ -566,6 +566,33 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                 <p class="pii" {...bi(ADMIN.noEmailNote, lang)}>
                   {ADMIN.noEmailNote[lang]}
                 </p>
+              )}
+              {/* The recovery path for a digest opt-out (the emailed
+                  unsubscribe link is the only other writer of the flag,
+                  and a mail scanner can trip it without the steward
+                  knowing). Its own form rather than a SAVE CHANGES row —
+                  it belongs to the steward, not to the opened bed — and
+                  that form is a SIBLING of the admin card (below), because
+                  a form inside a form is dropped by every parser, which
+                  would hand this button to the block save instead. The
+                  `form` attribute is what keeps it working with no script. */}
+              {steward.user.digestOptedOut && (
+                <div class="digest-resume">
+                  <p class="pii" {...bi(ADMIN.digestOptedOutNote, lang)}>
+                    {ADMIN.digestOptedOutNote[lang]}
+                  </p>
+                  <p class="pii" {...bi(ADMIN.digestResumeSub, lang)}>
+                    {ADMIN.digestResumeSub[lang]}
+                  </p>
+                  <button
+                    class="btn btn-outline"
+                    type="submit"
+                    form="digest-resume-form"
+                    {...bi(ADMIN.digestResume, lang)}
+                  >
+                    {ADMIN.digestResume[lang]}
+                  </button>
+                </div>
               )}
             </>
           ) : selected ? (
@@ -1043,6 +1070,20 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
       </div>
     </div>
   </form>
+  {/* The steward detail's RESUME THEIR DIGEST form, kept outside the admin
+      card so the two are siblings rather than nested; its button lives in
+      the panel above and reaches it by `form`. */}
+  {selected && steward && steward.user.digestOptedOut && (
+    <form
+      id="digest-resume-form"
+      method="POST"
+      action={langLink(`${base}/steward-digest`, lang)}
+      hidden
+    >
+      <input type="hidden" name="bed" value={selected.bed.plate} />
+      <input type="hidden" name="steward" value={steward.user.id} />
+    </form>
+  )}
 </AdminScreen>
 
 <style>

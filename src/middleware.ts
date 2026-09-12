@@ -9,14 +9,10 @@
 // The request context installed below is not a check at all; it is here
 // because middleware is the one place that wraps every route's work.
 //
-// A PIN-hash bound of zero disables sign-in the same way, quietly
-// rather than fatally, and belongs beside it for the same reason: at
-// service.ts's own module scope the warning waits for the first request that
-// happens to load a route chunk importing it, which on this app can be several
-// screens in. Neither line here is a boot check — the adapter imports this
-// module lazily too (`middleware: () => import(...)` in the built manifest),
-// so both fire on the first request of any route. scripts/preflight.mjs is
-// what runs before the port is bound.
+// The assertion is not a boot check — the adapter imports this module lazily
+// (`middleware: () => import(...)` in the built manifest), so it fires on the
+// first request of any route. scripts/preflight.mjs is what runs before the
+// port is bound.
 //
 // It is also where the last unread body is accounted for. Only the method a
 // route exports is bounded by that route: Astro answers every other one with a
@@ -32,11 +28,9 @@ import type { APIContext, MiddlewareNext } from 'astro';
 
 import { runInRequestContext } from './lib/request-context';
 import { assertSessionSecret } from './lib/session';
-import { warnIfPinHashingDisabled } from './lib/service';
 import { abandonBody } from './lib/request-body';
 
 assertSessionSecret();
-warnIfPinHashingDisabled();
 
 // Everything a route awaits runs inside one request context, which is what
 // lets the store validate its dataset once per request instead of once per

@@ -21,12 +21,9 @@
 // shown on the plaque is derived from the name instead (`deriveUsername`).
 //
 // What carries a steward from here is the session cookie set below, which
-// lasts a year — sign-in is rare precisely because of it. The tap-to-sign-in
-// link that replaces the PIN screens is `adopt-name-split-r5` and needs the
-// org's Brevo account, so it is NOT built here. Until it lands, a steward who
-// clears cookies has no way back in; that gap is stated in the PR rather than
-// closed with the secret the captain removed. The existing `/auth` screens are
-// left alone for the same reason — migrating them is that task too.
+// lasts a year — sign-in is rare precisely because of it. The way back in
+// after clearing cookies is the emailed single-use link on `/auth`
+// (adopt-name-split-r5, built), keyed to the email this form collects.
 //
 // Email and phone are PII: stored, never displayed anywhere public, never
 // echoed into any client payload. Only the username and the initials are
@@ -109,7 +106,9 @@ if (Astro.request.method === 'POST') {
   errors = checked.errors;
   if (Object.keys(errors).length === 0) {
     try {
-      const user = await adoptBed(store, { plate, input });
+      // The screen's language rides onto the record: it is what any mail to
+      // this steward — the digest first — will be written in.
+      const user = await adoptBed(store, { plate, input, lang });
       setSessionUser(Astro.cookies, user.id);
       return Astro.redirect(langLink(`${base}/adopted`, lang), 303);
     } catch (err) {

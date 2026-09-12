@@ -9,6 +9,13 @@
   command = "npm run build"
   publish = "dist"
 
+# The scheduled steward digest (netlify/functions/digest.mts) lives in the
+# platform default directory, named here so a site recreated from this file
+# alone still picks it up. It coexists with the SSR function the astro
+# adapter emits under .netlify/v1/functions — the two are bundled separately.
+[functions]
+  directory = "netlify/functions"
+
 [build.environment]
   # astro.config.mjs: emit Netlify Functions instead of the standalone node server.
   TREEBED_ADAPTER = "netlify"

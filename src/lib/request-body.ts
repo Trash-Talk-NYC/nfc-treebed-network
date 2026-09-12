@@ -22,9 +22,27 @@
 //                                      buffer. A failed tap write is logged and
 //                                      the plaque still renders.
 //   GET  .../care, adopt, auth,        Same: no body, no buffer.
-//        thanks, adopted, too-large,
-//        about
+//        signin, thanks, adopted,
+//        too-large, about
 //   GET  .../mine                      Same, behind a session check.
+//   POST .../signin                    The interstitial's one press — the
+//                                      token in one hidden field. Size:
+//                                      MAX_FORM_BYTES buffered, FORM_READ_*
+//                                      clocks, the same 2× + chunk
+//                                      reservation as every text form.
+//                                      Refused → a plain short answer.
+//   GET  /digest/unsubscribe           No body, no buffer. The signature is
+//                                      checked before any store read, and a
+//                                      request that fails it — or any method
+//                                      but GET and POST — is answered 404
+//                                      with the body `abandonBody`'d on the
+//                                      way out.
+//   POST /digest/unsubscribe           The confirm press, and RFC 8058's
+//                                      one-click shape. Everything decided
+//                                      rides the (signed) query string, so
+//                                      the body is `discardBody`'d under
+//                                      MAX_FORM_BYTES and the short clocks.
+//                                      Refused → a plain short answer.
 //   Any method at those screens        Astro renders a page for a POST as
 //                                      readily as for a tap, and none of these
 //                                      has a form behind it — so the body is
@@ -76,6 +94,12 @@
 //                                      copy, the chunk in hand). Refused → a
 //                                      plain short answer, the same shape these
 //                                      forms already give a rejected field.
+//                                      What an admitted /auth body can buy is
+//                                      bounded by the rules, not here: the
+//                                      sign-in link's per-email and per-bed
+//                                      rate limits (service.ts) cap how many
+//                                      outbound mails — the only costly work
+//                                      left on that route — one window admits.
 //   POST .../applause                  One button, so `discardBody` reads the
 //                                      body to its end under MAX_FORM_BYTES and
 //                                      keeps nothing: the same short time
@@ -112,11 +136,13 @@
 //                                      FORM_READ_* clocks, the same 2× + chunk
 //                                      reservation as every text form.
 //                                      The compare is constant-time and costs
-//                                      no bcrypt, so unlike /auth there is no
-//                                      CPU to queue behind it. Refused → a
-//                                      plain short answer.
+//                                      no hashing, so there is no CPU to
+//                                      queue behind it. Refused → a plain
+//                                      short answer.
 //   POST /admin/blocks/… (save,        The same bounds, behind the admin
-//        add-steward, add-bed)         session — which is checked, and a
+//        add-steward, add-bed,         session — which is checked, and a
+//        steward-digest),
+//        /admin/digest
 //                                      session-less body abandoned, before
 //                                      the read: a cookie is not a licence
 //                                      for an unbounded body, and an
@@ -164,15 +190,13 @@
 // the body untouched instead does not avoid the cost: Node dumps the body of
 // any request whose response finished unread, which reads the whole thing.
 
-// Every counter here — and MAX_INFLIGHT_PIN_HASHES in service.ts — is module
-// state, so it bounds one process. That is the whole server on the node target,
-// which is what `npm start` runs and what the e2e suite measures. On the netlify
-// target it is one function instance: the fleet's peak heap and bcrypt
-// concurrency are these numbers multiplied by however many instances the
-// platform has running, and a single warm instance serving concurrent
-// invocations sheds legitimate sign-ins at MAX_INFLIGHT_PIN_HASHES the same as
-// a flood. These are per-instance costs, not the pilot's surface-wide ceiling;
-// bounding the surface is per-IP limiting at the platform tier.
+// Every counter here is module state, so it bounds one process. That is the
+// whole server on the node target, which is what `npm start` runs and what
+// the e2e suite measures. On the netlify target it is one function instance:
+// the fleet's peak heap is these numbers multiplied by however many instances
+// the platform has running. These are per-instance costs, not the pilot's
+// surface-wide ceiling; bounding the surface is per-IP limiting at the
+// platform tier.
 
 // One refusal on this surface is not ours, deliberately. Astro's own
 // cross-origin guard is unshifted ahead of src/middleware.ts and answers a POST
@@ -186,12 +210,12 @@
 // work on forged requests — so this is accepted rather than fixed. It is one
 // config line to revisit if that ever stops being the right trade.
 
-// What this sweep does NOT bound is CPU. A body admitted here is free to serve
-// until a rule turns it into work, and on /auth that work is a bcrypt —
-// bounded separately by MAX_INFLIGHT_PIN_HASHES in service.ts, where the rule
-// that spends it lives. /adopt used to hash too; passwordless removed that, so
-// the only work a flood buys there is the bed's offered slots at a few reads
-// each.
+// What this sweep does NOT bound is the work an admitted body buys. Nothing
+// on this surface hashes any more — passwordless removed the secret from
+// /adopt and then from /auth (the PIN path is gone entirely) — so the costly
+// unit left is an outbound mail on /auth, bounded by the sign-in link's
+// per-email and per-bed rate limits in service.ts, where the rule that spends
+// it lives.
 
 import { boundFromEnv } from './bounds';
 import { noteFrom, problemsFrom, type ProblemCategory } from './problem';

@@ -9,10 +9,13 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ADMIN } from '../src/lib/copy';
+import { serverEnv } from './helpers/server-env';
+import { unsubscribePath } from '../src/lib/unsubscribe-link';
+import { seedData } from '../src/lib/store-dataset';
 
 const ADMIN_KEY = 'e2e-admin-key-with-plenty-of-entropy';
 const BLOCK_PATH = '/admin/blocks/w-171-fort-washington-haven';
@@ -30,14 +33,13 @@ beforeAll(async () => {
 
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-admin-'));
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
-    env: {
-      ...process.env,
+    env: serverEnv({
       TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
       TREEBED_ADMIN_KEY: ADMIN_KEY,
       TREEBED_DATA_DIR: dataDir,
       HOST: '127.0.0.1',
       PORT: '0',
-    },
+    }),
   }) as ChildProcessWithoutNullStreams;
   let log = '';
   child.stderr.on('data', (buf: Buffer) => {
@@ -887,5 +889,118 @@ describe('the way out of the admin', () => {
     });
     expect(replayed.status).toBe(302);
     expect(replayed.headers.get('location')).toBe('/admin');
+  });
+});
+
+describe('the digest controls', () => {
+  it('saves the network cadence from the admin index', async () => {
+    const cookie = await adminCookie();
+    const saved = await fetch(`${origin}/admin/digest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: 'digestCadence=weekly',
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(303);
+    expect(saved.headers.get('location')).toBe('/admin?saved=1');
+    const index = await (await fetch(`${origin}/admin?saved=1`, { headers: { cookie } })).text();
+    expect(index).toContain('Changes saved');
+    const store = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+      settings: { digestCadence: string };
+    };
+    expect(store.settings.digestCadence).toBe('weekly');
+  });
+
+  it('refuses a cadence value no radio offers', async () => {
+    const cookie = await adminCookie();
+    const refused = await fetch(`${origin}/admin/digest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: 'digestCadence=hourly',
+      redirect: 'manual',
+    });
+    expect(refused.status).toBe(422);
+  });
+
+  it('resumes a steward’s digest after the emailed link opted them out', async () => {
+    // The opt-out, the way it really happens: the signed unsubscribe link's
+    // confirm POST. Signed in-process with the server's own secret.
+    process.env.TREEBED_SESSION_SECRET = 'e2e-secret-not-a-real-one';
+    const linkPath = unsubscribePath(seedData().users['user-marisol']!);
+    const optedOut = await fetch(`${origin}${linkPath}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: 'List-Unsubscribe=One-Click',
+      redirect: 'manual',
+    });
+    expect(optedOut.status).toBe(200);
+
+    // The steward detail now shows the recovery control…
+    const cookie = await adminCookie();
+    const panelPath = '/admin/blocks/w-138-acp-demo?bed=BED-HRL-0847&steward=user-marisol';
+    const panel = await (await fetch(`${origin}${panelPath}`, { headers: { cookie } })).text();
+    expect(panel).toContain('RESUME THEIR DIGEST');
+
+    // …and pressing it clears the flag and lands back on the panel.
+    const resumed = await fetch(`${origin}/admin/blocks/w-138-acp-demo/steward-digest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: 'bed=BED-HRL-0847&steward=user-marisol',
+      redirect: 'manual',
+    });
+    expect(resumed.status).toBe(303);
+    expect(resumed.headers.get('location')).toBe(panelPath);
+    const store = JSON.parse(await readFile(path.join(dataDir, 'store.json'), 'utf8')) as {
+      users: Record<string, { digestOptedOut: boolean }>;
+    };
+    expect(store.users['user-marisol']!.digestOptedOut).toBe(false);
+    const after = await (await fetch(`${origin}${panelPath}`, { headers: { cookie } })).text();
+    expect(after).not.toContain('RESUME THEIR DIGEST');
+  });
+
+  it('renders the resume control outside the admin-card form, bound to it by `form`', async () => {
+    // The route is fine either way, so a test that only POSTs it never sees
+    // this: a <form> nested inside the admin card is dropped by every parser
+    // and the button silently posts the block save instead.
+    process.env.TREEBED_SESSION_SECRET = 'e2e-secret-not-a-real-one';
+    const linkPath = unsubscribePath(seedData().users['user-marisol']!);
+    await fetch(`${origin}${linkPath}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: 'List-Unsubscribe=One-Click',
+      redirect: 'manual',
+    });
+    const cookie = await adminCookie();
+    const panelPath = '/admin/blocks/w-138-acp-demo?bed=BED-HRL-0847&steward=user-marisol';
+    const html = await (await fetch(`${origin}${panelPath}`, { headers: { cookie } })).text();
+
+    // Nothing opens a form before the admin card closes its own.
+    const cardOpen = html.lastIndexOf('<form', html.indexOf('data-admin-form'));
+    const cardClose = html.indexOf('</form>', cardOpen);
+    expect(cardOpen).toBeGreaterThan(-1);
+    expect(html.slice(cardOpen + 5, cardClose)).not.toContain('<form');
+
+    // The resume form is a sibling below it, aimed at the steward-digest
+    // route, and the button in the panel reaches it by id.
+    const resumeForm = html.indexOf('id="digest-resume-form"');
+    expect(resumeForm).toBeGreaterThan(cardClose);
+    expect(html.slice(resumeForm, resumeForm + 300)).toContain(
+      'action="/admin/blocks/w-138-acp-demo/steward-digest"',
+    );
+    expect(html).toContain('form="digest-resume-form"');
+    expect(html.slice(cardOpen, cardClose)).not.toContain('name="steward"');
+  });
+
+  it('changes nothing for a steward outside the block the press names', async () => {
+    const cookie = await adminCookie();
+    const crossed = await fetch(`${origin}/admin/blocks/w-171-fort-washington-haven/steward-digest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: 'bed=BED-HRL-0847&steward=user-marisol',
+      redirect: 'manual',
+    });
+    // The demo bed is not in the W 171st block, so the press matches nothing
+    // and writes nothing — the redirect is the same calm answer either way.
+    expect(crossed.status).toBe(303);
   });
 });

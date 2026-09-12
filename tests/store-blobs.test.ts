@@ -12,7 +12,7 @@
 // where the cross-instance story — read-your-writes, conflict retry, rule
 // enforcement — is actually held to.
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -21,7 +21,7 @@ import { BlobsServer } from '@netlify/blobs/server';
 import { BlobsStore } from '../src/lib/store-blobs';
 import { rewriteStoredSpeciesCasing } from '../scripts/species-casing-rewrite.mjs';
 import { runInRequestContext } from '../src/lib/request-context';
-import { reportProblem, signIn } from '../src/lib/service';
+import { consumeSignInToken, reportProblem, requestSignInLink } from '../src/lib/service';
 import type { BedEvent } from '../src/lib/types';
 
 const PLATE = 'BED-HRL-0847';
@@ -103,44 +103,25 @@ describe('seeding', () => {
     expect(marisol?.lastName).toBe('Rivera');
   });
 
-  it('seeds the demo steward with no PIN anybody knows', async () => {
+  it('seeds no account any secret can open, and the sign-in rules still work over the wire', async () => {
     const store = instance();
     // This backend is the publicly tappable one and the plaque engraves the
-    // steward's handle, so the local demo PIN must not open the account here.
-    await expect(signIn(store, { username: 'marisol_r', pin: '1234' })).rejects.toMatchObject({
-      code: 'invalid-credentials',
+    // steward's handle, so the seed must hold nothing a passer-by can use:
+    // sign-in is the emailed link, the seed email is a reserved `.invalid`
+    // address, and the token path — mint, verify, burn — runs against the
+    // real wire protocol here.
+    const outcome = await requestSignInLink(store, {
+      plate: PLATE,
+      email: 'seed-marisol@example.invalid',
     });
-  });
-
-  it('honours TREEBED_SEED_PIN where the flow has to be driveable', async () => {
-    process.env.TREEBED_SEED_PIN = '918273';
-    try {
-      const store = instance();
-      const user = await signIn(store, { username: 'marisol_r', pin: '918273' });
-      expect(user.username).toBe('marisol_r');
-    } finally {
-      delete process.env.TREEBED_SEED_PIN;
-    }
-  });
-
-  it('ignores TREEBED_SEED_PIN on the netlify target', async () => {
-    // The seam is development-only, and this store is the deployed one: a
-    // production build must not honour the variable however it gets set.
-    process.env.TREEBED_SEED_PIN = '918273';
-    vi.resetModules();
-    vi.doMock('../src/lib/build-target', () => ({ BUILD_TARGET: 'netlify' }));
-    try {
-      const { BlobsStore: NetlifyTargetStore } = await import('../src/lib/store-blobs');
-      const { signIn: signInOnTarget } = await import('../src/lib/service');
-      const store = new NetlifyTargetStore(client());
-      await expect(signInOnTarget(store, { username: 'marisol_r', pin: '918273' })).rejects.toMatchObject({
-        code: 'invalid-credentials',
-      });
-    } finally {
-      delete process.env.TREEBED_SEED_PIN;
-      vi.doUnmock('../src/lib/build-target');
-      vi.resetModules();
-    }
+    expect(outcome.kind).toBe('sent');
+    if (outcome.kind !== 'sent') throw new Error('unreachable');
+    const user = await consumeSignInToken(store, { plate: PLATE, token: outcome.token });
+    expect(user.username).toBe('marisol_r');
+    // Single use survives the round trip too.
+    await expect(
+      consumeSignInToken(store, { plate: PLATE, token: outcome.token }),
+    ).rejects.toMatchObject({ code: 'invalid-token' });
   });
 
   it('refuses to seed over a store whose head says it has been written to', async () => {
@@ -162,7 +143,7 @@ describe('seeding', () => {
     // pointer yet, and a listing still stale-empty. The refused create is the
     // only strongly consistent proof rev/1 exists, so the read has to use it
     // rather than asking the listing again — which would answer empty again,
-    // pay another bcrypt-priced seed, and lose again until the read gives up.
+    // pay another seed-and-upload, and lose again until the read gives up.
     await client().delete('head');
     const blind = client();
     let seedAttempts = 0;

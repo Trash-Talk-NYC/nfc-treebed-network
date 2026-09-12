@@ -4,14 +4,25 @@
 // in devtools. This layer is storage-agnostic: it only talks to the narrow
 // Store interface, so swapping the persistence backend never touches a rule.
 
-import { randomUUID } from 'node:crypto';
-import bcrypt from 'bcryptjs';
-import { boundFromEnv } from './bounds';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { Store } from './store';
-import type { Adoption, Bed, BedEvent, Block, GuardMaterial, Report, Severity, User } from './types';
+import type {
+  Adoption,
+  Bed,
+  BedEvent,
+  Block,
+  GuardMaterial,
+  Report,
+  Severity,
+  SignInMissWindow,
+  SignInToken,
+  User,
+} from './types';
+import type { Lang } from './i18n';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
+import { signingSecret } from './signing-secret';
 import { GENERIC_TREE, spanishSpeciesFor, tableSpeciesCasingFor } from './tree-species';
 import { capped } from './typed-text';
 
@@ -26,132 +37,13 @@ export class RuleError extends Error {
       | 'no-open-report'
       | 'already-dumping'
       | 'slots-full'
-      | 'invalid-credentials'
       | 'invalid-input'
       | 'slot-out-of-range'
-      | 'busy',
+      | 'rate-limited'
+      | 'invalid-token',
     message: string,
   ) {
     super(message);
-  }
-}
-
-const PIN_ROUNDS = 10;
-
-// bcrypt costs ~150–300ms of CPU by design, and bcryptjs is pure JS on the one
-// thread that serves every tap. The async variants yield to the event loop once
-// per `MAX_EXECUTION_TIME` (100ms) of synchronous work — not per round — so
-// they keep a hash from blocking the loop for its whole duration; they do not
-// make it cheap. `MAX_INFLIGHT_PIN_HASHES` below is what bounds how many of
-// these run at once, which matters most on sign-in, the one un-rate-limited
-// path (AGENTS.md).
-export async function hashPin(pin: string): Promise<string> {
-  return bcrypt.hash(pin, PIN_ROUNDS);
-}
-
-export async function verifyPin(pin: string, pinHash: string): Promise<boolean> {
-  return bcrypt.compare(pin, pinHash);
-}
-
-/**
- * How many PIN hashes may be running at once.
- *
- * `request-body.ts` bounds the bytes, the time and the concurrency of every
- * public POST, but a body it admits costs nothing to serve until a rule turns
- * it into work — and a bcrypt is ~150–300ms of the one thread that also serves
- * every tap. `/auth` is public and unauthenticated, and a read's share of
- * `MAX_INFLIGHT_BODY_BYTES` is released before the rule runs, so without this
- * nothing at all queues the hashing: a few dozen POSTs a second to `/auth`
- * saturate the loop and every tap, report and applause stalls behind them.
- *
- * `/adopt` used to be the other one. It no longer hashes anything — the
- * captain's passwordless decision means the form collects no secret — so the
- * only work a flood can buy there is the bed's offered slots, at a few reads
- * each.
- *
- * It sheds rather than queues, the same way an over-budget body does: waiting
- * in line for a saturated CPU is the stall, not the cure.
- *
- * What it guarantees is bounded backlog, not bounded CPU. bcryptjs yields once
- * per 100ms of synchronous work, so four admitted hashes keep the thread in
- * bcrypt nearly continuously; what the bound removes is the queue behind them.
- * A tap arriving mid-flood waits behind at most `MAX_INFLIGHT_PIN_HASHES`
- * hashes — a few hundred milliseconds — instead of behind however many the
- * flood managed to start. The plaque, the report and the confirm stay usable
- * under load; they do not stay fast.
- *
- * The other side of that trade is that a sustained flood holds `/auth` at its
- * busy screen for as long as it lasts. That is deliberate: auth loses to the
- * street action. Per-IP limiting at the platform tier is the
- * eventual remedy, alongside the per-PIN rate limiting that is still absent and
- * still owed before any real rollout (AGENTS.md) — this bounds the cost of
- * attempts, not their number.
- *
- * The counter is module state, so all of that describes one process: the whole
- * server on the node target, one function instance on netlify, where fleet-wide
- * bcrypt concurrency is this number times however many instances are running
- * and one warm instance serving concurrent invocations sheds legitimate
- * sign-ins at the same limit. See the same note in request-body.ts.
- *
- * `TREEBED_MAX_INFLIGHT_PIN_HASHES` exists so the end-to-end suite can watch a
- * real client be shed without racing a bcrypt; it is a test seam, like the two
- * in request-body.ts, not a deployment knob. Zero is legal because that is the
- * value the suite drives the shed path with, and it disables sign-in outright
- * — which is why it is announced twice, by `scripts/preflight.mjs` and by
- * `warnIfPinHashingDisabled` below.
- */
-export const MAX_INFLIGHT_PIN_HASHES = boundFromEnv('TREEBED_MAX_INFLIGHT_PIN_HASHES', 4);
-
-/**
- * Called from `src/middleware.ts`, so a bound that disables auth is said on the
- * first request of any route rather than on the first one that happens to load
- * a chunk importing this file — which at module scope here could be several
- * screens into a session. `scripts/preflight.mjs` says it before the port is
- * bound; the adapter imports both this file and the middleware lazily, so
- * nothing in the app itself can speak at process start.
- */
-export function warnIfPinHashingDisabled(): void {
-  if (MAX_INFLIGHT_PIN_HASHES >= 1) return;
-  console.warn(
-    `[service] TREEBED_MAX_INFLIGHT_PIN_HASHES=${MAX_INFLIGHT_PIN_HASHES}: sign-in is disabled, every attempt answers busy`,
-  );
-}
-
-let inflightPinHashes = 0;
-
-/** At most one shed line per window, so the flood can't write the log. */
-const SHED_LOG_INTERVAL_MS = 60_000;
-let shedSinceLastLog = 0;
-let lastShedLogAt = 0;
-
-/**
- * The only server-side trace of a CPU flood: the node adapter writes no access
- * log, so without this the 503s are invisible from the box. One line per
- * minute carrying the count, never one per request — an anonymous caller must
- * not decide how much stderr the shed path costs, on the path whose whole
- * point is being the cheap answer.
- */
-function noteShedPinHash(): void {
-  shedSinceLastLog += 1;
-  const now = Date.now();
-  if (lastShedLogAt !== 0 && now - lastShedLogAt < SHED_LOG_INTERVAL_MS) return;
-  console.warn(
-    `[service] PIN hash shed at the ${MAX_INFLIGHT_PIN_HASHES}-hash bound (${shedSinceLastLog} since the last line)`,
-  );
-  lastShedLogAt = now;
-  shedSinceLastLog = 0;
-}
-
-async function withPinHashSlot<T>(work: () => Promise<T>): Promise<T> {
-  if (inflightPinHashes >= MAX_INFLIGHT_PIN_HASHES) {
-    noteShedPinHash();
-    throw new RuleError('busy', `More than ${MAX_INFLIGHT_PIN_HASHES} PIN hashes already running`);
-  }
-  inflightPinHashes += 1;
-  try {
-    return await work();
-  } finally {
-    inflightPinHashes -= 1;
   }
 }
 
@@ -464,6 +356,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+\d][\d\s().-]{6,19}$/;
 
 /**
+ * The same shape check the adopt form applies, for the sign-in screen: a
+ * string that cannot be an address should cost a validation message, not a
+ * slot in the rate-limit window.
+ */
+export function isValidEmail(email: string): boolean {
+  return EMAIL_RE.test(email.trim());
+}
+
+/**
  * What a typed field may put into a record the store then carries forever.
  *
  * `MAX_FORM_BYTES` bounds the request, not the field, so without these one
@@ -507,10 +408,8 @@ export const MAX_BED_NOTE_CHARS = 160;
  * derived from Marisol Rivera.
  *
  * What carries a steward from here is the year-long session cookie set at
- * adoption. The tap-to-sign-in link that replaces the PIN screens belongs to
- * `adopt-name-split-r5` and needs the org's Brevo account; until it lands, a
- * steward who clears cookies has no way back in. That gap is stated in the PR
- * rather than papered over with a secret the captain removed.
+ * adoption; the way back in after losing it is the emailed single-use link
+ * (`requestSignInLink`), keyed to the email this form collects.
  */
 export interface AdoptInput {
   firstName: string;
@@ -644,7 +543,17 @@ export function deriveUsername(
 /** The slot cap (spec §7) enforced here, server-side: `min(slots, offeredSlots)`. */
 export async function adoptBed(
   store: Store,
-  args: { plate: string; input: AdoptInput; now?: Date },
+  args: {
+    plate: string;
+    input: AdoptInput;
+    /**
+     * The language the adopt screen spoke when the form was submitted (the
+     * `tg_lang` resolution) — recorded on the user so every email to them,
+     * the digest first, arrives in the language they adopted in.
+     */
+    lang?: Lang;
+    now?: Date;
+  },
 ): Promise<User> {
   const now = args.now ?? new Date();
   const { values, errors } = validateAdoptInput(args.input);
@@ -657,9 +566,8 @@ export async function adoptBed(
   // pass is inside the transaction below, so the race is unchanged and
   // `slots-full` is still what a full bed hears.
   //
-  // Nothing here buys CPU any more. Adoption used to cost a bcrypt, which is
-  // what `MAX_INFLIGHT_PIN_HASHES` was bounding on this route; with no secret
-  // to hash, the only thing a flood can buy is the two slots, and once they
+  // Nothing here buys CPU: no secret is collected, so nothing is hashed, and
+  // the only thing a flood can buy is the bed's offered slots — once they
   // are taken every further POST refuses on three reads.
   await checkAdoptPreconditions(store, args.plate);
 
@@ -695,19 +603,19 @@ export async function adoptBed(
       firstName: values.firstName,
       lastName: values.lastName,
       username,
-      // Passwordless, by the captain's decision: no secret is collected, so
-      // there is none to store.
-      pinHash: null,
-      // No way to authenticate TODAY — the tap-to-sign-in link that gives them
-      // one is `adopt-name-split-r5`. What carries them until then is the
-      // year-long session cookie the route sets on the way to the takeover.
-      // Distinct from the pen-and-paper case below it: this person signed
-      // themselves up and gave an email, so nobody is holding the record on
-      // their behalf (design-record.md, answered open question 3).
-      hasSignInRoute: false,
+      // Passwordless, by the captain's decision: no secret is collected, and
+      // the way back in is the emailed single-use link (`requestSignInLink`).
+      // The adopt form requires an email, so everyone created here can sign
+      // in. Distinct from the pen-and-paper case: this person signed
+      // themselves up, so nobody is holding the record on their behalf
+      // (design-record.md, answered open question 3).
+      hasSignInRoute: true,
       recordHeldOnBehalf: false,
       email: values.email,
       phone: values.phone,
+      lang: args.lang ?? 'en',
+      digestOptedOut: false,
+      digestLastSentAt: null,
       points: 0,
       streakWeeks: 0,
       createdAt: now.toISOString(),
@@ -741,43 +649,298 @@ export async function adoptBed(
   });
 }
 
-let unmatchableHash: Promise<string> | null = null;
+// ── Sign-in by emailed link ─────────────────────────────────────────────
+//
+// Passwordless, by the captain's standing decision (adopt-name-split-r5): the
+// steward enters the email they adopted with and receives a short-lived,
+// single-use link. No secret is ever invented, stored, or emailed — what the
+// store holds is a SHA-256 of the token, so a copy of the dataset is never a
+// bag of live sign-in links, and the raw token exists only inside the mail.
+// A LINK rather than a typed code, deliberately: a code is relay-phishable
+// through a cloned plaque page, while the link resolves against our own
+// domain. Sign-in stays rare because the session cookie already lasts a year.
+
+/** How long an emailed link works. Minutes, per the captain's decision. */
+export const SIGNIN_TOKEN_TTL_MS = 15 * 60 * 1000;
+
+/** The sliding window the two request caps below are counted over. */
+export const SIGNIN_RATE_WINDOW_MS = 60 * 60 * 1000;
 
 /**
- * A hash of a value no submitted PIN can equal, so an unknown username costs
- * the same bcrypt compare as a known one. Built on first use rather than at
- * import so startup doesn't pay for it; the promise is cached so simultaneous
- * misses share the one hash.
+ * Link requests one email may make per window. Three covers a flaky inbox
+ * and a mistyped tap; what it bounds is a stranger pointing mail at somebody
+ * else's address all afternoon. Counted in the store, not in memory, because
+ * function instances scale horizontally and a per-process counter would be a
+ * separate allowance per instance.
  */
-function unmatchablePinHash(): Promise<string> {
-  unmatchableHash ??= hashPin(`no-such-pin-${randomUUID()}`);
-  return unmatchableHash;
+export const MAX_SIGNIN_REQUESTS_PER_EMAIL = 3;
+
+/**
+ * Link requests one bed's auth screen may take per window, counted across
+ * every email but only over requests that RESOLVED to a mailable steward. The
+ * per-email cap resets with each fresh address, so without a per-bed cap a
+ * script cycling addresses would buy unbounded sends (and store growth) from
+ * one tag URL.
+ *
+ * Only resolved requests count because the availability side of the trade is
+ * the more expensive one: a tag URL is printed on a public street object, so if
+ * misses counted, a passer-by could spend the whole window on twelve made-up
+ * addresses and lock every real steward of that bed out of signing in — over
+ * and over, for free. A miss sends no mail, so it costs nothing this cap
+ * exists to bound; what bounds the misses themselves is the per-email cap plus
+ * the row pruning, and the per-IP limiting still owed at the platform tier
+ * (request-body.ts).
+ *
+ * A row is appended for a miss all the same, so the write pattern — and
+ * therefore the answer and its timing — cannot tell the two kinds apart.
+ */
+export const MAX_SIGNIN_REQUESTS_PER_BED = 12;
+
+/**
+ * Unresolved requests one bed's auth screen may WRITE per window
+ * (`SignInMissWindow`), which is the bound the resolved-only cap above leaves
+ * open: the per-email cap resets with every fresh address, so a script cycling
+ * addresses trips neither cap, and on the Blobs backend each of its requests is
+ * a whole-dataset re-serialization plus a revision with KEPT_REVISIONS copies
+ * trailing it. Two hundred is far above what a street ever produces by mistake
+ * and far below what makes the store's write path a lever.
+ *
+ * It bounds the WRITES rather than the answers: past the ceiling an unresolved
+ * request still gets the same "check your inbox" an unresolved request always
+ * got — it simply records nothing, so nothing a stranger can do to this screen
+ * stops a real steward's link (the availability half of the trade above) or
+ * grows the dataset.
+ *
+ * Residual, accepted: a request past the ceiling makes no commit and is
+ * therefore measurably faster, and only UNRESOLVED requests skip it — so on a
+ * bed somebody has cheaply pushed past 200 misses, the ceiling WIDENS the
+ * resolved-versus-unresolved timing gap that already exists there rather than
+ * being neutral: fast means the address resolved to nobody, slow means a real
+ * steward. It grants nothing over the mail call a resolved request makes, which
+ * is the same accepted tier (documented below), and the answer itself stays
+ * byte-identical.
+ */
+export const MAX_SIGNIN_MISSES_PER_BED = 200;
+
+/**
+ * Domain separation for the ledger's MAC, the same way `unsubscribeMac` and
+ * the session cookies label theirs: one construction's output over the shared
+ * secret must never be usable as another's. Changing it re-keys the ledger,
+ * which needs no migration for the reason above — the rows live one window.
+ */
+const SIGNIN_EMAIL_MAC_PURPOSE = 'signin-email:';
+
+/**
+ * The rate-limit ledger's key for an address: an HMAC-SHA-256 of the
+ * lowercased email, hex, keyed by the server's signing secret.
+ *
+ * Keyed rather than a bare digest because a bare SHA-256 of an email is not
+ * opaque — anyone holding a copy of the dataset can test any address they care
+ * about, or run a dictionary, and the ledger is then a checkable list of who
+ * typed something into a tree bed's sign-in screen, including people with no
+ * record on the network at all. With the key, the rows are meaningless without
+ * the secret and still compare exactly, which is all the caps need.
+ *
+ * The secret resolves through signing-secret.ts, the same no-`import.meta`
+ * path unsubscribe-link.ts uses. Rotating it re-keys the ledger, which needs
+ * no migration: the rows live one `SIGNIN_RATE_WINDOW_MS` and are deleted on
+ * the way past, so a re-key costs at most one hour of unclaimed allowance.
+ */
+export function hashSignInEmail(email: string): string {
+  return createHmac('sha256', signingSecret())
+    .update(`${SIGNIN_EMAIL_MAC_PURPOSE}${email.trim().toLowerCase()}`)
+    .digest('hex');
 }
 
-export async function signIn(
+/** SHA-256 hex of the raw token — the only form the store ever sees. */
+function hashSignInToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * What one press of the auth screen's button resolved to. The screen says
+ * "check your inbox" for both kinds — whether an email is on the network is
+ * not a public question — and only the mail plane is told the difference.
+ */
+export type SignInLinkOutcome =
+  /** A steward's address: the token to put in the link, and who it signs in. */
+  | { kind: 'sent'; token: string; user: User }
+  /** Nobody's address. Nothing stored, nothing to send. */
+  | { kind: 'unknown-email' };
+
+/**
+ * The ceiling's control signal. Not a `RuleError`: nothing about it reaches a
+ * caller — it exists only to leave the transaction without committing, and
+ * `requestSignInLink` turns it back into the ordinary unknown-email answer.
+ */
+class SignInMissCeiling extends Error {}
+
+/** This bed's miss counter with this attempt added, starting a fresh window
+ * once the stored one is a whole `SIGNIN_RATE_WINDOW_MS` old. */
+function countedMiss(
+  stored: SignInMissWindow | null,
+  bedPlate: string,
+  now: Date,
+): SignInMissWindow {
+  const current =
+    stored !== null && now.getTime() - Date.parse(stored.windowStart) < SIGNIN_RATE_WINDOW_MS
+      ? stored
+      : { bedPlate, windowStart: now.toISOString(), count: 0 };
+  return { bedPlate, windowStart: current.windowStart, count: current.count + 1 };
+}
+
+/**
+ * "Email me a sign-in link", decided.
+ *
+ * One transaction: the rate-limit window slides, the caps are checked, the
+ * request is recorded and the token minted against one dataset, so two
+ * simultaneous requests cannot both pass a cap they jointly exceed.
+ *
+ * The refusal (`rate-limited`) is decided by the hashed ledger alone, before
+ * the email is ever looked up, so a known and an unknown address are refused
+ * — and admitted — identically. The request row is appended for both kinds
+ * for the same reason: both paths make the same writes, so the response
+ * cannot say which one ran. What the row RECORDS differs (`resolved`), and
+ * only the per-bed cap reads it, so a stranger's misses cannot spend the
+ * budget a real steward needs. What bounds the misses' own writes is the
+ * per-bed miss ceiling (`MAX_SIGNIN_MISSES_PER_BED`), which changes what is
+ * recorded and never what is answered. What still differs is the mail call the
+ * route makes for a real steward, a residual timing signal noted on the route.
+ *
+ * The raw token is returned to the caller for the one journey it exists for
+ * — into the emailed link — and is never stored or logged anywhere.
+ */
+export async function requestSignInLink(
   store: Store,
-  args: { username: string; pin: string },
-): Promise<User> {
-  // Admission is taken before the lookup, not around the compare: whether a
-  // request is shed must not depend on whether the username exists, or the
-  // constant-time compare below would leak through the refusal instead.
-  return withPinHashSlot(async () => {
-    const user = await store.getUserByUsername(args.username.trim().replace(/^@/, ''));
-    // Same error AND the same timing for unknown user and wrong PIN — a short
-    // circuit here would make username enumeration free, since sign-in attempts
-    // are not yet rate limited (AGENTS.md).
-    // A steward with no sign-in route (pen-and-paper) has no hash to compare,
-    // so they get the unmatchable one — the same bcrypt, the same answer, and
-    // no way to tell "no such person" from "cannot sign in" by timing it.
-    const pinMatches = await verifyPin(
-      args.pin,
-      (user?.hasSignInRoute ? user.pinHash : null) ?? (await unmatchablePinHash()),
-    );
-    if (!user || !pinMatches) {
-      throw new RuleError('invalid-credentials', 'Username and PIN don’t match.');
+  args: { plate: string; email: string; now?: Date },
+): Promise<SignInLinkOutcome> {
+  const now = args.now ?? new Date();
+  const nowIso = now.toISOString();
+  const email = args.email.trim().slice(0, MAX_EMAIL_CHARS);
+  const emailHash = hashSignInEmail(email);
+  try {
+    return await runSignInLinkRequest(store, { ...args, now, nowIso, email, emailHash });
+  } catch (err) {
+    // The ceiling is not a refusal: an unresolved address has always been
+    // answered "check your inbox" with nothing sent, and that must not change
+    // just because this bed has taken a lot of misses this hour.
+    if (err instanceof SignInMissCeiling) return { kind: 'unknown-email' };
+    throw err;
+  }
+}
+
+/** The transaction `requestSignInLink` runs, split out only so the ceiling's
+ * control signal can be caught outside it — throwing is what keeps the
+ * over-ceiling attempt from committing. */
+async function runSignInLinkRequest(
+  store: Store,
+  args: { plate: string; email: string; emailHash: string; now: Date; nowIso: string },
+): Promise<SignInLinkOutcome> {
+  const { now, nowIso, email, emailHash } = args;
+  return store.transaction(async (tx) => {
+    const windowStart = new Date(now.getTime() - SIGNIN_RATE_WINDOW_MS).toISOString();
+    // Housekeeping on the way past, in the same commit: the ledger holds one
+    // window's rows and the token table holds only live links, so neither
+    // grows with lifetime traffic the way `events` deliberately does.
+    await tx.deleteSignInRequestsBefore(windowStart);
+    await tx.deleteSignInTokensExpiredBy(nowIso);
+    const recent = await tx.getSignInRequestsSince(windowStart);
+    if (
+      recent.filter((r) => r.emailHash === emailHash).length >= MAX_SIGNIN_REQUESTS_PER_EMAIL ||
+      recent.filter((r) => r.bedPlate === args.plate && r.resolved).length >=
+        MAX_SIGNIN_REQUESTS_PER_BED
+    ) {
+      // Refused attempts are deliberately NOT recorded: recording them would
+      // let a stranger hold somebody's address at the cap forever with a
+      // request a minute, where this way the cap only ever counts sends.
+      throw new RuleError('rate-limited', 'Too many sign-in link requests');
     }
+    // The lookup happens before the row is written so the row can record which
+    // kind this was — but under the miss ceiling BOTH kinds write exactly one
+    // row, so nothing about the sequence of store calls differs between them.
+    const user = await tx.getUserByEmail(email);
+    const resolved = user !== null && user.hasSignInRoute;
+    if (!resolved) {
+      // Past the ceiling this request writes nothing at all — which has to
+      // mean leaving the transaction by throwing, because a commit happens on
+      // the way out of the callback whether or not it wrote anything, and a
+      // commit is the cost being bounded. The sentinel is caught below and
+      // answered exactly as any unresolved address is.
+      const counted = countedMiss(await tx.getSignInMissWindow(args.plate), args.plate, now);
+      if (counted.count > MAX_SIGNIN_MISSES_PER_BED) throw new SignInMissCeiling();
+      await tx.putSignInMissWindow(counted);
+    }
+    await tx.appendSignInRequest({ emailHash, bedPlate: args.plate, requestedAt: nowIso, resolved });
+    if (!resolved || !user) return { kind: 'unknown-email' };
+    const token = randomBytes(32).toString('base64url');
+    await tx.createSignInToken({
+      tokenHash: hashSignInToken(token),
+      userId: user.id,
+      bedPlate: args.plate,
+      createdAt: nowIso,
+      expiresAt: new Date(now.getTime() + SIGNIN_TOKEN_TTL_MS).toISOString(),
+    });
+    return { kind: 'sent', token, user };
+  });
+}
+
+/**
+ * The emailed link, opened: verify the token, burn it, hand back the steward
+ * it signs in. Every failure is the same `invalid-token` — an expired link, a
+ * used one, and one that never existed must read identically, or the answer
+ * becomes an oracle for which tokens were real.
+ *
+ * Single use is the delete: the row goes before the user is returned, inside
+ * the transaction, so two taps on the same link race for one delete and only
+ * the first signs in. A token opened at a different bed's URL is refused
+ * WITHOUT being burned — the mismatch is a wrong door, not a spent link, and
+ * whoever holds the token is its rightful recipient, so the real link they
+ * were sent must keep working.
+ *
+ * The lookup compares hashes with ordinary string equality on purpose: the
+ * stored value is a SHA-256 of a 256-bit random token, so a timing signal
+ * could only ever confirm a hash the caller already computed — nothing about
+ * an unknown token leaks through it.
+ */
+export async function consumeSignInToken(
+  store: Store,
+  args: { plate: string; token: string; now?: Date },
+): Promise<User> {
+  const now = args.now ?? new Date();
+  const tokenHash = hashSignInToken(args.token);
+  return store.transaction(async (tx) => {
+    const record = await tx.getSignInToken(tokenHash);
+    if (!record) throw new RuleError('invalid-token', 'No such sign-in link');
+    if (record.bedPlate !== args.plate) {
+      throw new RuleError('invalid-token', 'Sign-in link opened at a different bed');
+    }
+    if (record.expiresAt <= now.toISOString()) {
+      // No delete here on purpose: the transaction rolls back on this throw,
+      // so a delete would never persist anyway. The expired row is reclaimed
+      // by `deleteSignInTokensExpiredBy` on the next mint.
+      throw new RuleError('invalid-token', 'Sign-in link expired');
+    }
+    await tx.deleteSignInToken(tokenHash);
+    const user = await tx.getUser(record.userId);
+    if (!user) throw new RuleError('invalid-token', 'Sign-in link names no user');
     return user;
   });
+}
+
+/** Exposed for the suites that need to place a token's row directly. */
+export function signInTokenRecord(args: {
+  token: string;
+  userId: string;
+  bedPlate: string;
+  now: Date;
+}): SignInToken {
+  return {
+    tokenHash: hashSignInToken(args.token),
+    userId: args.userId,
+    bedPlate: args.bedPlate,
+    createdAt: args.now.toISOString(),
+    expiresAt: new Date(args.now.getTime() + SIGNIN_TOKEN_TTL_MS).toISOString(),
+  };
 }
 
 // ── The block admin's rules ─────────────────────────────────────────────
@@ -1141,9 +1304,11 @@ export function validateAdminStewardInput(raw: AdminStewardInput): {
  * Write in a steward the captain signed up on the sidewalk.
  *
  * The record is created BY the team FOR the person, and says so:
- * `recordHeldOnBehalf: true`, `hasSignInRoute: false`, no secret. A missing
- * email is recorded as exactly that — it is never read as consent to be
- * contacted, and no outreach exists or is invented here (the pen-and-paper
+ * `recordHeldOnBehalf: true`, no secret. Sign-in is the emailed link, so a
+ * steward written in WITH an email can sign in like anyone else
+ * (`hasSignInRoute`), and one written in without an email cannot — that
+ * missing email is recorded as exactly that, never read as consent to be
+ * contacted, and no other outreach is invented here (the pen-and-paper
  * contact route is its own later task).
  *
  * The captain may fill a slot the public switches have not offered — writing
@@ -1152,7 +1317,17 @@ export function validateAdminStewardInput(raw: AdminStewardInput): {
  */
 export async function addStewardByAdmin(
   store: Store,
-  args: { plate: string; input: AdminStewardInput; now?: Date },
+  args: {
+    plate: string;
+    input: AdminStewardInput;
+    /**
+     * The language the admin screen spoke when the steward was written in —
+     * the best available guess at the language of the sidewalk conversation,
+     * and what any email to this steward is written in.
+     */
+    lang?: Lang;
+    now?: Date;
+  },
 ): Promise<User> {
   const now = args.now ?? new Date();
   const { values, errors } = validateAdminStewardInput(args.input);
@@ -1188,11 +1363,15 @@ export async function addStewardByAdmin(
       firstName: values.firstName,
       lastName: values.lastName,
       username,
-      pinHash: null,
-      hasSignInRoute: false,
+      // The emailed link is the only sign-in there is, so an email on the
+      // form is a sign-in route and a blank one is none.
+      hasSignInRoute: values.email !== '',
       recordHeldOnBehalf: true,
       email: values.email,
       phone: values.phone,
+      lang: args.lang ?? 'en',
+      digestOptedOut: false,
+      digestLastSentAt: null,
       points: 0,
       streakWeeks: 0,
       createdAt: now.toISOString(),

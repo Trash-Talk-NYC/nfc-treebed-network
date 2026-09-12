@@ -42,7 +42,7 @@ beforeAll(async () => {
   // The store the server will find already there: the seeded adoption, with
   // the demo bed's profile filled in the way the block admin page would fill
   // it — a metal guard, plants in, a recommendation, and a care note.
-  const data = await seedData();
+  const data = seedData();
   const demo = data.beds['BED-HRL-0847']!;
   demo.guard = 'metal';
   demo.treePresent = true;
