@@ -2,7 +2,6 @@
 // single most important resilience decision (spec §3a): telling us a bed needs
 // care must work with JavaScript disabled.
 import type { APIRoute } from 'astro';
-import { randomUUID } from 'node:crypto';
 import { getPhotoBlobs, getStore } from '../../../lib/store';
 import { RuleError, reportProblem } from '../../../lib/service';
 import { storeReportPhoto } from '../../../lib/report-photo';
