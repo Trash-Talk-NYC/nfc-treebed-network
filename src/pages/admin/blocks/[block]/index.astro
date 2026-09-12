@@ -217,6 +217,12 @@ const savedFlash = Astro.url.searchParams.get('saved') === '1';
 const deletedFlash = Astro.url.searchParams.get('deleted') === '1';
 // And the way back from one: the bed is on the list again, with its tag live.
 const restoredFlash = Astro.url.searchParams.get('restored') === '1';
+// A panel link to a bed that has since been deleted — a bookmark, history, or
+// the language toggle carrying the stale `bed=` along — lands in list mode,
+// and says the bed is gone rather than nothing, the way `add-steward.astro`
+// already answers the same stale plate.
+const retiredParam =
+  selected === null && retired.some((b) => b.plate === Astro.url.searchParams.get('bed'));
 const mode = selected ? 'panel' : 'list';
 // Whether the stale save carried an address the store does not have — judged
 // the way `saveBlockSettings` judges it (trimmed, and an empty field writes
@@ -234,7 +240,7 @@ const flash: Phrase | null = staleBed
   ? addressChanged
     ? ADMIN.bedDeletedElsewhereKeepAddress
     : ADMIN.bedDeletedElsewhere
-  : deletedFlash
+  : deletedFlash || retiredParam
     ? ADMIN.bedDeleted
     : restoredFlash
       ? ADMIN.bedRestored

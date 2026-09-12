@@ -626,6 +626,26 @@ describe('deleting a bed', () => {
     expect(again.headers.get('location')).toContain('deleted=1');
   });
 
+  it('answers a stale panel link to the deleted bed with the list and the deleted flash', async () => {
+    // A bookmarked `?bed=`, one in history, or the language toggle pressed on
+    // the stale-save re-render: the bed opens no panel any more, and the page
+    // says it is gone rather than silently drawing the list.
+    const cookie = await adminCookie();
+    for (const [query, expected] of [
+      ['', 'Bed deleted'],
+      ['&lang=es', 'Cantero eliminado'],
+    ] as const) {
+      const page = await fetch(`${origin}${BLOCK_PATH}?bed=${PLATE}${query}`, {
+        headers: { cookie },
+      });
+      expect(page.status).toBe(200);
+      const html = await page.text();
+      expect(html).toContain(expected);
+      expect(html).toContain('Deleted beds');
+      expect(html).not.toContain('SAVE CHANGES');
+    }
+  });
+
   it('answers SAVE CHANGES on a bed deleted from another tab with the block page, keeping the typed address', async () => {
     // The stale tab: the panel was open when the bed went, and the press has
     // to land somewhere with a way back — mid-walk, one-handed. Nothing was
