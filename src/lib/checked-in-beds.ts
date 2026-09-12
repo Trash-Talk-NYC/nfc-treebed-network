@@ -303,7 +303,8 @@ export function captainRunBeds(): Bed[] {
 }
 
 /**
- * Make sure the checked-in blocks and the six W 171st beds exist, on the way
+ * Make sure the checked-in blocks and every checked-in bed exist — the six
+ * W 171st beds and the 22 beds of the captain's three named runs — on the way
  * past every load.
  *
  * The pilot store is LIVE and was seeded before this block existed; seeding

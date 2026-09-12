@@ -1,11 +1,13 @@
 ---
 // The tap. Two doors.
 //
-// The URL carries an opaque tag ID and nothing else (map decision: no meaning
-// in the tag URL; a tag's site is unknowable at encoding time). The ID resolves
-// to a site server-side through tag-bindings.ts, and everything below the
-// resolution is keyed by the site's plate — which is INTERNAL and is not
-// rendered: what a visitor sees is NYC Parks' planting space ID.
+// The URL carries a tag ID and nothing else — either the opaque format (map
+// decision: no meaning in the tag URL; a tag's site is unknowable at encoding
+// time) or one of the captain's named bed ids, his deliberate override of that
+// rule (tag-id.ts). Either way the ID resolves to a site server-side through
+// tag-bindings.ts, and everything below the resolution is keyed by the site's
+// plate — which is INTERNAL and is not rendered: what a visitor sees is NYC
+// Parks' planting space ID.
 //
 // The bed's state picks the screen, server-side (design-record.md — the
 // captain's Option B, closing a forty-round review):
