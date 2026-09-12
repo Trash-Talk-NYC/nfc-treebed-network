@@ -831,6 +831,19 @@ export interface AdminBedView {
    * bed for a record the page discards grows with the block.
    */
   openReport: Report | null;
+  /**
+   * What the neighbours who added their weight to that open report said —
+   * their categories and their sentence, which ride on the `confirm` events
+   * because a second neighbour writes nothing else (`reportProblem`).
+   *
+   * The steward already reads these on `mine.astro`, and the public FAQ tells
+   * a visitor that Trash Talk NYC sees the report: the captain's own surface
+   * must not see less of one than the steward does. Joined by the event's own
+   * `reportId`, never a time window — `report → clear → report` is a supported
+   * loop — and bounded by `MAX_CONFIRMATIONS` like the confirmations
+   * themselves. Empty on every bed but the one the caller named.
+   */
+  openReportConfirms: Array<{ categories: ProblemCategory[]; note: string }>;
 }
 
 /** The block and its beds, in block order. */
@@ -864,7 +877,13 @@ export async function getBlockView(
     }
     const openReport =
       bed.plate === openReportFor ? ((await store.getOpenReport(bed.plate)) ?? null) : null;
-    beds.push({ bed, stewards, openReport });
+    const openReportConfirms = openReport
+      ? (await store.getEvents(bed.plate, 'confirm'))
+          .filter((e) => e.reportId === openReport.id && (e.categories.length > 0 || e.note !== ''))
+          .reverse()
+          .map((e) => ({ categories: e.categories, note: e.note }))
+      : [];
+    beds.push({ bed, stewards, openReport, openReportConfirms });
   }
   return { block, beds };
 }
@@ -880,21 +899,21 @@ export interface BlockSaveInput {
     /**
      * The guard standing at the bed — the panel's three-way choice, never a
      * flag plus a material: 'none', or a guard and what it is made of. Null
-     * is a press that picked nothing, which keeps the guard as it stands: a
-     * bed nobody has recorded stays not-yet-recorded, and a bed with a
-     * material on record is never blanked by a form that omitted the radio.
+     * is the panel's own NOT RECORDED choice, which takes the fact back to
+     * not-yet-recorded — a mis-tap on a street must be undoable, so absence
+     * of a radio is not what unrecords. Undefined is a form that carried no
+     * radio at all, which keeps the guard exactly as it stands.
      */
-    guard: GuardMaterial | null;
+    guard: GuardMaterial | null | undefined;
     /** The bed profile's switches — the facts "About this bed" states. */
     treePresent: boolean;
     /**
-     * The profile's two three-way choices, read like `guard`: true, false, or
-     * null for a press that picked neither, which keeps the fact as it stands
-     * — a bed nobody has recorded stays not-yet-recorded, and one on record is
-     * never blanked by a form that omitted the radio.
+     * The profile's two three-way choices, read like `guard`: true, false,
+     * null for the NOT RECORDED choice that takes the fact back, and
+     * undefined for a form that carried no radio, which keeps it as it stands.
      */
-    plantsPresent: boolean | null;
-    plantingRecommended: boolean | null;
+    plantsPresent: boolean | null | undefined;
+    plantingRecommended: boolean | null | undefined;
     /**
      * The profile's typed notes: what is planted, what to plant, what care
      * the bed needs right now. Rendered as typed on the public about screen,
@@ -1005,10 +1024,13 @@ export async function saveBlockSettings(store: Store, args: BlockSaveInput): Pro
       slots,
       offeredSlots,
       bedName: args.bed.clearBedName ? null : bed.bedName,
-      guard: args.bed.guard ?? bed.guard,
+      guard: args.bed.guard === undefined ? bed.guard : args.bed.guard,
       treePresent: args.bed.treePresent,
-      plantsPresent: args.bed.plantsPresent ?? bed.plantsPresent,
-      plantingRecommended: args.bed.plantingRecommended ?? bed.plantingRecommended,
+      plantsPresent: args.bed.plantsPresent === undefined ? bed.plantsPresent : args.bed.plantsPresent,
+      plantingRecommended:
+        args.bed.plantingRecommended === undefined
+          ? bed.plantingRecommended
+          : args.bed.plantingRecommended,
       plantsNote: capped(args.bed.plantsNote, MAX_BED_NOTE_CHARS),
       recommendedPlantsNote: capped(args.bed.recommendedPlantsNote, MAX_BED_NOTE_CHARS),
       careNote: capped(args.bed.careNote, MAX_BED_NOTE_CHARS),

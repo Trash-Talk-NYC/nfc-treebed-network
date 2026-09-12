@@ -396,13 +396,19 @@ export const ADMIN = {
     es: 'Aún sin registrar: la página pública no dice nada del protector hasta que elijas uno y guardes.',
   },
   guardOptNone: { en: 'None', es: 'Ninguno' },
+  /**
+   * The NOT RECORDED choice every three-way row offers, so a fact can be
+   * taken back: the captain records these one-handed on a sidewalk and a
+   * mis-tap must not publish something nobody verified for good.
+   */
+  optUnrecorded: { en: 'Not set', es: 'Sin registrar' },
   guardOptWood: { en: 'Wood', es: 'Madera' },
   guardOptMetal: { en: 'Metal', es: 'Metálico' },
   /** The bed profile — what the public "About this bed" page states. */
   profileHead: { en: 'About this bed', es: 'Sobre este cantero' },
   profileHint: {
-    en: 'Everything here shows on the public “About this bed” page.',
-    es: 'Todo lo de aquí aparece en la página pública «Sobre este cantero».',
+    en: 'This feeds the public “About this bed” page: a fact left Not set says nothing there, each plants note shows only while its own choice reads yes, and the care note always shows.',
+    es: 'Esto alimenta la página pública «Sobre este cantero»: un dato en Sin registrar no dice nada allí, cada nota de plantas aparece solo mientras su propia opción dice que sí, y la nota de cuidado siempre aparece.',
   },
   treePresentToggle: { en: 'Tree in the bed', es: 'Árbol en el cantero' },
   treePresentSub: {
@@ -450,6 +456,9 @@ export const ADMIN = {
     es: 'No hay ningún reporte abierto ahora mismo. Lo que un vecino reporte en la etiqueta aparece aquí.',
   },
   reportPhoto: { en: 'Photo attached', es: 'Con foto' },
+  /** The confirming neighbours' own words, under the open report's band. */
+  reportAlsoSaid: { en: 'Neighbours also said', es: 'Los vecinos también dijeron' },
+  reportAlsoReported: { en: 'reported this as', es: 'lo reportó como' },
   /** `#<NYC id> · ours BED-…` — the one surface that shows our plate. */
   oursLabel: { en: 'ours', es: 'la nuestra' },
   /**

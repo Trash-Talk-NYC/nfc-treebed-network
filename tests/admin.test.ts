@@ -29,6 +29,7 @@ import {
   saveBlockSettings,
   validateAdminStewardInput,
 } from '../src/lib/service';
+import { UNRECORDED_CHOICE, bedFactFrom, guardMaterialFrom } from '../src/lib/types';
 function freshStore(): LocalStore {
   const dir = mkdtempSync(path.join(tmpdir(), 'treebed-admin-test-'));
   return new LocalStore(path.join(dir, 'store.json'));
@@ -40,10 +41,10 @@ type BedSave = NonNullable<Parameters<typeof saveBlockSettings>[1]['bed']>;
 function bedSave(overrides: Partial<BedSave> = {}): BedSave {
   return {
     plate: W171_PLATE,
-    guard: null,
+    guard: undefined,
     treePresent: true,
-    plantsPresent: null,
-    plantingRecommended: null,
+    plantsPresent: undefined,
+    plantingRecommended: undefined,
     plantsNote: '',
     recommendedPlantsNote: '',
     careNote: '',
@@ -246,12 +247,31 @@ describe('the block reaches a store seeded before it existed', () => {
   });
 });
 
+describe('the panel’s three-way radios, as form values', () => {
+  it('reads a pick, the NOT RECORDED choice, and a form with no radio apart', () => {
+    // Three outcomes, because two of them are different acts: unrecording is
+    // something the captain chooses, and an absent radio is a stale page.
+    expect(guardMaterialFrom('metal')).toBe('metal');
+    expect(guardMaterialFrom(UNRECORDED_CHOICE)).toBeNull();
+    expect(guardMaterialFrom(null)).toBeUndefined();
+    expect(guardMaterialFrom('brick')).toBeUndefined();
+
+    expect(bedFactFrom('yes')).toBe(true);
+    expect(bedFactFrom('no')).toBe(false);
+    expect(bedFactFrom(UNRECORDED_CHOICE)).toBeNull();
+    expect(bedFactFrom(null)).toBeUndefined();
+    expect(bedFactFrom('maybe')).toBeUndefined();
+  });
+});
+
 describe('the admin sees a bed’s open report', () => {
   const report = (store: LocalStore, actorId: string, categories: Array<'litter' | 'other'>, note = '') =>
     reportProblem(store, { plate: W171_PLATE, actorId, categories, note, photoAttached: false });
-  const opened = async (store: LocalStore) =>
-    (await getBlockView(store, W171_BLOCK_ID, W171_PLATE))!.beds.find((b) => b.bed.plate === W171_PLATE)!
-      .openReport;
+  const openedBed = async (store: LocalStore) =>
+    (await getBlockView(store, W171_BLOCK_ID, W171_PLATE))!.beds.find(
+      (b) => b.bed.plate === W171_PLATE,
+    )!;
+  const opened = async (store: LocalStore) => (await openedBed(store)).openReport;
 
   it('carries the open report — what was picked, the note, and the weight added to it', async () => {
     const store = freshStore();
@@ -269,6 +289,35 @@ describe('the admin sees a bed’s open report', () => {
     const weighted = await opened(store);
     expect(weighted?.id).toBe(filed?.id);
     expect(weighted?.confirmedBy).toEqual(['visitor-b']);
+  });
+
+  it('carries what the confirming neighbours said, joined by the report id', async () => {
+    // The steward reads these on their own view and the public FAQ says we
+    // see the report: the captain's surface must not see less of one.
+    const store = freshStore();
+    await report(store, 'visitor-a', ['litter'], 'bolsas en la esquina');
+    await report(store, 'visitor-b', ['other'], 'the guard is loose');
+    expect((await openedBed(store)).openReportConfirms).toEqual([
+      { categories: ['other'], note: 'the guard is loose' },
+    ]);
+
+    // A later lap is its own report, so the earlier lap's words never ride on it.
+    const open = (await opened(store))!;
+    await store.transaction(async (tx) => {
+      await tx.updateReport({ ...open, closedAt: new Date().toISOString(), closedBy: 'steward' });
+    });
+    await report(store, 'visitor-c', ['litter']);
+    expect((await openedBed(store)).openReportConfirms).toEqual([]);
+  });
+
+  it('resolves the open report only for the bed the page has open', async () => {
+    const store = freshStore();
+    await report(store, 'visitor-a', ['litter'], 'bolsas');
+    const unopened = (await getBlockView(store, W171_BLOCK_ID, null))!.beds.find(
+      (b) => b.bed.plate === W171_PLATE,
+    )!;
+    expect(unopened.openReport).toBeNull();
+    expect(unopened.openReportConfirms).toEqual([]);
   });
 
   it('reads nothing once the report is closed, and never touches it', async () => {
@@ -391,20 +440,24 @@ describe('saving the block admin page', () => {
 
   it('saves the guard as one of three states, and back to none without losing anything else', async () => {
     const store = freshStore();
-    const save = (guard: 'none' | 'wood' | 'metal' | null) =>
+    const save = (guard: 'none' | 'wood' | 'metal' | null | undefined) =>
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
         bed: bedSave({ guard, careNote: 'Water on hot weeks.' }),
       });
-    // A press that picked nothing on a bed nobody has recorded keeps it so.
-    await save(null);
+    // A form that carried no radio on a bed nobody has recorded keeps it so.
+    await save(undefined);
     expect((await store.getBed(W171_PLATE))!.guard).toBeNull();
     await save('wood');
     expect((await store.getBed(W171_PLATE))!.guard).toBe('wood');
     // A form that omits the radio never blanks a material on record.
-    await save(null);
+    await save(undefined);
     expect((await store.getBed(W171_PLATE))!.guard).toBe('wood');
+    // The panel's own NOT RECORDED choice does take it back, so a mis-tap on
+    // the street is undoable rather than published for good.
+    await save(null);
+    expect((await store.getBed(W171_PLATE))!.guard).toBeNull();
     await save('metal');
     expect((await store.getBed(W171_PLATE))!.guard).toBe('metal');
     await save('none');
@@ -436,27 +489,50 @@ describe('saving the block admin page', () => {
     expect(off.recommendedPlantsNote).toBe('Swamp milkweed');
   });
 
-  it('keeps the profile facts as they stand when a press picked neither radio', async () => {
+  it('keeps the profile facts as they stand when a form carried no radio', async () => {
     // The guard's rule, applied to the two facts that read the same way: a
     // seeded bed nobody has recorded stays not-yet-recorded, and a fact on
     // record is never blanked by a form that omitted the radio.
     const store = freshStore();
-    const save = (plantsPresent: boolean | null, plantingRecommended: boolean | null) =>
+    const save = (
+      plantsPresent: boolean | null | undefined,
+      plantingRecommended: boolean | null | undefined,
+    ) =>
       saveBlockSettings(store, {
         blockId: W171_BLOCK_ID,
         referenceAddress: '',
         bed: bedSave({ plantsPresent, plantingRecommended }),
       });
-    await save(null, null);
+    await save(undefined, undefined);
     const untouched = (await store.getBed(W171_PLATE))!;
     expect(untouched.plantsPresent).toBeNull();
     expect(untouched.plantingRecommended).toBeNull();
 
     await save(true, false);
-    await save(null, null);
+    await save(undefined, undefined);
     const kept = (await store.getBed(W171_PLATE))!;
     expect(kept.plantsPresent).toBe(true);
     expect(kept.plantingRecommended).toBe(false);
+  });
+
+  it('takes a recorded profile fact back to not-yet-recorded on the NOT RECORDED choice', async () => {
+    // Every three-way row offers it, because the captain records these
+    // one-handed on a sidewalk: a mis-tap must not publish an unverified
+    // fact for good, and the absence of a radio is already spoken for.
+    const store = freshStore();
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plantsPresent: true, plantingRecommended: true }),
+    });
+    await saveBlockSettings(store, {
+      blockId: W171_BLOCK_ID,
+      referenceAddress: '',
+      bed: bedSave({ plantsPresent: null, plantingRecommended: null }),
+    });
+    const unrecorded = (await store.getBed(W171_PLATE))!;
+    expect(unrecorded.plantsPresent).toBeNull();
+    expect(unrecorded.plantingRecommended).toBeNull();
   });
 
   it('saves the bed profile — the switches and the typed notes, capped and stripped', async () => {

@@ -386,22 +386,40 @@ export function publicInitials(user: User): string {
 export const GUARD_MATERIALS = ['none', 'wood', 'metal'] as const;
 export type GuardMaterial = (typeof GUARD_MATERIALS)[number];
 
-/** Narrow a form value to a guard material; anything else is null. */
-export function guardMaterialFrom(value: unknown): GuardMaterial | null {
-  return (GUARD_MATERIALS as readonly unknown[]).includes(value) ? (value as GuardMaterial) : null;
+/**
+ * The radio value the panel's own NOT RECORDED choice submits.
+ *
+ * An absent radio cannot mean "take this fact back": the panel always draws
+ * the three-way rows, so a form that carries no radio at all is a hand-built
+ * POST or a stale page, and either is kept as it stands. Unrecording is an
+ * act the captain performs, so it travels as a value of its own.
+ */
+export const UNRECORDED_CHOICE = 'unset';
+
+/**
+ * Narrow a form value to the guard's three-way choice: a material, null for
+ * the panel's NOT RECORDED choice, and undefined for anything else — a form
+ * that carried no radio, which keeps the guard as it stands.
+ */
+export function guardMaterialFrom(value: unknown): GuardMaterial | null | undefined {
+  if (value === UNRECORDED_CHOICE) return null;
+  return (GUARD_MATERIALS as readonly unknown[]).includes(value)
+    ? (value as GuardMaterial)
+    : undefined;
 }
 
 /**
  * Narrow a form value to one of the profile's three-way facts (`plantsPresent`,
- * `plantingRecommended`): 'yes' or 'no', and null for anything else — a press
- * that picked neither radio, which keeps the fact as it stands. Null is NOT
- * YET RECORDED on the record too, so the same value means the same thing at
- * both ends.
+ * `plantingRecommended`), exactly like the guard above: 'yes' or 'no', null for
+ * the NOT RECORDED choice — the same value NOT YET RECORDED has on the record,
+ * so it means the same thing at both ends — and undefined for anything else,
+ * which keeps the fact as it stands.
  */
-export function bedFactFrom(value: unknown): boolean | null {
+export function bedFactFrom(value: unknown): boolean | null | undefined {
   if (value === 'yes') return true;
   if (value === 'no') return false;
-  return null;
+  if (value === UNRECORDED_CHOICE) return null;
+  return undefined;
 }
 
 /** Admin-only. Never render this on a public screen. */

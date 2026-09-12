@@ -254,15 +254,17 @@ describe('the admin door', () => {
   it('marks a guard nobody has recorded as not set, until the admin picks one and saves', async () => {
     const cookie = await adminCookie();
     const headers = { 'content-type': 'application/x-www-form-urlencoded', origin, cookie };
-    // Seeded beds start with the guard not yet recorded: no radio is checked,
-    // the panel says so in both languages, and the list line agrees.
+    // Seeded beds start with the guard not yet recorded: the panel's own NOT
+    // RECORDED radio is the one checked, it says so in both languages, and
+    // the list line agrees.
     const before = await (
       await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, { headers: { cookie } })
     ).text();
     expect(before).toContain('NOT SET');
     expect(before).toContain('SIN REGISTRAR');
     expect(before).toContain('guard not set');
-    expect(before).not.toMatch(/name="guard"[^>]*checked/);
+    expect(before).toMatch(/name="guard" value="unset"[^>]*checked/);
+    expect(before).not.toMatch(/name="guard" value="(none|wood|metal)"[^>]*checked/);
 
     // A save that carries no radio — the admin touched something else — keeps
     // the guard unrecorded rather than reading it as "none".
@@ -277,7 +279,8 @@ describe('the admin door', () => {
       await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, { headers: { cookie } })
     ).text();
     expect(still).toContain('NOT SET');
-    expect(still).not.toMatch(/name="guard"[^>]*checked/);
+    expect(still).toMatch(/name="guard" value="unset"[^>]*checked/);
+    expect(still).not.toMatch(/name="guard" value="(none|wood|metal)"[^>]*checked/);
 
     const picked = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, {
       method: 'POST',
@@ -294,6 +297,22 @@ describe('the admin door', () => {
     expect(after).not.toContain(ADMIN.guardUnsetSub.en);
     expect(after).toMatch(/name="guard" value="wood"[^>]*checked/);
     expect(after).toContain('wood guard');
+
+    // And back: the captain records these one-handed on the street, so a
+    // mis-tap has a way down rather than publishing a guard nobody verified.
+    const unrecorded = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({ plate: 'BED-WH-1712', guard: 'unset' }),
+      redirect: 'manual',
+    });
+    expect(unrecorded.status).toBe(303);
+    const back = await (
+      await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1712`, { headers: { cookie } })
+    ).text();
+    expect(back).toContain(ADMIN.guardUnsetSub.en);
+    expect(back).toMatch(/name="guard" value="unset"[^>]*checked/);
+    expect(back).toContain('guard not set');
   });
 
   it('reads the profile facts three ways, and says so until the admin picks', async () => {
@@ -302,13 +321,15 @@ describe('the admin door', () => {
     const panel = () =>
       fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1714`, { headers: { cookie } }).then((r) => r.text());
 
-    // Seeded: nobody has recorded either fact, so neither radio is checked
-    // and the panel says so in both languages.
+    // Seeded: nobody has recorded either fact, so the NOT RECORDED radio is
+    // the one checked on each row and the panel says so in both languages.
     const before = await panel();
     expect(before).toContain(ADMIN.plantsPresentUnsetSub.en);
     expect(before).toContain(ADMIN.plantingRecommendedUnsetSub.es);
-    expect(before).not.toMatch(/name="plants-present"[^>]*checked/);
-    expect(before).not.toMatch(/name="planting-recommended"[^>]*checked/);
+    expect(before).toMatch(/name="plants-present" value="unset"[^>]*checked/);
+    expect(before).toMatch(/name="planting-recommended" value="unset"[^>]*checked/);
+    expect(before).not.toMatch(/name="plants-present" value="(yes|no)"[^>]*checked/);
+    expect(before).not.toMatch(/name="planting-recommended" value="(yes|no)"[^>]*checked/);
 
     // A save that carries neither radio keeps them unrecorded rather than
     // reading them as "no" — the guard's rule, applied here.
@@ -337,6 +358,25 @@ describe('the admin door', () => {
     expect(after).not.toContain(ADMIN.plantingRecommendedUnsetSub.en);
     expect(after).toMatch(/name="plants-present" value="yes"[^>]*checked/);
     expect(after).toMatch(/name="planting-recommended" value="no"[^>]*checked/);
+
+    // The NOT RECORDED choice takes both back, so an unverified fact that was
+    // published by a mis-tap comes off the public page.
+    const unrecorded = await fetch(`${origin}${BLOCK_PATH}?bed=BED-WH-1714`, {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({
+        plate: 'BED-WH-1714',
+        'plants-present': 'unset',
+        'planting-recommended': 'unset',
+      }),
+      redirect: 'manual',
+    });
+    expect(unrecorded.status).toBe(303);
+    const back = await panel();
+    expect(back).toContain(ADMIN.plantsPresentUnsetSub.en);
+    expect(back).toContain(ADMIN.plantingRecommendedUnsetSub.en);
+    expect(back).toMatch(/name="plants-present" value="unset"[^>]*checked/);
+    expect(back).not.toMatch(/name="plants-present" value="(yes|no)"[^>]*checked/);
   });
 
   it('shows the panel’s three-way rows as submitted when a save is refused', async () => {
@@ -432,7 +472,7 @@ describe('the admin sees what a neighbour reported', () => {
     // Two cookie-less presses are two identities (`/report` mints): the first
     // files, the second adds weight to the same report.
     expect((await send('category=litter&category=other&note=bolsas+en+la+esquina')).status).toBe(303);
-    expect((await send('category=litter')).status).toBe(303);
+    expect((await send('category=guard&note=the+guard+is+loose')).status).toBe(303);
 
     const after = await panel();
     expect(after).not.toContain('No open report right now.');
@@ -444,6 +484,12 @@ describe('the admin sees what a neighbour reported', () => {
     expect(after).toContain('Abierto el ');
     expect(after).toContain('1 neighbour also reported it');
     expect(after).toContain('1 vecino más lo reportó');
+    // And WHAT that neighbour said, not just that somebody did: the steward
+    // reads it on their own view and the FAQ tells visitors we see the report.
+    expect(after).toContain('Neighbours also said');
+    expect(after).toContain('Los vecinos también dijeron');
+    expect(after).toContain('Guard damage');
+    expect(after).toContain('the guard is loose');
     // Read-only: the panel offers no way to close it.
     expect(after).not.toContain('/clear');
   });

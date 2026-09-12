@@ -18,8 +18,9 @@ import { ADMIN, ADOPT, AUTH, COMMON } from '../../../../lib/copy';
 import { capitalizeFirst, confirmationsLabel, openedLabel, sinceLabel, slotsFilledLabel } from '../../../../lib/format';
 import { langLink, resolveLang, type Lang, type Phrase } from '../../../../lib/i18n';
 import { defaultPresentation, presentationFor } from '../../../../lib/presentation';
-import { problemFor } from '../../../../lib/problem';
+import { MAX_NOTE_CHARS, problemFor } from '../../../../lib/problem';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
+import { capped } from '../../../../lib/typed-text';
 import {
   MAX_ADDRESS_CHARS,
   MAX_BED_NOTE_CHARS,
@@ -32,6 +33,7 @@ import {
 import { getStore } from '../../../../lib/store';
 import {
   GUARD_MATERIALS,
+  UNRECORDED_CHOICE,
   bedFactFrom,
   guardMaterialFrom,
   publicHandle,
@@ -55,10 +57,10 @@ const blockId = Astro.params.block ?? '';
 let slotError: Phrase | null = null;
 let submitted: {
   address: string;
-  guard: GuardMaterial | null;
+  guard: GuardMaterial | null | undefined;
   treePresent: boolean;
-  plantsPresent: boolean | null;
-  plantingRecommended: boolean | null;
+  plantsPresent: boolean | null | undefined;
+  plantingRecommended: boolean | null | undefined;
   plantsNote: string;
   recommendedPlantsNote: string;
   careNote: string;
@@ -74,15 +76,14 @@ if (Astro.request.method === 'POST') {
   if (refused) return refused;
   const plate = String(form.get('plate') ?? '');
   const referenceAddress = String(form.get('referenceAddress') ?? '');
-  // A radio submits one of the three once one is picked. Nothing arrives
-  // while the guard is not yet recorded and the admin left it so — or from a
-  // hand-built POST — and either way null means "not chosen", which the save
-  // keeps as it stands rather than reading as a material or as no guard.
+  // A radio always submits, because the panel draws NOT RECORDED as a fourth
+  // choice and checks it while nobody has recorded the guard: null is that
+  // choice — the captain taking a fact back — and undefined is a form that
+  // carried no radio at all, which keeps the guard as it stands.
   const guard = guardMaterialFrom(form.get('guard'));
   const treePresent = form.get('tree-present') !== null;
   // The profile's two three-way facts, read exactly like the guard above:
-  // nothing arrives while nobody has recorded one and the admin left it so,
-  // and null keeps it as it stands rather than reading as "no".
+  // null is the NOT RECORDED choice and undefined is a form with no radio.
   const plantsPresent = bedFactFrom(form.get('plants-present'));
   const plantingRecommended = bedFactFrom(form.get('planting-recommended'));
   const plantsNote = String(form.get('plants-note') ?? '');
@@ -248,24 +249,45 @@ function bedState(b: AdminBedView): { dot: string; badge: Phrase; badgeClass: st
  * from the same record the steward's view reads (`AdminBedView.openReport`).
  * The admin sees it here; closing it is the steward's act on their own view.
  */
-const openReportLines = (report: Report) => ({
+const openReportLines = (report: Report, confirms: AdminBedView['openReportConfirms']) => ({
   problems: report.categories.map(problemFor),
   opened: openedLabel(new Date(report.openedAt)),
   confirmations: confirmationsLabel(report.confirmedBy.length),
-  note: report.note,
+  // Sanitised HERE as well as at the write, because this band is a new
+  // surface for notes the live store already holds: the pilot's own open
+  // report was written before `capped` reached the visitor's note, and a
+  // stored U+202E would scramble the admin copy it sits beside.
+  note: capped(report.note, MAX_NOTE_CHARS),
   photo: report.photoAttached,
+  // What the neighbours who added their weight said — the same categories and
+  // sentences the steward reads on `mine.astro`, so the captain's surface is
+  // not the one that sees less of a report the public FAQ says we see.
+  alsoSaid: confirms.map(({ categories, note }) => ({
+    problems: categories.map(problemFor),
+    note: capped(note, MAX_NOTE_CHARS),
+  })),
 });
-const openReport = selected?.openReport ? openReportLines(selected.openReport) : null;
+const openReport = selected?.openReport
+  ? openReportLines(selected.openReport, selected.openReportConfirms)
+  : null;
 
 // What the panel's three-way rows stand at right now: the pick a refused save
 // left on the page, otherwise the record. The badge, the sub-line and the
 // radios all read this one value, so the panel never says NOT SET beside a
 // radio the captain has just checked.
-const panelGuard = submitted ? submitted.guard : (selected?.bed.guard ?? null);
-const panelPlants = submitted ? submitted.plantsPresent : (selected?.bed.plantsPresent ?? null);
-const panelPlanting = submitted
-  ? submitted.plantingRecommended
-  : (selected?.bed.plantingRecommended ?? null);
+// A submit that carried no radio at all (undefined) changed nothing, so the
+// panel redraws the record rather than inventing a NOT SET the save did not
+// make.
+const panelGuard =
+  submitted?.guard !== undefined ? (submitted?.guard ?? null) : (selected?.bed.guard ?? null);
+const panelPlants =
+  submitted?.plantsPresent !== undefined
+    ? (submitted?.plantsPresent ?? null)
+    : (selected?.bed.plantsPresent ?? null);
+const panelPlanting =
+  submitted?.plantingRecommended !== undefined
+    ? (submitted?.plantingRecommended ?? null)
+    : (selected?.bed.plantingRecommended ?? null);
 
 // `submitted` is set by a refused save and by an add-slot press alike, and
 // both leave something on the page the store does not have yet.
@@ -486,6 +508,33 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                     <span {...bi(openReport.opened, lang)}>{openReport.opened[lang]}</span> ·{' '}
                     <span {...bi(openReport.confirmations, lang)}>{openReport.confirmations[lang]}</span>
                   </div>
+                  {openReport.alsoSaid.length > 0 && (
+                    <div class="report-also">
+                      <div class="report-also-title" {...bi(ADMIN.reportAlsoSaid, lang)}>
+                        {ADMIN.reportAlsoSaid[lang]}
+                      </div>
+                      <ul class="report-also-list">
+                        {openReport.alsoSaid.map(({ problems, note }) => (
+                          <li>
+                            {problems.length > 0 && (
+                              <span class="report-also-cats">
+                                <span {...bi(ADMIN.reportAlsoReported, lang)}>
+                                  {ADMIN.reportAlsoReported[lang]}
+                                </span>{' '}
+                                {problems.map((problem, i) => (
+                                  <Fragment>
+                                    {i > 0 && <span class="report-also-sep">·</span>}
+                                    <span {...bi(problem.label, lang)}>{problem.label[lang]}</span>
+                                  </Fragment>
+                                ))}
+                              </span>
+                            )}
+                            {note !== '' && <span class="report-also-note">“{note}”</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div class="blockmeta" {...bi(ADMIN.noOpenReport, lang)}>
@@ -525,7 +574,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   unset" — and a plain submit carries it with no script. A bed
                   nobody has recorded yet (types.ts) has no radio checked and
                   says so in its sub-line until the admin picks one. */}
-              <div class="toggle-row guard-row">
+              <div class="toggle-row choice-row guard-row">
                 <span>
                   <span class="t-lbl" id="guard-choice-label">
                     <span {...bi(ADMIN.guardChoice, lang)}>{ADMIN.guardChoice[lang]}</span>
@@ -559,6 +608,18 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                       <span {...bi(GUARD_OPTION[material], lang)}>{GUARD_OPTION[material][lang]}</span>
                     </label>
                   ))}
+                  {/* The way back to NOT YET RECORDED. The absence of a radio
+                      cannot be the control — it is already what a stale page
+                      submits — so taking a fact back is a choice of its own. */}
+                  <label class="seg-opt">
+                    <input
+                      type="radio"
+                      name="guard"
+                      value={UNRECORDED_CHOICE}
+                      checked={panelGuard === null}
+                    />
+                    <span {...bi(ADMIN.optUnrecorded, lang)}>{ADMIN.optUnrecorded[lang]}</span>
+                  </label>
                 </span>
               </div>
 
@@ -591,7 +652,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               {/* Three-way, like the guard: a bed nobody has recorded has no
                   radio checked and the public page stays silent about it,
                   rather than publishing "nothing planted yet" by default. */}
-              <div class="toggle-row">
+              <div class="toggle-row choice-row">
                 <span>
                   <span class="t-lbl" id="plants-present-label">
                     <span {...bi(ADMIN.plantsPresentToggle, lang)}>{ADMIN.plantsPresentToggle[lang]}</span>
@@ -620,6 +681,15 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                     <input type="radio" name="plants-present" value="no" checked={panelPlants === false} />
                     <span {...bi(ADMIN.plantsOptNo, lang)}>{ADMIN.plantsOptNo[lang]}</span>
                   </label>
+                  <label class="seg-opt">
+                    <input
+                      type="radio"
+                      name="plants-present"
+                      value={UNRECORDED_CHOICE}
+                      checked={panelPlants === null}
+                    />
+                    <span {...bi(ADMIN.optUnrecorded, lang)}>{ADMIN.optUnrecorded[lang]}</span>
+                  </label>
                 </span>
               </div>
               <div class="note-field">
@@ -634,7 +704,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                   maxlength={MAX_BED_NOTE_CHARS}
                 >{submitted ? submitted.plantsNote : selected.bed.plantsNote}</textarea>
               </div>
-              <div class="toggle-row">
+              <div class="toggle-row choice-row">
                 <span>
                   <span class="t-lbl" id="planting-recommended-label">
                     <span {...bi(ADMIN.plantingRecommendedToggle, lang)}>
@@ -676,6 +746,15 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                       checked={panelPlanting === false}
                     />
                     <span {...bi(ADMIN.plantingOptNo, lang)}>{ADMIN.plantingOptNo[lang]}</span>
+                  </label>
+                  <label class="seg-opt">
+                    <input
+                      type="radio"
+                      name="planting-recommended"
+                      value={UNRECORDED_CHOICE}
+                      checked={panelPlanting === null}
+                    />
+                    <span {...bi(ADMIN.optUnrecorded, lang)}>{ADMIN.optUnrecorded[lang]}</span>
                   </label>
                 </span>
               </div>
@@ -895,6 +974,17 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     outline: 3px solid var(--theme-ink);
     outline-offset: -3px;
   }
+  /* Four choices do not fit beside their label in a narrow panel, and the
+     captain works these one-handed on the street: the row stacks and the
+     segments spread the full width rather than squeezing the label they
+     belong to. Measured against the PANEL, not the window — on the desk
+     layout the pane is a fraction of it. */
+  @container adminpanel (max-width: 430px) {
+    .choice-row { flex-direction: column; align-items: stretch; gap: 10px; }
+    .choice-row .seg { align-self: stretch; }
+    .choice-row .seg-opt { flex: 1; }
+    .choice-row .seg-opt span { justify-content: center; width: 100%; padding: 10px 6px; }
+  }
   /* The open report, stated: the ink and the tint are the attention role,
      with the page's own ink on it — never white on yellow. */
   .report-head { margin-top: 18px; }
@@ -922,6 +1012,21 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   }
   .report-note { margin: 10px 0 0; font-size: 13px; font-style: italic; overflow-wrap: anywhere; }
   .report-meta { margin-top: 8px; font-size: 11px; font-weight: 500; color: var(--theme-muted); }
+  /* What the neighbours added, under the first reporter's own words — read
+     only, like the rest of the band. */
+  .report-also { margin-top: 10px; border-top: 1px solid var(--theme-border); padding-top: 8px; }
+  .report-also-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--theme-muted);
+  }
+  .report-also-list { margin: 6px 0 0; padding: 0; list-style: none; }
+  .report-also-list li { font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
+  .report-also-cats { font-weight: 500; }
+  .report-also-sep { margin: 0 4px; color: var(--theme-muted); }
+  .report-also-note { font-style: italic; margin-left: 6px; }
   .profile-head { margin-top: 22px; }
   .note-field { margin: 12px 0 4px; }
   .note-field .freetext { min-height: 0; }
