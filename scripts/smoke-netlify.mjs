@@ -1,5 +1,5 @@
 // Boot gate for the netlify target: import the emitted function and render
-// one request through it.
+// requests through it.
 //
 // `TREEBED_ADAPTER=netlify astro build` proves the adapter resolves and the
 // bundle emits, which is not the failure this repo actually hit — an adapter

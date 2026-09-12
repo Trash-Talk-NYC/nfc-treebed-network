@@ -10,8 +10,12 @@
 // page; no bound is ever enforced by dropping the connection on a visitor.
 //
 //   GET  /                             A redirect to the demo tag (DEMO_TAG_ID),
-//                                      built by ourPlaqueLink; no body, no buffer,
-//                                      and no store read at all.
+//                                      built by ourPlaqueLink, while that
+//                                      binding still names a live bed — one
+//                                      store read, and a calm screen at 200
+//                                      where it can't answer. No body, no
+//                                      buffer; any method's body is
+//                                      `abandonBody`'d on the way out.
 //   GET  /t/<tag>                      No body to read, so no size, time or
 //                                      concurrency bound applies. Peak heap is
 //                                      one render's reads, no per-request
