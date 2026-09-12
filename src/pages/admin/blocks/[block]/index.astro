@@ -218,6 +218,27 @@ const deletedFlash = Astro.url.searchParams.get('deleted') === '1';
 // And the way back from one: the bed is on the list again, with its tag live.
 const restoredFlash = Astro.url.searchParams.get('restored') === '1';
 const mode = selected ? 'panel' : 'list';
+// Whether the stale save carried an address the store does not have — judged
+// the way `saveBlockSettings` judges it (trimmed, and an empty field writes
+// nothing), so the page only claims something is left to keep when a SAVE
+// ADDRESS would in fact write it.
+const addressChanged =
+  submitted !== null &&
+  submitted.address.trim() !== '' &&
+  submitted.address.trim() !== block.referenceAddress;
+// The stale re-render is dirty only by the address: the switches it carried
+// belonged to a bed that no longer exists, so with the address as stored
+// there is nothing on the page to guard.
+const dirty = submitted !== null && (!staleBed || addressChanged);
+const flash: Phrase | null = staleBed
+  ? addressChanged
+    ? ADMIN.bedDeletedElsewhereKeepAddress
+    : ADMIN.bedDeletedElsewhere
+  : deletedFlash
+    ? ADMIN.bedDeleted
+    : restoredFlash
+      ? ADMIN.bedRestored
+      : null;
 // The slot count the panel draws. A "+ ADD SLOT" press — and a refused save
 // that had made one — comes back with that slot on the page, and a hidden
 // field carries it into the next submit, so nothing but SAVE CHANGES grows
@@ -235,23 +256,16 @@ const presentation = selected
 const base = `/admin/blocks/${blockId}`;
 const bedLink = (plate: string): string => langLink(`${base}?bed=${plate}`, lang);
 
-/** "Willow oak · #2" — the bed list row. */
-const bedName = (b: AdminBedView): Phrase => ({
-  en: `${capitalizeFirst(b.bed.treeType.en)} · #${b.bed.blockPosition ?? ''}`,
-  es: `${capitalizeFirst(b.bed.treeType.es)} · #${b.bed.blockPosition ?? ''}`,
+/** "Willow oak · #2" — the bed list row, live or deleted. */
+const bedName = (b: Bed): Phrase => ({
+  en: `${capitalizeFirst(b.treeType.en)} · #${b.blockPosition ?? ''}`,
+  es: `${capitalizeFirst(b.treeType.es)} · #${b.blockPosition ?? ''}`,
 });
 
 /** "Willow oak · bed #2" — the opened panel's heading. */
 const bedHeading = (b: AdminBedView): Phrase => ({
   en: `${capitalizeFirst(b.bed.treeType.en)} · bed #${b.bed.blockPosition ?? ''}`,
   es: `${capitalizeFirst(b.bed.treeType.es)} · cantero #${b.bed.blockPosition ?? ''}`,
-});
-
-/** "Willow oak · #2" for a deleted bed, which has no `AdminBedView`. */
-/** "Willow oak · #2" for a deleted bed, which has no `AdminBedView`. */
-const retiredName = (b: Bed): Phrase => ({
-  en: `${b.treeType.en} · #${b.blockPosition ?? ''}`,
-  es: `${b.treeType.es} · #${b.blockPosition ?? ''}`,
 });
 
 /** The bed list's small line, and the panel's three radio segments. */
@@ -348,7 +362,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     method="POST"
     action={langLink(Astro.url.search === '' ? base : `${base}${Astro.url.search}`, lang)}
     data-admin-form
-    data-dirty={submitted ? 'true' : undefined}
+    data-dirty={dirty ? 'true' : undefined}
     class="admin-card"
   >
     {/* The form's DEFAULT button, deliberately first and carrying nothing:
@@ -394,23 +408,9 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
           }
         </div>
         {
-          staleBed && (
-            <div class="deleted-flash" {...bi(ADMIN.bedDeletedElsewhere, lang)}>
-              {ADMIN.bedDeletedElsewhere[lang]}
-            </div>
-          )
-        }
-        {
-          deletedFlash && (
-            <div class="deleted-flash" {...bi(ADMIN.bedDeleted, lang)}>
-              {ADMIN.bedDeleted[lang]}
-            </div>
-          )
-        }
-        {
-          restoredFlash && (
-            <div class="deleted-flash" {...bi(ADMIN.bedRestored, lang)}>
-              {ADMIN.bedRestored[lang]}
+          flash && (
+            <div class="deleted-flash" {...bi(flash, lang)}>
+              {flash[lang]}
             </div>
           )
         }
@@ -419,7 +419,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
           {
             beds.map((b) => {
               const state = bedState(b);
-              const name = bedName(b);
+              const name = bedName(b.bed);
               const guard = guardLabel(b.bed.guard);
               return (
                 <a class:list={['tree', { sel: b.bed.plate === selected?.bed.plate }]} href={bedLink(b.bed.plate)}>
@@ -476,7 +476,7 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
               </p>
               <div class="retired-list">
                 {retired.map((b) => {
-                  const name = retiredName(b);
+                  const name = bedName(b);
                   return (
                     <div class="tree retired-row">
                       <span class="dot dot-closed" />
@@ -1308,10 +1308,11 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
     // changes somebody was still deciding about is the worse of the two.
     // Disarmed by the form's own submit, so saving never prompts.
     // An add-slot press, a refused save and a save that found its bed deleted
-    // all come back dirty from the server with no client event to observe,
-    // so the flag starts from what the server rendered. It is read off the
-    // form, not the line: the last of those lands in list mode, where no
-    // line renders but the address field still holds the uncommitted text.
+    // with a retyped address all come back dirty from the server with no
+    // client event to observe, so the flag starts from what the server
+    // rendered. It is read off the form, not the line: the last of those
+    // lands in list mode, where no line renders but the address field still
+    // holds the uncommitted text.
     var changed = form.getAttribute('data-dirty') === 'true';
     function touched() {
       changed = true;

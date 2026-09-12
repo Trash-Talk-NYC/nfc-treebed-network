@@ -564,6 +564,11 @@ export const ADMIN = {
   bedDeleted: { en: 'Bed deleted. Its record is kept.', es: 'Cantero eliminado. Su registro se conserva.' },
   /** A save whose open bed had been deleted elsewhere: nothing was written. */
   bedDeletedElsewhere: {
+    en: 'This bed was deleted somewhere else while this page was open. Nothing was saved.',
+    es: 'Este cantero se eliminó en otro lugar mientras esta página estaba abierta. No se guardó nada.',
+  },
+  /** The same, when the block address had been retyped too: it is still there to keep. */
+  bedDeletedElsewhereKeepAddress: {
     en: 'This bed was deleted somewhere else while this page was open. Nothing was saved — the block address is still in the field above, press SAVE ADDRESS to keep it.',
     es: 'Este cantero se eliminó en otro lugar mientras esta página estaba abierta. No se guardó nada: la dirección de la cuadra sigue en el campo de arriba, presione GUARDAR DIRECCIÓN para conservarla.',
   },

@@ -643,7 +643,9 @@ describe('deleting a bed', () => {
     const after = await saved.text();
     expect(after).toContain('was deleted somewhere else');
     expect(after).toContain('Nothing was saved');
+    expect(after).toContain('press SAVE ADDRESS to keep it');
     expect(after).toContain('data-es="Este cantero se eliminó en otro lugar');
+    expect(after).toContain('presione GUARDAR DIRECCIÓN para conservarla');
     // The typed address is in the field, one SAVE ADDRESS away from landing.
     expect(after).toContain(`value="${typed}"`);
     expect(after).toContain('SAVE ADDRESS');
@@ -657,6 +659,28 @@ describe('deleting a bed', () => {
     const fresh = await (await fetch(`${origin}${BLOCK_PATH}`, { headers: { cookie } })).text();
     expect(fresh).not.toContain(`value="${typed}"`);
     expect(fresh).not.toMatch(/<form[^>]*data-dirty/);
+  });
+
+  it('reports only the deletion when the stale save carried the address as stored', async () => {
+    // The captain flipped the guard and nothing else: the field holds the
+    // stored address, a SAVE ADDRESS would write nothing, and a page that
+    // asked to keep it — or prompted on leaving — would be guarding nothing.
+    const cookie = await adminCookie();
+    const stored = '708 W 171st St';
+    const saved = await fetch(`${origin}${BLOCK_PATH}?bed=${PLATE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+      body: new URLSearchParams({ plate: PLATE, referenceAddress: ` ${stored} `, guard: 'on' }),
+      redirect: 'manual',
+    });
+    expect(saved.status).toBe(409);
+    const after = await saved.text();
+    expect(after).toContain('was deleted somewhere else');
+    expect(after).toContain('Nothing was saved.');
+    expect(after).not.toContain('press SAVE ADDRESS to keep it');
+    expect(after).toContain('data-es="Este cantero se eliminó en otro lugar');
+    expect(after).not.toContain('GUARDAR DIRECCIÓN para conservarla');
+    expect(after).not.toMatch(/<form[^>]*data-dirty/);
   });
 
   it('keeps the plain 404 for a block that does not exist — only the bed gets the screen', async () => {
