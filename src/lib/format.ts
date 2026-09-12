@@ -115,6 +115,19 @@ export function openedLabel(date: Date): Phrase {
   return { en: `Opened ${when('en')}`, es: `Abierto el ${when('es')}` };
 }
 
+/** The admin panel's line for when a photo arrived, e.g. "Sent Sep 12, 3:42 PM". */
+export function sentLabel(date: Date): Phrase {
+  const when = (lang: (typeof LANGUAGES)[number]): string =>
+    new Intl.DateTimeFormat(LOCALE[lang], {
+      timeZone: NY,
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(date);
+  return { en: `Sent ${when('en')}`, es: `Enviada el ${when('es')}` };
+}
+
 /** How many neighbours added their weight to an open report (`Report.confirmedBy`). */
 export function confirmationsLabel(count: number): Phrase {
   if (count <= 0) {

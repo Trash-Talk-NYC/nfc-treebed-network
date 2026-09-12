@@ -1,5 +1,13 @@
 // POST: "SEND APPLAUSE" — the one thing a passer-by can do for a bed that is
 // fine. A plain HTML form POST, like every other action here.
+//
+// Since the captain's 2026-09-12 ask ("i realize when applause is sent i dont
+// get emailed") a counted applause also mails the bed's stewards — at most
+// once per bed per NY day. Nothing is mailed FROM HERE: the rule claims the
+// day and queues the notice (`sendApplause`, `Bed.applauseNoticeDueAt`) and
+// the daily scheduled function delivers it (`runApplauseNotices`), so the
+// press costs the visitor one commit and never a Brevo call's timeout and
+// retry in front of their thank-you takeover.
 import type { APIRoute } from 'astro';
 import { getStore } from '../../../lib/store';
 import { RuleError, sendApplause } from '../../../lib/service';

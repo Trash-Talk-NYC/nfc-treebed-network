@@ -8,7 +8,7 @@
 // steward of this bed (see clear.ts).
 import Screen from '../../../layouts/Screen.astro';
 import { getStore } from '../../../lib/store';
-import { getBedView, getOpenReportConfirms } from '../../../lib/service';
+import { MAX_BED_NAME_CHARS, getBedView, getOpenReportConfirms } from '../../../lib/service';
 import { getSessionUserId } from '../../../lib/session';
 import { capitalizeFirst, relativeAge, sinceLabel, speciesShown } from '../../../lib/format';
 import { bi } from '../../../lib/bilingual';
@@ -84,6 +84,12 @@ const clearedAge =
 const visibleStewards = stewards.filter(
   ({ adoption, user }) => !adoption.displayNameHidden || user.id === me.id,
 );
+
+// The rename form's answer, carried back on the redirect (`rename.ts`): saved,
+// or refused for being empty. This is the steward's own screen, so unlike the
+// street flow it may say a rule out loud.
+const renameSaved = Astro.url.searchParams.get('renamed') === '1';
+const renameEmpty = Astro.url.searchParams.get('rename') === 'empty';
 ---
 
 <Screen
@@ -187,6 +193,35 @@ const visibleStewards = stewards.filter(
       </div>
     )
   }
+  {/* Renaming the bed, from the steward's own view: any active steward may
+      (service.ts, `renameBedBySteward` — the captain's 2026-09-12 decision),
+      each rename an event on the record, and the admin's takedown untouched.
+      A plain form POST, so it works with JavaScript disabled. The name itself
+      renders as typed — the input's value is the steward's own text, never a
+      bilingual phrase. */}
+  <form class="rename-form" method="POST" action={langLink(`${base}/rename`, lang)}>
+    <label class="field-label" for="bed-name" {...bi(MINE.bedNameLabel, lang)}>
+      {MINE.bedNameLabel[lang]}
+    </label>
+    <input
+      class="field-input"
+      id="bed-name"
+      name="name"
+      value={bed.bedName ?? ''}
+      maxlength={MAX_BED_NAME_CHARS}
+      autocomplete="off"
+    />
+    <p class="rename-help" {...bi(MINE.bedNameHelp, lang)}>{MINE.bedNameHelp[lang]}</p>
+    {renameSaved && (
+      <p class="rename-flash" {...bi(MINE.bedNameSaved, lang)}>{MINE.bedNameSaved[lang]}</p>
+    )}
+    {renameEmpty && (
+      <p class="field-error" {...bi(MINE.bedNameMissing, lang)}>{MINE.bedNameMissing[lang]}</p>
+    )}
+    <button class="btn btn-on-clear-outline" type="submit" {...bi(MINE.saveBedName, lang)}>
+      {MINE.saveBedName[lang]}
+    </button>
+  </form>
   <div class="spacer" />
   <div class="stats">
     <span>
@@ -248,4 +283,13 @@ const visibleStewards = stewards.filter(
     text-align: center;
   }
   .stats .stat { font-size: 17px; font-weight: 700; color: var(--ink-strong); }
+  .rename-form { display: flex; flex-direction: column; gap: 8px; }
+  .rename-help {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--ink-quiet);
+  }
+  .rename-flash { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink-strong); }
 </style>

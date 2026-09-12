@@ -94,10 +94,13 @@ export interface Bed {
   /** City forestry tree id. Internal; the tree churns, the bed does not. */
   treeId: string;
   /**
-   * The name the bed's FIRST steward gave it, or null for a bed nobody has
-   * named. It is the bed's name, not the steward's profile: releasing or
-   * removing the steward who chose it changes nothing here, and only the
-   * block admin can take it back to null (`saveBlockSettings`).
+   * The bed's given name, or null for a bed nobody has named. The FIRST
+   * steward names it at adoption (`adoptBed`), and since the captain's
+   * 2026-09-12 decision ANY active steward may rename it from their own view
+   * (`renameBedBySteward`, each rename an event on the record). It is the
+   * bed's name, not a steward's profile: releasing or removing whoever chose
+   * it changes nothing here, and only the block admin can take it back to
+   * null (`saveBlockSettings`).
    *
    * Visitor-supplied free text, rendered as typed in BOTH languages — a name
    * is not translated — and always as its own leaf beside the bed's identity,
@@ -192,6 +195,26 @@ export interface Bed {
   recommendedPlantsNote: string;
   /** The care this bed needs right now — admin-typed, shown as typed. */
   careNote: string;
+  /**
+   * When this bed's stewards were last emailed about applause, or null before
+   * the first such mail. Bookkeeping for the one-notification-per-bed-per-NY-day
+   * bound (`sendApplause`): the CLAIM is written before the send, the same
+   * claim-then-send shape `User.digestLastSentAt` uses, so a crash between the
+   * two costs one day's notice rather than doubling it.
+   */
+  applauseNoticeAt: string | null;
+  /**
+   * Set when a counted applause has claimed the day but the mail has not gone
+   * out yet, and cleared by the scheduled run that delivers it
+   * (`runApplauseNotices` in digest.ts).
+   *
+   * The notice is QUEUED rather than sent from the press, because the press is
+   * somebody standing at a tree: a Brevo call in front of their redirect puts
+   * the transport's timeout and retry between them and the thank-you takeover.
+   * `applauseNoticeAt` beside it is still what bounds the notice to one per
+   * bed per NY day; this only says one is owed.
+   */
+  applauseNoticeDueAt: string | null;
   /**
    * Set when the captain deletes this bed on the admin page.
    *
@@ -438,8 +461,48 @@ export interface Report {
    * added here rather than opening a duplicate report nobody could close.
    */
   confirmedBy: string[];
-  /** The care sheet's optional photo. Only the fact of attachment is kept (storage is out of MVP scope). */
+  /**
+   * Whether anyone attached a photo to this report — the first reporter or a
+   * confirming neighbour. The photos themselves are stored separately
+   * (`ReportPhoto`, joined by `reportId`), so this flag can be true with no
+   * stored photo behind it: a photo past the per-report cap is discarded, an
+   * admin can delete one, and reports from before storage existed recorded
+   * only the fact of attachment.
+   */
   photoAttached: boolean;
+}
+
+/**
+ * One stored care photo — the record half; the bytes live outside the dataset
+ * (`PhotoBlobs` in store.ts), keyed by this row's `id`, because the dataset is
+ * re-serialized whole on every commit and a photo is megabytes.
+ *
+ * Keyed to its report (`reportId`), never to a time window, the same exact
+ * join the `confirm` events use — and kept when the report closes: the photos
+ * are the report's history, and the ONLY removal path is the admin's explicit
+ * delete (`deleteReportPhotoByAdmin`), which exists because holding pictures
+ * the public uploads means being able to take one down.
+ *
+ * Admin-only, like the report's reporter id: no public screen or payload may
+ * carry a stored photo or its URL.
+ */
+export interface ReportPhoto {
+  /** `photo-<uuid>` — the row's key AND the blob's key. Server-minted, never typed. */
+  id: string;
+  bedPlate: string;
+  reportId: string;
+  /** Who attached it — a user id or an anonymous visitor id. Never rendered. */
+  actorId: string;
+  /**
+   * The stored content type, already narrowed to a known image type or
+   * `application/octet-stream` (`storedPhotoContentType`) — what the admin
+   * serving route answers with, so a hand-built upload can never make that
+   * route serve scriptable HTML or SVG under an admin origin.
+   */
+  contentType: string;
+  /** Size of the stored blob, for the admin surface. */
+  bytes: number;
+  uploadedAt: string;
 }
 
 export type EventType =
@@ -451,6 +514,10 @@ export type EventType =
   | 'adopt'
   | 'release'
   | 'clear'
+  // A steward renaming the bed from their own view (`renameBedBySteward`):
+  // the trail of who changed the name and when. The chosen name rides in
+  // `note`, so what it was changed TO is on the record beside who and when.
+  | 'rename'
   // Written while the steward screen asked for a weekly photo; the ask is
   // gone but events are append-only, so stored rows still carry the kind.
   | 'photo';
@@ -475,8 +542,8 @@ export interface BedEvent {
   /**
    * The report this event is about, where it is about one: `report`,
    * `confirm`, `escalate` and `clear` all name it. The rest — `tap`,
-   * `applause`, `adopt`, `release`, `photo` — are not about a report and are
-   * null.
+   * `applause`, `adopt`, `release`, `rename`, `photo` — are not about a
+   * report and are null.
    * `report → clear → report` is a
    * supported loop on one bed, so the id is what says which lap an event
    * belongs to. Events written before this field have null and match nothing —

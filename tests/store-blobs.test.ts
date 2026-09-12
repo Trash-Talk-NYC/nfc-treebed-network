@@ -308,6 +308,34 @@ describe('pruning', () => {
   });
 });
 
+describe('photo blobs', () => {
+  it('round-trips binary bytes over the wire, outside the revision chain', async () => {
+    const store = instance();
+    // Bytes that would not survive a text round-trip: every value 0–255.
+    const bytes = new Uint8Array(4096).map((_, i) => i % 256);
+    await store.putPhotoBlob('photo-wire-1', bytes);
+    const back = await store.getPhotoBlob('photo-wire-1');
+    expect(back).not.toBeNull();
+    expect(Buffer.from(back!).equals(Buffer.from(bytes))).toBe(true);
+    // A photo the store never took is null, not an error — the serving route's
+    // 404 for a blob a crash window orphaned away.
+    expect(await store.getPhotoBlob('photo-nowhere')).toBeNull();
+    await store.deletePhotoBlob('photo-wire-1');
+    expect(await store.getPhotoBlob('photo-wire-1')).toBeNull();
+  });
+
+  it('survives the revision pruning sweep — photos live under their own prefix', async () => {
+    const store = instance();
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    await store.putPhotoBlob('photo-keeper', bytes);
+    // Enough commits to push pruning past its every-KEPT_REVISIONS full sweep.
+    for (let i = 1; i <= 17; i += 1) await store.appendEvent(tapEvent(`evt-photo-${i}`));
+    const back = await store.getPhotoBlob('photo-keeper');
+    expect(back).not.toBeNull();
+    expect(Buffer.from(back!).equals(Buffer.from(bytes))).toBe(true);
+  });
+});
+
 describe('the species casing remediation', () => {
   // scripts/rewrite-species-casing.mjs, against the same wire protocol the
   // pilot store speaks. The rewrite rule itself is held in

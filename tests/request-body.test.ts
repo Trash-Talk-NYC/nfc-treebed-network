@@ -11,8 +11,10 @@ import {
   MAX_INFLIGHT_BODY_BYTES,
   MAX_SHED_READS,
   photoAttachedFromHead,
+  photoPartFromBody,
   READ_IDLE_MS,
   readCappedBody,
+  readCappedBodyWhen,
   readCappedForm,
   readCappedHead,
   SHED_DRAIN_BYTES,
@@ -460,6 +462,78 @@ describe('head-only reads', () => {
   });
 });
 
+describe('conditional reads: keep the body only when its head shows a photo', () => {
+  const wantsPhoto = (head: Uint8Array) => photoAttachedFromHead(head, BOUNDARY);
+
+  it('keeps a photo-carrying body whole, and the photo reads back out of it', async () => {
+    const photoBytes = 4 * 1024 * 1024;
+    const { req, wasCancelled } = streamedRequest(reportBody('guard', photoBytes), 64 * 1024);
+    const capped = await readCappedBodyWhen(req, 12 * 1024 * 1024, wantsPhoto);
+
+    expect(capped.refusal).toBeNull();
+    expect(capped.body).not.toBeNull();
+    expect(categoriesFromHead(capped.head, BOUNDARY)).toEqual(['guard']);
+    const photo = photoPartFromBody(capped.body!, BOUNDARY);
+    expect(photo).not.toBeNull();
+    expect(photo!.contentType).toBe('image/jpeg');
+    expect(photo!.bytes.byteLength).toBe(photoBytes);
+    // The extracted bytes are the photo's own, ends included — not the
+    // delimiter's CRLF and not a byte short.
+    expect(photo!.bytes[0]).toBe(0x7f);
+    expect(photo!.bytes[photoBytes - 1]).toBe(0x7f);
+    expect(wasCancelled()).toBe(false);
+  });
+
+  it('discards a body whose head shows no photo, fields still readable', async () => {
+    // A photo part with filename="" is nobody attaching anything; padding
+    // pushes the body past the head so the in-loop decision is the one taken.
+    const body = Buffer.from(
+      `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="category"\r\n\r\nlitter\r\n' +
+        `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="photo"; filename=""\r\n' +
+        'Content-Type: application/octet-stream\r\n\r\n' +
+        'x'.repeat(64 * 1024) +
+        `\r\n--${BOUNDARY}--\r\n`,
+    );
+    const capped = await readCappedBodyWhen(request(body), 12 * 1024 * 1024, wantsPhoto);
+    expect(capped.refusal).toBeNull();
+    expect(capped.body).toBeNull();
+    expect(categoriesFromHead(capped.head, BOUNDARY)).toEqual(['litter']);
+  });
+
+  it('keeps a body smaller than the head, deciding on what there is', async () => {
+    // Under HEAD_BYTES the in-loop decision never fires; the whole body is
+    // already in hand and is decided — and extracted — at the end.
+    const capped = await readCappedBodyWhen(request(reportBody('litter', 16)), 64 * 1024, wantsPhoto);
+    expect(capped.refusal).toBeNull();
+    const photo = photoPartFromBody(capped.body!, BOUNDARY);
+    expect(photo!.bytes.byteLength).toBe(16);
+  });
+
+  it('refuses over the cap with the head kept, like every report refusal', async () => {
+    const capped = await readCappedBodyWhen(request(reportBody('thirsty', 512 * 1024)), 64 * 1024, wantsPhoto);
+    expect(capped.refusal).toBe('over-limit');
+    expect(capped.body).toBeNull();
+    expect(categoriesFromHead(capped.head, BOUNDARY)).toEqual(['thirsty']);
+  });
+
+  it('extracts no photo from a note that merely mentions one', () => {
+    // The note precedes the file part on the care screen; text a visitor
+    // typed must not be able to answer for a part nobody sent.
+    const sly = Buffer.from(
+      `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="note"\r\n\r\n' +
+        'name="photo"; filename="gotcha.jpg" is what I typed\r\n' +
+        `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="photo"; filename=""\r\n\r\n' +
+        `\r\n--${BOUNDARY}--\r\n`,
+    );
+    expect(photoPartFromBody(new Uint8Array(sly), BOUNDARY)).toBeNull();
+    expect(photoPartFromBody(new Uint8Array(reportBody('guard', 8)), '')).toBeNull();
+  });
+});
+
 describe('abandoning a body', () => {
   it('takes an untouched body to the drain bound and stops', async () => {
     const req = request(reportBody('litter', 4 * 1024 * 1024));
@@ -559,6 +633,43 @@ describe('the in-flight budget', () => {
 
     holding.release();
     expect((await holding.settled()).refusal).toBeNull();
+  });
+
+  it('refuses a photo upload whose upgrade has no room, head kept', async () => {
+    // Room for a head-only read but not for the buffered share a photo needs:
+    // the conditional read admits, sees the photo in the head, finds the
+    // budget full at the moment it matters, and refuses as busy — with the
+    // head kept, so the busy screen still carries what the visitor picked.
+    const holding = await hold(
+      capLeaving(HEAD_BYTES + CHUNK_ALLOWANCE_BYTES + 1024 * 1024),
+    );
+
+    const cap = 12 * 1024 * 1024;
+    const wantsPhoto = (head: Uint8Array) => photoAttachedFromHead(head, BOUNDARY);
+    const crowded = await readCappedBodyWhen(request(reportBody('guard', 64 * 1024)), cap, wantsPhoto);
+    expect(crowded.refusal).toBe('busy');
+    expect(crowded.body).toBeNull();
+    expect(categoriesFromHead(crowded.head, BOUNDARY)).toEqual(['guard']);
+
+    // A photo-less report the same moment stays admitted: it never asks for
+    // the upgrade, which is the whole point of deciding off the head.
+    const body = Buffer.from(
+      `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="category"\r\n\r\nlitter\r\n' +
+        `--${BOUNDARY}\r\n` +
+        'Content-Disposition: form-data; name="photo"; filename=""\r\n\r\n' +
+        `\r\n--${BOUNDARY}--\r\n`,
+    );
+    const plain = await readCappedBodyWhen(request(body), cap, wantsPhoto);
+    expect(plain.refusal).toBeNull();
+
+    holding.release();
+    expect((await holding.settled()).refusal).toBeNull();
+
+    // With the room back, the same upload is admitted and kept whole.
+    const after = await readCappedBodyWhen(request(reportBody('guard', 64 * 1024)), cap, wantsPhoto);
+    expect(after.refusal).toBeNull();
+    expect(photoPartFromBody(after.body!, BOUNDARY)!.bytes.byteLength).toBe(64 * 1024);
   });
 
   it('counts the chunk in hand, not just the head it keeps', async () => {

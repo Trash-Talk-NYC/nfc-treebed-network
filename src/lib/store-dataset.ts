@@ -20,6 +20,7 @@ import type {
   Block,
   NetworkSettings,
   Report,
+  ReportPhoto,
   SignInMissWindow,
   SignInRequest,
   SignInToken,
@@ -33,6 +34,12 @@ export interface Data {
   adoptions: Adoption[];
   reports: Report[];
   events: BedEvent[];
+  /**
+   * Stored care photos — the metadata rows; the bytes live outside the
+   * dataset (types.ts `ReportPhoto`). Mutable, unlike `events`: the admin's
+   * delete is the moderation control accepting uploads obliges.
+   */
+  photos: ReportPhoto[];
   reportCounter: number;
   /** Outstanding tap-to-sign-in links, hashed (types.ts `SignInToken`). */
   signInTokens: SignInToken[];
@@ -68,6 +75,9 @@ export function normalizeData(data: Data): Data {
   data.signInTokens ??= [];
   data.signInRequests ??= [];
   data.signInMisses ??= {};
+  // A store from before photo storage simply holds no photos — reports there
+  // recorded only `photoAttached`, and that flag stays exactly as written.
+  data.photos ??= [];
   // `resolved` and `signInMisses` arrived with the per-bed cap's availability
   // fix. A row written before it counted against that cap, so it keeps doing
   // so; no migration is owed either way, because the ledger holds one
@@ -130,6 +140,10 @@ function normalizeBed(bed: Bed): void {
   bed.careNote ??= '';
   bed.blockId ??= null;
   bed.blockPosition ??= null;
+  // A bed from before applause mail has simply never had one sent, and owes
+  // none.
+  bed.applauseNoticeAt ??= null;
+  bed.applauseNoticeDueAt ??= null;
   bed.nycSyncedAt ??= null;
   bed.nycMissingSince ??= null;
   // A bed written before deleting existed was never deleted.
@@ -280,6 +294,8 @@ export function seedData(): Data {
       careNote: '',
       blockId: DEMO_BLOCK_ID,
       blockPosition: 1,
+      applauseNoticeAt: null,
+      applauseNoticeDueAt: null,
       nycSyncedAt: null,
       nycMissingSince: null,
       retiredAt: null,
@@ -304,6 +320,7 @@ export function seedData(): Data {
     ],
     reports: [],
     events: [],
+    photos: [],
     // Receipt numbers continue from the prototype's RPT-2216-0847.
     reportCounter: 2216,
     signInTokens: [],
@@ -358,6 +375,15 @@ export const ops = {
       Object.values(data.beds)
         .filter((bed) => bed.blockId === blockId)
         .sort((a, b) => (a.blockPosition ?? 0) - (b.blockPosition ?? 0)),
+    );
+  },
+  getBedsWithApplauseNoticeDue(data: Data): Bed[] {
+    // Oldest claim first, so a run that dies partway has still delivered the
+    // notices that had waited longest.
+    return detach(
+      Object.values(data.beds)
+        .filter((bed) => bed.applauseNoticeDueAt !== null && bed.retiredAt === null)
+        .sort((a, b) => (a.applauseNoticeDueAt ?? '').localeCompare(b.applauseNoticeDueAt ?? '')),
     );
   },
   getUser(data: Data, id: string): User | null {
@@ -434,6 +460,34 @@ export const ops = {
   nextReportNumber(data: Data): number {
     data.reportCounter += 1;
     return data.reportCounter;
+  },
+  getReportPhoto(data: Data, id: string): ReportPhoto | null {
+    return detach(data.photos.find((p) => p.id === id) ?? null);
+  },
+  getReportPhotosForReport(data: Data, reportId: string): ReportPhoto[] {
+    // Oldest first: the order they arrived is the order they read in.
+    return detach(
+      data.photos
+        .filter((p) => p.reportId === reportId)
+        .sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt)),
+    );
+  },
+  getReportPhotosForBed(data: Data, bedPlate: string): ReportPhoto[] {
+    // Newest first, like the reports: the admin panel reads the latest.
+    return detach(
+      data.photos
+        .filter((p) => p.bedPlate === bedPlate)
+        .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt)),
+    );
+  },
+  addReportPhoto(data: Data, photo: ReportPhoto): void {
+    if (data.photos.some((p) => p.id === photo.id)) {
+      throw new Error(`Photo already exists: ${photo.id}`);
+    }
+    data.photos.push(detach(photo));
+  },
+  deleteReportPhoto(data: Data, id: string): void {
+    data.photos = data.photos.filter((p) => p.id !== id);
   },
   appendEvent(data: Data, event: BedEvent): void {
     data.events.push(detach(event));
@@ -525,6 +579,10 @@ export class TransactionStore implements Store {
     return ops.getBedsInBlock(this.data, blockId);
   }
 
+  async getBedsWithApplauseNoticeDue(): Promise<Bed[]> {
+    return ops.getBedsWithApplauseNoticeDue(this.data);
+  }
+
   async getUser(id: string): Promise<User | null> {
     return ops.getUser(this.data, id);
   }
@@ -587,6 +645,26 @@ export class TransactionStore implements Store {
 
   async nextReportNumber(): Promise<number> {
     return ops.nextReportNumber(this.data);
+  }
+
+  async getReportPhoto(id: string): Promise<ReportPhoto | null> {
+    return ops.getReportPhoto(this.data, id);
+  }
+
+  async getReportPhotosForReport(reportId: string): Promise<ReportPhoto[]> {
+    return ops.getReportPhotosForReport(this.data, reportId);
+  }
+
+  async getReportPhotosForBed(bedPlate: string): Promise<ReportPhoto[]> {
+    return ops.getReportPhotosForBed(this.data, bedPlate);
+  }
+
+  async addReportPhoto(photo: ReportPhoto): Promise<void> {
+    ops.addReportPhoto(this.data, photo);
+  }
+
+  async deleteReportPhoto(id: string): Promise<void> {
+    ops.deleteReportPhoto(this.data, id);
   }
 
   async appendEvent(event: BedEvent): Promise<void> {

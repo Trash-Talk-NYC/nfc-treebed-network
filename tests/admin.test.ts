@@ -899,6 +899,19 @@ describe('deleting a bed', () => {
     expect((await store.getEvents(W171_PLATE, 'report')).length).toBe(1);
   });
 
+  it('takes a queued applause notice down with the bed', async () => {
+    const store = freshStore();
+    await sendApplause(store, { plate: W171_PLATE, actorId: 'visitor-1' });
+    expect((await store.getBed(W171_PLATE))!.applauseNoticeDueAt).not.toBeNull();
+
+    await retireBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+    expect((await store.getBed(W171_PLATE))!.applauseNoticeDueAt).toBeNull();
+
+    // A restore months later must not mail a notice for that old applause.
+    await restoreBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });
+    expect((await store.getBed(W171_PLATE))!.applauseNoticeDueAt).toBeNull();
+  });
+
   it('is idempotent: a resubmitted confirmation keeps the original date', async () => {
     const store = freshStore();
     await retireBedByAdmin(store, { blockId: W171_BLOCK_ID, plate: W171_PLATE });

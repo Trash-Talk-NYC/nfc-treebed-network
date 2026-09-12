@@ -21,7 +21,7 @@
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { Store } from './store';
+import type { PhotoBlobs, Store } from './store';
 import type {
   Adoption,
   Bed,
@@ -29,6 +29,7 @@ import type {
   Block,
   NetworkSettings,
   Report,
+  ReportPhoto,
   SignInMissWindow,
   SignInRequest,
   SignInToken,
@@ -43,7 +44,18 @@ import { type Data, TransactionStore, detach, normalizeData, ops, seedData } fro
 const DATA_DIR = process.env.TREEBED_DATA_DIR ?? path.resolve('.data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 
-export class LocalStore implements Store {
+/**
+ * A photo blob id as this backend will use it in a path. Ids are server-minted
+ * (`photo-<uuid>`), so anything else arriving here is a programming error —
+ * refused before it can name a path outside the photos directory.
+ */
+function assertPhotoId(id: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+    throw new Error(`Not a photo blob id: ${JSON.stringify(id)}`);
+  }
+}
+
+export class LocalStore implements Store, PhotoBlobs {
   private data: Data | null = null;
   /** In-flight first read, shared by every caller that arrives before it lands. */
   private loading: Promise<Data> | null = null;
@@ -149,6 +161,10 @@ export class LocalStore implements Store {
     return ops.getBedsInBlock(await this.load(), blockId);
   }
 
+  async getBedsWithApplauseNoticeDue(): Promise<Bed[]> {
+    return ops.getBedsWithApplauseNoticeDue(await this.load());
+  }
+
   async getUser(id: string): Promise<User | null> {
     return ops.getUser(await this.load(), id);
   }
@@ -211,6 +227,54 @@ export class LocalStore implements Store {
 
   async nextReportNumber(): Promise<number> {
     return this.mutate((data) => ops.nextReportNumber(data));
+  }
+
+  async getReportPhoto(id: string): Promise<ReportPhoto | null> {
+    return ops.getReportPhoto(await this.load(), id);
+  }
+
+  async getReportPhotosForReport(reportId: string): Promise<ReportPhoto[]> {
+    return ops.getReportPhotosForReport(await this.load(), reportId);
+  }
+
+  async getReportPhotosForBed(bedPlate: string): Promise<ReportPhoto[]> {
+    return ops.getReportPhotosForBed(await this.load(), bedPlate);
+  }
+
+  async addReportPhoto(photo: ReportPhoto): Promise<void> {
+    await this.mutate((data) => ops.addReportPhoto(data, photo));
+  }
+
+  async deleteReportPhoto(id: string): Promise<void> {
+    await this.mutate((data) => ops.deleteReportPhoto(data, id));
+  }
+
+  // ── Photo blobs: one file per photo beside the store file ─────────────
+
+  /** `.data/photos/<id>` — beside the dataset, e2e-relocatable with it. */
+  private photoPath(id: string): string {
+    assertPhotoId(id);
+    return path.join(path.dirname(this.file), 'photos', id);
+  }
+
+  async putPhotoBlob(id: string, bytes: Uint8Array): Promise<void> {
+    const file = this.photoPath(id);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, bytes);
+  }
+
+  async getPhotoBlob(id: string): Promise<Uint8Array | null> {
+    try {
+      return await fs.readFile(this.photoPath(id));
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  async deletePhotoBlob(id: string): Promise<void> {
+    // A blob already gone is the outcome the delete wanted.
+    await fs.rm(this.photoPath(id), { force: true });
   }
 
   async appendEvent(event: BedEvent): Promise<void> {

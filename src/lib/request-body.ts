@@ -62,19 +62,33 @@
 //   POST .../report  (multipart)       Size: 12MB on the node target, 4MB on
 //                                      netlify (report.ts explains why),
 //                                      counted as bytes arrive
-//                                      (`readCappedHead`); nothing past the 8KB
-//                                      head is ever held, so a 12MB photo costs
-//                                      no copies of itself. Time: HEAD_READ_*
-//                                      until the head is in, READ_* after that
-//                                      while the body may still be filed,
-//                                      DRAIN_* once it is refused, and never
-//                                      past READ_TIMEOUT_MS from the start any
-//                                      of those ways. Concurrency: HEAD_BYTES +
+//                                      (`readCappedBodyWhen`). A body whose
+//                                      head shows NO attached photo is read
+//                                      for its fields and discarded — nothing
+//                                      past the 8KB head held, the same cheap
+//                                      row this always was. A head that shows
+//                                      a photo upgrades the read to buffering,
+//                                      because the photo is now STORED
+//                                      (report.ts → the photo blob store):
+//                                      2 × cap more reserved out of
+//                                      MAX_INFLIGHT_BODY_BYTES at that moment,
+//                                      and an upgrade the budget has no room
+//                                      for refuses as 'busy' with the head
+//                                      kept. Time: HEAD_READ_* until the head
+//                                      is in, READ_* after that while the body
+//                                      may still be filed, DRAIN_* once it is
+//                                      refused, and never past READ_TIMEOUT_MS
+//                                      from the start any of those ways.
+//                                      Concurrency: HEAD_BYTES +
 //                                      CHUNK_ALLOWANCE_BYTES reserved out of
-//                                      MAX_INFLIGHT_BODY_BYTES, or one of
-//                                      MAX_SHED_READS slots if there is no room.
-//                                      Peak heap: the head plus the chunk in
-//                                      hand, which is exactly what it reserves.
+//                                      MAX_INFLIGHT_BODY_BYTES (plus the
+//                                      2 × cap upgrade only while a photo is
+//                                      actually being kept), or one of
+//                                      MAX_SHED_READS slots if there is no
+//                                      room. Peak heap: head plus chunk for a
+//                                      photo-less report; the chunk list plus
+//                                      the merged copy — what the upgrade
+//                                      reserves — for one carrying a photo.
 //                                      Every refusal → the too-large screen,
 //                                      every category they picked and the note
 //                                      they typed preserved — except past
@@ -119,6 +133,14 @@
 //                                      bounds before either is consulted, so an
 //                                      unauthenticated POST is bounded by the
 //                                      row above and writes nothing.
+//   POST .../rename                    The steward's bed-name form: one short
+//                                      typed field. MAX_FORM_BYTES buffered,
+//                                      FORM_READ_* clocks, the same 2× + chunk
+//                                      reservation as every text form — read
+//                                      before the session and steward checks,
+//                                      like /clear, so an unauthenticated POST
+//                                      is bounded here and writes nothing.
+//                                      Refused → a plain short answer.
 //   POST at an unbound/invalid tag     Answered 404 before any rule runs, so
 //                                      nothing above it applies — but the body
 //                                      still does: `abandonBody` takes
@@ -155,16 +177,27 @@
 //                                      unauthenticated POST here reaches no
 //                                      store read and writes nothing.
 //   POST /admin/sign-out,              Close the admin session; retire or
-//        /admin/blocks/…/delete-bed,   restore the bed the URL names. Behind
-//        /admin/blocks/…/restore-bed   the same gate, and each carries
+//        /admin/blocks/…/delete-bed,   restore the bed the URL names; delete
+//        /admin/blocks/…/restore-bed,  the stored photo the URL names. Behind
+//        /admin/blocks/…/delete-photo  the same gate, and each carries
 //                                      nothing but the press, so the body is
 //                                      `abandonBody`'d rather than read: a
 //                                      form with no fields has no form to
 //                                      buffer.
+//   GET  /admin/photos/<id>            A stored care photo, served to the
+//                                      admin alone. No body, no buffer;
+//                                      refused (404 / redirect to the key
+//                                      screen) before any store read without
+//                                      a session, body `abandonBody`'d on the
+//                                      way out. The answer carries the stored
+//                                      content type — already narrowed to a
+//                                      known image type — plus nosniff, so a
+//                                      hand-built upload can never be served
+//                                      as markup under the admin origin.
 //   Any other method, any route        A route bounds only the method it
 //                                      exports; Astro answers the rest itself,
-//                                      body untouched. The three POST routes
-//                                      (report, applause, clear) export
+//                                      body untouched. The four POST routes
+//                                      (report, applause, clear, rename) export
 //                                      `ALL` (`postOnly`, tag-route.ts)
 //                                      so that answer is a 405 rather than a
 //                                      404 with a log line per request, and
@@ -353,6 +386,22 @@ export const FORM_READ_IDLE_MS = 5_000;
  *
  * Past the head the long clocks take over, because from there the body really
  * may be 12MB arriving slowly, and that case must stay graceful.
+ *
+ * Residual, stated rather than closed, and node-target only: a head that merely
+ * CLAIMS a photo — a `filename="…"` in those first 8KB — buys the keep-upgrade's
+ * `2 × limit` reservation before one photo byte has arrived, and then inherits
+ * these long clocks. On the node target that is 24MB of the 48MB budget per
+ * socket, so roughly two sockets trickling a byte every 25s can hold the
+ * photo-carrying path at `busy` indefinitely, where before the photo was stored
+ * the same trick bought a head's worth. Photo-less reports stay head-only and
+ * hundreds still fit, and on netlify — what production deploys — the platform
+ * buffers the whole body before the function is invoked, so a trickling socket
+ * never reaches this code at all. This is the same accepted node-target tier as
+ * the concurrency ceiling on `MAX_INFLIGHT_BODY_BYTES`, to revisit before ever
+ * serving the pilot from the node target behind the custom domain; the known fix
+ * is to grow the reservation as bytes actually accumulate, or to hold the head
+ * clocks until some real byte threshold past the head has arrived, rather than
+ * granting both on the claim.
  */
 export const HEAD_READ_TIMEOUT_MS = FORM_READ_TIMEOUT_MS;
 
@@ -381,6 +430,16 @@ export const HEAD_READ_IDLE_MS = FORM_READ_IDLE_MS;
  * CHUNK_ALLOWANCE_BYTES)`, about 52MB. Past the shed count a read keeps
  * nothing, and what bounds it is `SHED_DRAIN_BYTES`/`SHED_DRAIN_MS` of ingress
  * rather than a share of this.
+ *
+ * What this covers is the READ. The report route's WRITE phase — the blob
+ * upload a kept photo pays for — sits outside it: the reservation is released
+ * when the read ends, and the bytes live a moment longer while they are handed
+ * to the photo store (about `2 × cap` per admitted upload on Blobs, which
+ * copies the view into its own buffer for the client). The route drops every
+ * reference the instant that write returns, so nothing MB-scale is pinned
+ * across the rules or the redirect, and the window is one upload's own write
+ * rather than a whole transaction. Same accepted node-target residual tier as
+ * the reservation notes above; netlify's 4MB cap is what production carries.
  */
 export const MAX_INFLIGHT_BODY_BYTES = boundFromEnv(
   'TREEBED_MAX_INFLIGHT_BODY_BYTES',
@@ -508,6 +567,18 @@ interface Consumed {
 }
 
 /**
+ * Whether a read keeps its body: never (head only), always (buffer it), or
+ * decided by the body's own head once `HEAD_BYTES` are in — the report
+ * route's shape, where only an upload whose head shows an attached photo is
+ * worth a photo-sized share of `MAX_INFLIGHT_BODY_BYTES`. A conditional read
+ * reserves the head-only share up front and UPGRADES by `2 × limit` at the
+ * moment its predicate says keep; an upgrade the budget has no room for
+ * refuses the read as `'busy'` with the head retained, so the screen that
+ * answers still carries what the visitor typed.
+ */
+type KeepMode = 'never' | 'always' | ((head: Uint8Array) => boolean);
+
+/**
  * Read a request body to its end, keeping at most what was asked for.
  *
  * Content-Length alone isn't enough — a chunked body doesn't send one, and a
@@ -529,7 +600,7 @@ interface Consumed {
 async function consume(
   request: Request,
   limit: number,
-  keepBody: boolean,
+  keepMode: KeepMode,
   {
     drainHeadroom = DRAIN_HEADROOM_BYTES,
     drainTimeoutMs = DRAIN_TIMEOUT_MS,
@@ -540,12 +611,14 @@ async function consume(
     headIdleMs = HEAD_READ_IDLE_MS,
   }: ReadBounds,
 ): Promise<Consumed> {
+  const wantsAll = keepMode === 'always';
+  const conditional = typeof keepMode === 'function';
   const declared = Number(request.headers.get('content-length'));
   let over = Number.isFinite(declared) && declared > limit;
   if (!request.body) {
     const head = new Uint8Array();
     if (over) return { head, bytes: 0, body: null, refusal: 'over-limit' };
-    return { head, bytes: 0, body: keepBody ? new ArrayBuffer(0) : null, refusal: null };
+    return { head, bytes: 0, body: wantsAll ? new ArrayBuffer(0) : null, refusal: null };
   }
 
   // Reserved up front, for the whole read: admitting a request and discovering
@@ -553,27 +626,43 @@ async function consume(
   // reserved is what this read can be holding at its peak, not what it means to
   // keep — a buffered body is the chunk list and then the merged copy built
   // from it, and either kind of read has a chunk in hand on top of that.
-  const reservation = (keepBody ? 2 * limit : HEAD_BYTES) + CHUNK_ALLOWANCE_BYTES;
-  const busy = inflightBytes + reservation > MAX_INFLIGHT_BODY_BYTES;
+  // A conditional read starts on the head-only share and upgrades in the loop
+  // below once its head has shown the body is worth buffering; until then the
+  // chunks it holds tentatively fit inside that head-sized share.
+  const reservation = (wantsAll ? 2 * limit : HEAD_BYTES) + CHUNK_ALLOWANCE_BYTES;
+  const busyAtEntry = inflightBytes + reservation > MAX_INFLIGHT_BODY_BYTES;
+  let busy = busyAtEntry;
   // Shedding is cheap but not free — a head and the chunk in hand each — so
   // past `MAX_SHED_READS` at once the read keeps nothing: no reservation, no
   // head, and `SHED_DRAIN_*` in place of the busy budget. The head is empty, so
   // the report route's screen loses the severity it would have carried, which
   // is the trade this depth of spike buys the bound with. What it can't do is
   // skip the read: a body nobody touched is dumped by Node itself, to its end.
-  const shedding = busy && shedReads >= MAX_SHED_READS;
+  const shedding = busyAtEntry && shedReads >= MAX_SHED_READS;
   // A refused body is still read to its end, and holding the head is what lets
   // the answer keep the visitor's severity — that much fits regardless.
-  let keep = keepBody && !busy && !over;
+  let keep = (wantsAll || conditional) && !busyAtEntry && !over;
+  // A conditional read that is tentatively keeping has a decision pending;
+  // one already refused has nothing left to decide.
+  let decided = !conditional || !keep;
 
   // Taken last, so nothing between here and the `finally` below can leak a
   // reservation — a reservation that is never released is a permanent one.
   const reader = request.body.getReader();
   // Nothing is booked at shed depth: nothing is held there past the chunk in
   // hand, and a slot taken would be a slot denied to a read that keeps a head.
+  // What was actually taken is tracked, not re-derived: a conditional read's
+  // reservation can grow mid-loop, and the release must match it exactly.
+  let reservedBytes = 0;
+  let tookShedSlot = false;
   if (!shedding) {
-    if (busy) shedReads += 1;
-    else inflightBytes += reservation;
+    if (busyAtEntry) {
+      shedReads += 1;
+      tookShedSlot = true;
+    } else {
+      inflightBytes += reservation;
+      reservedBytes = reservation;
+    }
   }
 
   const headChunks: Uint8Array[] = [];
@@ -586,10 +675,12 @@ async function consume(
   // refused for its size is a photo still finishing its upload, and gets the
   // headroom; one refused for want of room is load to shed, and gets almost
   // nothing — but never more than it would have got anyway, since on the small
-  // forms the headroom is already tighter than the busy budget.
-  const drain = shedding
+  // forms the headroom is already tighter than the busy budget. Recomputed if
+  // a conditional read turns busy at its upgrade, which is the one refusal
+  // that can arrive mid-read.
+  let drain = shedding
     ? { ceiling: SHED_DRAIN_BYTES, budgetMs: SHED_DRAIN_MS, idleMs: SHED_DRAIN_MS }
-    : busy
+    : busyAtEntry
       ? {
           ceiling: Math.min(BUSY_DRAIN_BYTES, limit + drainHeadroom),
           budgetMs: BUSY_DRAIN_MS,
@@ -644,6 +735,38 @@ async function consume(
         headChunks.push(head);
         headBytes += head.byteLength;
       }
+      // A conditional read decides the moment its head is in: this is the
+      // earliest point the body has said whether it carries what the caller
+      // buffers for, and the latest the tentative chunks still fit inside the
+      // head-sized reservation. Keeping means paying for it — the same
+      // `2 × limit` an always-keep read reserves up front — and a budget with
+      // no room for that answers `busy` exactly as it would have at entry,
+      // with the head kept so the answer still carries the typed fields.
+      // The claim is what is paid for, not the bytes — see the node-target
+      // residual on HEAD_READ_TIMEOUT_MS above.
+      if (!decided && headBytes >= HEAD_BYTES) {
+        decided = true;
+        if (!(keepMode as (head: Uint8Array) => boolean)(concat(headChunks, headBytes))) {
+          keep = false;
+          kept = null;
+        } else {
+          const upgrade = 2 * limit;
+          if (inflightBytes + upgrade > MAX_INFLIGHT_BODY_BYTES) {
+            busy = true;
+            keep = false;
+            kept = null;
+            drain = {
+              ceiling: Math.min(total + BUSY_DRAIN_BYTES, limit + drainHeadroom),
+              budgetMs: BUSY_DRAIN_MS,
+              idleMs: BUSY_DRAIN_MS,
+            };
+            drainDeadline = Math.min(Date.now() + BUSY_DRAIN_MS, readDeadline);
+          } else {
+            inflightBytes += upgrade;
+            reservedBytes += upgrade;
+          }
+        }
+      }
       if (!over && total > limit) {
         over = true;
         // The drain's budget is measured from the moment the body was refused
@@ -677,13 +800,18 @@ async function consume(
       failed = true;
     }
   } finally {
-    if (!shedding) {
-      if (busy) shedReads -= 1;
-      else inflightBytes -= reservation;
-    }
+    if (tookShedSlot) shedReads -= 1;
+    inflightBytes -= reservedBytes;
   }
 
   const head = concat(headChunks, headBytes);
+  // A conditional body that ended before its head filled never reached the
+  // in-loop decision: it is at most `HEAD_BYTES`, already whole in `kept`, and
+  // already inside the head-sized reservation — so it is decided here, on the
+  // head there is.
+  if (!decided && kept !== null && !(keepMode as (head: Uint8Array) => boolean)(head)) {
+    kept = null;
+  }
   // Order matters: what the body did outranks what the server had room for,
   // because the visitor can act on the first and only wait out the second.
   const refusal: Refusal | null = over
@@ -706,28 +834,60 @@ export async function readCappedBody(
   limit: number,
   bounds: ReadBounds = {},
 ): Promise<CappedBody> {
-  const { head, body, refusal } = await consume(request, limit, true, bounds);
+  const { head, body, refusal } = await consume(request, limit, 'always', bounds);
   if (refusal !== null || body === null) {
     return { body: null, head, refusal: refusal ?? 'read-failed' };
   }
   return { body, head, refusal: null };
 }
 
+/** A body kept only when its own head says so, or the reason there is none. */
+export interface CappedConditionalBody {
+  head: Uint8Array;
+  /** The whole body — present only when `wants(head)` answered yes and nothing refused the read. */
+  body: Uint8Array | null;
+  refusal: Refusal | null;
+}
+
+/**
+ * Read a body that is only worth buffering if its head says it is — the
+ * report route, where an upload whose head shows an attached photo is now
+ * STORED and everything else is still read for its fields and discarded.
+ *
+ * The cheap path stays cheap: the read starts on the head-only reservation,
+ * so the common no-photo report never charges `MAX_INFLIGHT_BODY_BYTES` more
+ * than a head and a chunk. Only once the head shows a photo does the read
+ * reserve the buffered share (`2 × limit`, the same accounting
+ * `readCappedBody` pays up front), and if the budget has no room for that the
+ * read refuses as `'busy'` with the head kept — the too-large screen still
+ * carries every category and the note.
+ */
+export async function readCappedBodyWhen(
+  request: Request,
+  limit: number,
+  wants: (head: Uint8Array) => boolean,
+  bounds: ReadBounds = {},
+): Promise<CappedConditionalBody> {
+  const { head, body, refusal } = await consume(request, limit, wants, bounds);
+  return { head, body: body === null ? null : new Uint8Array(body), refusal };
+}
+
 /**
  * Read the request body for its leading bytes alone, discarding the rest.
  *
  * For a route that wants a couple of short fields out of a body it was always
- * going to throw away — the report route's optional photo is read and dropped
- * (spec §12), so buffering it would cost megabytes of heap for a boolean. The
- * cap still applies: a body over it is refused, so the visitor gets the screen
- * that keeps their severity rather than a report filed off a truncated form.
+ * going to throw away, where buffering would cost megabytes of heap for
+ * nothing. The report route grew out of this into `readCappedBodyWhen` when
+ * photos started being stored; the single-button POSTs (`discardBody`) still
+ * read here. The cap still applies: a body over it is refused, so the caller
+ * can answer rather than act off a truncated form.
  */
 export async function readCappedHead(
   request: Request,
   limit: number,
   bounds: ReadBounds = {},
 ): Promise<CappedHead> {
-  const { head, bytes, refusal } = await consume(request, limit, false, bounds);
+  const { head, bytes, refusal } = await consume(request, limit, 'never', bounds);
   return { head, bytes, refusal };
 }
 
@@ -891,6 +1051,12 @@ function partName(headers: string): string | null {
   return match ? (match[1] ?? '') : null;
 }
 
+/** The filename a part's headers declare, `''` for `filename=""`, null for none. */
+function partFilename(headers: string): string | null {
+  const match = /filename="([^"]*)"/.exec(headers);
+  return match ? (match[1] ?? '') : null;
+}
+
 /**
  * A named text field out of a multipart body's head, or null if it isn't in
  * there.
@@ -949,17 +1115,78 @@ export function noteFromHead(head: Uint8Array, boundary: string): string {
  * Whether a photo was attached, from the same head.
  *
  * A browser sends the file part with `filename=""` when nobody picked
- * anything, and a real filename when they did — which is the only thing the
- * MVP records about the photo anyway (spec §12). Read off the photo part's own
- * headers, so a `filename="..."` typed into the note answers for nothing.
+ * anything, and a real filename when they did. This is both the record's flag
+ * and — through `readCappedBodyWhen`'s predicate — what decides whether the
+ * body is worth buffering to store the photo out of. Read off the photo
+ * part's own headers, so a `filename="..."` typed into the note answers for
+ * nothing.
  */
 export function photoAttachedFromHead(head: Uint8Array, boundary: string): boolean {
   for (const part of headParts(head, boundary)) {
     if (partName(part.headers) !== 'photo') continue;
-    const filename = /filename="([^"]*)"/.exec(part.headers);
-    return filename !== null && (filename[1] ?? '').length > 0;
+    const filename = partFilename(part.headers);
+    return filename !== null && filename.length > 0;
   }
   return false;
+}
+
+/**
+ * The photo part's bytes and declared content type, out of a COMPLETE
+ * multipart body, or null when the body carries no attached photo.
+ *
+ * Byte-level on purpose: a photo is binary and must never round-trip through
+ * a text decoder the way the head's short fields do. The boundary — the
+ * request's own declared delimiter, same authority as the head parsers — is
+ * what tells the photo part's edges from photo bytes that happen to look like
+ * one; the returned view runs from the part's blank line to the CRLF that
+ * belongs to the next delimiter. Only a complete, accepted body reaches this
+ * (the capped read refused anything truncated), so a photo part with no
+ * closing delimiter is treated as no photo rather than half of one.
+ */
+export function photoPartFromBody(
+  body: Uint8Array,
+  boundary: string,
+): { bytes: Uint8Array; contentType: string } | null {
+  if (boundary === '') return null;
+  const buf = Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  const delimiter = Buffer.from(`--${boundary}`, 'latin1');
+  const crlfcrlf = Buffer.from('\r\n\r\n', 'latin1');
+  const lflf = Buffer.from('\n\n', 'latin1');
+  let at = buf.indexOf(delimiter);
+  while (at !== -1) {
+    const headerStart = at + delimiter.byteLength;
+    const next = buf.indexOf(delimiter, headerStart);
+    // The header block ends at the first blank line; a "blank line" past the
+    // next delimiter belongs to a later part, so this one has no value at all.
+    let blank = buf.indexOf(crlfcrlf, headerStart);
+    let separator = crlfcrlf.byteLength;
+    if (blank === -1 || (next !== -1 && blank > next)) {
+      blank = buf.indexOf(lflf, headerStart);
+      separator = lflf.byteLength;
+    }
+    if (blank === -1 || (next !== -1 && blank > next)) {
+      at = next;
+      continue;
+    }
+    // The header block is ASCII structure (a filename may carry UTF-8, which
+    // decodes fine and is only matched for being non-empty).
+    const headers = buf.subarray(headerStart, blank).toString('utf8');
+    const filename = partFilename(headers);
+    if (partName(headers) === 'photo' && filename !== null && filename.length > 0) {
+      const dataStart = blank + separator;
+      const end = buf.indexOf(delimiter, dataStart);
+      if (end === -1) return null;
+      // The line break before the delimiter is the delimiter's, not the photo's.
+      let dataEnd = end;
+      if (dataEnd > dataStart && buf[dataEnd - 1] === 0x0a) dataEnd -= 1;
+      if (dataEnd > dataStart && buf[dataEnd - 1] === 0x0d) dataEnd -= 1;
+      if (dataEnd <= dataStart) return null;
+      const contentType = /content-type:\s*([^\r\n;]+)/i.exec(headers)?.[1]?.trim() ?? '';
+      return { bytes: body.subarray(dataStart, dataEnd), contentType };
+    }
+    at = next;
+  }
+  return null;
 }
 
 /**

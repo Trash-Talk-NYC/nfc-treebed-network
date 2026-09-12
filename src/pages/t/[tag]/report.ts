@@ -2,8 +2,9 @@
 // single most important resilience decision (spec §3a): telling us a bed needs
 // care must work with JavaScript disabled.
 import type { APIRoute } from 'astro';
-import { getStore } from '../../../lib/store';
+import { getPhotoBlobs, getStore } from '../../../lib/store';
 import { RuleError, reportProblem } from '../../../lib/service';
+import { storeReportPhoto } from '../../../lib/report-photo';
 import { getActorId } from '../../../lib/session';
 import { noteFrom, problemsFrom, type ProblemCategory } from '../../../lib/problem';
 import {
@@ -12,7 +13,8 @@ import {
   multipartBoundary,
   noteFromHead,
   photoAttachedFromHead,
-  readCappedHead,
+  photoPartFromBody,
+  readCappedBodyWhen,
   readFormOrRefuse,
   type Refusal,
 } from '../../../lib/request-body';
@@ -20,9 +22,11 @@ import { langLink, readLang, type Lang } from '../../../lib/i18n';
 import { BUILD_TARGET } from '../../../lib/build-target';
 import { requireBoundTagForPost, postOnly } from '../../../lib/tag-route';
 
-// A phone photo is a few MB; nothing here is stored, so the cap only has to
-// leave real reports room — and to stay under whatever the platform in front
-// of us refuses first, or the refusal stops being ours.
+// A phone photo is a few MB, and since the captain's 2026-09-12 decision it is
+// STORED — so the cap bounds what one press can put into the photo store as
+// well as what one request can put on the wire, and it has to stay under
+// whatever the platform in front of us refuses first, or the refusal stops
+// being ours.
 //
 // Netlify caps a synchronous function's request payload at 6MB and buffers
 // the body before the function is invoked, so on that target a larger upload
@@ -56,19 +60,27 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
   let categories: ProblemCategory[] = [];
   let note = '';
   let photoAttached = false;
+  let photo: { bytes: Uint8Array; contentType: string } | null = null;
 
   if (contentType.startsWith('multipart/form-data')) {
-    // The photo is read and discarded either way (spec §12), so it is never
-    // buffered: the fields that matter are taken off the head instead, which
-    // keeps a 12MB upload at kilobytes of heap. Safe because the care screen's
-    // markup puts the categories and the note ahead of the file input and
-    // browsers send parts in DOM order — keep it that way if it gains a field
-    // (`tests/care-form-order.e2e.test.ts` posts the rendered form's own order).
-    const { head, refusal } = await readCappedHead(request, MAX_PHOTO_BODY_BYTES);
     // The delimiter the client declared: what tells a part's headers from a
     // sentence somebody typed that happens to look like one. Off the raw
     // header, because a boundary is case-sensitive and browsers mix case.
     const boundary = multipartBoundary(rawContentType);
+    // The fields that matter are taken off the head either way, which is what
+    // keeps a photo-less report at kilobytes of heap. The BODY is kept only
+    // when the head shows an attached photo — the photo is stored now, so an
+    // upload carrying one buys the buffered share of the in-flight budget at
+    // that moment (request-body.ts) and nothing else ever does. Safe because
+    // the care screen's markup puts the categories and the note ahead of the
+    // file input and browsers send parts in DOM order — keep it that way if it
+    // gains a field (`tests/care-form-order.e2e.test.ts` posts the rendered
+    // form's own order).
+    const { head, body, refusal } = await readCappedBodyWhen(
+      request,
+      MAX_PHOTO_BODY_BYTES,
+      (seen) => photoAttachedFromHead(seen, boundary),
+    );
     // Every refusal lands on the same screen, because what the visitor told us
     // is the thing being rescued and the head already holds it whichever way
     // the upload ended. Only the words differ, and an upload that stalled is
@@ -77,6 +89,7 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
     categories = categoriesFromHead(head, boundary);
     note = noteFromHead(head, boundary);
     photoAttached = photoAttachedFromHead(head, boundary);
+    if (body !== null) photo = photoPartFromBody(body, boundary);
   } else {
     // The too-large screen's one-tap resend: the same choices, no attachment.
     const { form, refused } = await readFormOrRefuse(request, MAX_FORM_BYTES, 'report');
@@ -91,20 +104,52 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
   // at rather than in a status code they cannot act on.
   if (categories.length === 0) return redirect(langLink(`${base}/care?pick=1`, lang), 303);
 
+  // The blob is written BEFORE the rule runs, under a fresh server-minted id,
+  // so the metadata row `reportProblem` may write can never name bytes that
+  // were never stored. A press the rules then decline — today's second say,
+  // or a report already at its photo cap — deletes it on the way out; the one
+  // orphan a crash between the two can leave is an invisible blob no row
+  // names, which is the cheap direction (store.ts, `PhotoBlobs`).
+  //
+  // The presses the rule is about to decline are filtered off a plain read
+  // first (`reportPhotoCouldBeKept`), so an anonymous caller cannot spend
+  // megabytes of photo storage on a write the rules were never going to keep.
+  // The read is an optimization and never the gate — the transaction decides,
+  // and the delete below is still what covers a race. A failure on that whole
+  // path is answered as "no stored photo" rather than raised: an optional
+  // attachment must never cost the visitor the report they already typed.
+  const stored = await storeReportPhoto(getStore(), getPhotoBlobs(), {
+    photo,
+    plate,
+    actorId: actor,
+  });
+  // The in-flight byte budget bounds the READ, and its reservation was already
+  // released when the read finished. `photo.bytes` is a VIEW into the whole
+  // buffered body, so holding it here would pin megabytes across the
+  // transaction and the redirect — outside any accounting. Dropping the last
+  // reference the moment the blob is written leaves the window where the bytes
+  // outlive the reservation as the blob write itself and nothing more.
+  photo = null;
+
   try {
-    await reportProblem(getStore(), {
+    const outcome = await reportProblem(getStore(), {
       plate,
       actorId: actor,
       categories,
       note,
       photoAttached,
+      photo: stored,
     });
+    if (stored && (outcome.kind === 'already-said' || outcome.photo === null)) {
+      await discardOrphanBlob(stored.id);
+    }
     // One screen after this, whichever of the three happened: the approved flow
     // ends on the thank-you takeover and has no receipt, no confirm screen and
     // no rate-limited screen. What the press was worth is in the record and the
     // events, not in a notice to somebody standing at a tree.
     return redirect(langLink(`${base}/thanks`, lang), 303);
   } catch (err) {
+    if (stored) await discardOrphanBlob(stored.id);
     if (err instanceof RuleError && err.code === 'bed-not-found') {
       // The rule's own message names the plate, which encodes site type and
       // neighbourhood and is never rendered to a visitor. A retired bed makes
@@ -114,6 +159,19 @@ export const POST: APIRoute = async ({ params, request, cookies, redirect, url }
     throw err;
   }
 };
+
+/**
+ * Best-effort removal of a blob whose row was never written. A failure leaves
+ * an orphan nothing names and nothing renders — logged, never surfaced: the
+ * visitor's report went through, and that is the answer they are owed.
+ */
+async function discardOrphanBlob(id: string): Promise<void> {
+  try {
+    await getPhotoBlobs().deletePhotoBlob(id);
+  } catch (err) {
+    console.error(`[report] orphaned photo blob ${id} could not be deleted:`, err);
+  }
+}
 
 /**
  * Where a refused upload lands. The categories and the note are carried across

@@ -13,6 +13,7 @@ import type {
   Block,
   GuardMaterial,
   Report,
+  ReportPhoto,
   Severity,
   SignInMissWindow,
   SignInToken,
@@ -46,7 +47,9 @@ export class RuleError extends Error {
       | 'invalid-input'
       | 'slot-out-of-range'
       | 'rate-limited'
-      | 'invalid-token',
+      | 'invalid-token'
+      | 'not-steward'
+      | 'photo-not-found',
     message: string,
   ) {
     super(message);
@@ -157,11 +160,67 @@ export async function hasReportedToday(
  */
 export type ProblemOutcome =
   /** Nothing was open: this opened a report. */
-  | { kind: 'filed'; report: Report }
+  | { kind: 'filed'; report: Report; photo: ReportPhoto | null }
   /** Somebody had already reported it: this added weight to that report. */
-  | { kind: 'added-weight'; report: Report }
+  | { kind: 'added-weight'; report: Report; photo: ReportPhoto | null }
   /** This person has already had their say on this bed today. */
   | { kind: 'already-said'; report: Report | null };
+
+/**
+ * How many stored photos one report keeps — the same reason
+ * `MAX_CONFIRMATIONS` exists, at photo scale: the confirmations bound how
+ * many presses can land on an open report, but each press may carry a photo
+ * of up to the route's cap, and a caller cycling identities must not be able
+ * to turn one report into hundreds of megabytes of storage. Past the cap the
+ * press still counts and the flag is still set; the photo is discarded the
+ * way every photo was before storage existed — nobody standing at a tree is
+ * shown a rule.
+ */
+export const MAX_REPORT_PHOTOS = 12;
+
+/**
+ * The stored content type for an uploaded photo: a known image type, or
+ * `application/octet-stream` for anything else. An allowlist rather than
+ * "starts with image/" because the stored value is what the ADMIN serving
+ * route answers with, and `image/svg+xml` — an image type by name — is
+ * scriptable markup. An unknown type still stores and still deletes; it just
+ * downloads instead of rendering.
+ */
+const PHOTO_CONTENT_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+  'image/heic',
+  'image/heif',
+]);
+
+export function storedPhotoContentType(raw: string): string {
+  const declared = raw.trim().toLowerCase();
+  return PHOTO_CONTENT_TYPES.has(declared) ? declared : 'application/octet-stream';
+}
+
+/**
+ * Whether the admin panel can show a stored photo as an <img>. HEIC/HEIF are
+ * stored (an iPhone can produce them) but most browsers will not paint them,
+ * and `application/octet-stream` is blocked by the serving route's nosniff —
+ * those render as a link to open instead, still there to see and to delete.
+ */
+export function photoRendersInline(contentType: string): boolean {
+  const stored = storedPhotoContentType(contentType);
+  return stored !== 'application/octet-stream' && stored !== 'image/heic' && stored !== 'image/heif';
+}
+
+/**
+ * How many of a bed's EARLIER photos the admin panel draws before the rest
+ * are behind a link. Nothing prunes stored photos, so a bed's history grows
+ * for the life of the pilot, and every one of them is a full-resolution image
+ * served `no-store` — unbounded, opening that panel on a sidewalk gets slower
+ * every week. The OPEN report's photos are never capped: those are the ones
+ * the captain opened the panel to act on.
+ */
+export const ADMIN_EARLIER_PHOTOS_SHOWN = 6;
 
 export interface ProblemInput {
   plate: string;
@@ -170,6 +229,14 @@ export interface ProblemInput {
   categories: ProblemCategory[];
   note: string;
   photoAttached: boolean;
+  /**
+   * The stored upload this press carried, when it carried one: the blob is
+   * already written under `id` (route-side, BEFORE this rule runs, so a row
+   * can never name bytes that were never stored), and this is what asks the
+   * rule to put the row on the record. The rule answers with the row it wrote
+   * — or none, and the caller then deletes the orphaned blob.
+   */
+  photo?: { id: string; contentType: string; bytes: number };
   now?: Date;
 }
 
@@ -237,7 +304,8 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
         note,
         reportId: open.id,
       });
-      return { kind: 'added-weight', report: weighted };
+      const photo = await keepReportPhoto(tx, args, open.id, now);
+      return { kind: 'added-weight', report: weighted, photo };
     }
 
     if (await hasReportedToday(tx, plate, actorId, now)) {
@@ -269,8 +337,87 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
       note,
       reportId: report.id,
     });
-    return { kind: 'filed', report };
+    const photo = await keepReportPhoto(tx, args, report.id, now);
+    return { kind: 'filed', report, photo };
   });
+}
+
+/**
+ * Whether a photo this press carries could still be kept — a PLAIN read, run
+ * before the route uploads the bytes.
+ *
+ * The upload is megabytes on the one route that mints an identity for a
+ * cookie-less caller, and the presses `reportProblem` declines pay for it in
+ * full: a bed the admin has retired, today's second say, a neighbour already
+ * counted on the open report, a report at `MAX_CONFIRMATIONS`, or one
+ * already at `MAX_REPORT_PHOTOS`.
+ * Answering that off a plain read costs nothing and skips exactly those
+ * uploads.
+ *
+ * It is an OPTIMIZATION and never the gate: the transaction re-decides every
+ * one of these checks, and the route still deletes an orphan whose row the
+ * rule then declined. A `false` here only means the bytes need not be
+ * written; `photoAttached` is unaffected, because somebody did attach one.
+ */
+export async function reportPhotoCouldBeKept(
+  store: Store,
+  args: { plate: string; actorId: string; now?: Date },
+): Promise<boolean> {
+  const { plate, actorId } = args;
+  const now = args.now ?? new Date();
+  if (!(await getActiveBed(store, plate))) return false;
+  const open = await store.getOpenReport(plate);
+  if (!open) return !(await hasReportedToday(store, plate, actorId, now));
+  if (open.reporterId === actorId || open.confirmedBy.includes(actorId)) return false;
+  if (open.confirmedBy.length >= MAX_CONFIRMATIONS) return false;
+  return (await store.getReportPhotosForReport(open.id)).length < MAX_REPORT_PHOTOS;
+}
+
+/**
+ * Put a carried upload's row on the record, bound to the report the press
+ * just filed or weighted — or decline it past `MAX_REPORT_PHOTOS`, silently,
+ * exactly as the pre-storage build discarded every photo. Runs inside the
+ * caller's transaction, so the cap is checked against the rows it commits
+ * beside.
+ */
+async function keepReportPhoto(
+  tx: Store,
+  args: ProblemInput,
+  reportId: string,
+  now: Date,
+): Promise<ReportPhoto | null> {
+  if (!args.photo) return null;
+  if ((await tx.getReportPhotosForReport(reportId)).length >= MAX_REPORT_PHOTOS) return null;
+  const photo: ReportPhoto = {
+    id: args.photo.id,
+    bedPlate: args.plate,
+    reportId,
+    actorId: args.actorId,
+    contentType: storedPhotoContentType(args.photo.contentType),
+    bytes: args.photo.bytes,
+    uploadedAt: now.toISOString(),
+  };
+  await tx.addReportPhoto(photo);
+  return photo;
+}
+
+/**
+ * The stewards an applause notification should reach for this bed: an active
+ * adoption, an email on record, and no digest opt-out — the digest's own bar,
+ * one flag for every courtesy mail, so "stop these emails" means all of them.
+ * A pen-and-paper steward with no email is simply never a recipient.
+ *
+ * Resolved at SEND time (the scheduled run reads it through its own `tx`),
+ * not when the applause landed: hours may pass between the press and the
+ * delivery, and who is mailable then is what matters.
+ */
+export async function mailableStewards(tx: Store, plate: string): Promise<User[]> {
+  const recipients: User[] = [];
+  for (const adoption of await tx.getActiveAdoptions(plate)) {
+    const user = await tx.getUser(adoption.userId);
+    if (user && user.email.trim() !== '' && !user.digestOptedOut) recipients.push(user);
+  }
+  return recipients;
 }
 
 /**
@@ -284,12 +431,24 @@ export async function reportProblem(store: Store, args: ProblemInput): Promise<P
  * standing at the tree always has.
  *
  * Returns whether this press was the one that counted, so the screen can be
- * honest without being a rule notice.
+ * honest without being a rule notice — and whether it QUEUED the day's
+ * notification mail. Nothing is sent from here, and the route sends nothing
+ * either: the press is somebody standing at a tree on cellular, and a Brevo
+ * call in front of their redirect (a 5s timeout and a retry behind it) buys
+ * them nothing. The scheduled run delivers it (`runApplauseNotices` in
+ * digest.ts), claim-then-send, the digest's own shape.
+ *
+ * The bound is unchanged: ONE notification per bed per NY day however many
+ * people applaud (`Bed.applauseNoticeAt`, the captain hears about the first
+ * pair of hands and reads the rest in the digest). `applauseNoticeDueAt` is
+ * what says a notice is still owed; who it reaches is resolved when it goes
+ * out, so a steward who adds an email or resumes the digest between the press
+ * and the morning is included.
  */
 export async function sendApplause(
   store: Store,
   args: { plate: string; actorId: string; now?: Date },
-): Promise<{ counted: boolean }> {
+): Promise<{ counted: boolean; noticeQueued: boolean }> {
   const now = args.now ?? new Date();
   return store.transaction(async (tx) => {
     const bed = await getActiveBed(tx, args.plate);
@@ -298,9 +457,46 @@ export async function sendApplause(
     const already = (await tx.getEvents(args.plate, 'applause')).some(
       (e) => e.actorId === args.actorId && nyCalendarDay(new Date(e.createdAt)) === today,
     );
-    if (already) return { counted: false };
+    if (already) return { counted: false, noticeQueued: false };
     await appendEvent(tx, args.plate, 'applause', args.actorId, null, now);
-    return { counted: true };
+    const noticed =
+      bed.applauseNoticeAt !== null && nyCalendarDay(new Date(bed.applauseNoticeAt)) === today;
+    if (noticed) return { counted: true, noticeQueued: false };
+    const claimed: Bed = {
+      ...bed,
+      applauseNoticeAt: now.toISOString(),
+      applauseNoticeDueAt: now.toISOString(),
+    };
+    await tx.updateBed(claimed);
+    return { counted: true, noticeQueued: true };
+  });
+}
+
+/**
+ * Take a queued applause notice off the bed, inside the run's own
+ * transaction, and answer with the stewards to mail — the claim half of
+ * claim-then-send: a rerun or a crash after the commit costs one notice at
+ * worst and never doubles one.
+ *
+ * With nobody mailable the day is also UNCLAIMED (`applauseNoticeAt` back to
+ * null), so a steward who adds an email or resumes the digest later that day
+ * is not left with a notice already spent on an empty recipient list.
+ */
+export async function claimApplauseNotice(
+  store: Store,
+  plate: string,
+): Promise<{ bed: Bed; recipients: User[] } | null> {
+  return store.transaction(async (tx) => {
+    const bed = await getActiveBed(tx, plate);
+    if (!bed || bed.applauseNoticeDueAt === null) return null;
+    const recipients = await mailableStewards(tx, plate);
+    const cleared: Bed = {
+      ...bed,
+      applauseNoticeAt: recipients.length === 0 ? null : bed.applauseNoticeAt,
+      applauseNoticeDueAt: null,
+    };
+    await tx.updateBed(cleared);
+    return recipients.length === 0 ? null : { bed: cleared, recipients };
   });
 }
 
@@ -701,6 +897,52 @@ export async function adoptBed(
   });
 }
 
+/**
+ * A steward renaming their bed, from their own view (`mine.astro`) — the
+ * captain's 2026-09-12 decision: "any steward can rename it", not only
+ * whoever named it first. The first-steward naming at adoption (`adoptBed`)
+ * is unchanged; this is the path for a bed that already has stewards.
+ *
+ * The name stays the BED's: bounded and sanitised like the adopt form's
+ * (`MAX_BED_NAME_CHARS`, `capped`), rendered as typed in both languages, and
+ * still the admin's to take down (`saveBlockSettings`). Every rename appends
+ * a `rename` event carrying the chosen name, so who changed it, when, and to
+ * what is on the record. An empty name is refused rather than read as a
+ * takedown — removing a name from a public street screen stays the admin's
+ * deliberate act, not a cleared field.
+ */
+export async function renameBedBySteward(
+  store: Store,
+  args: { plate: string; userId: string; name: string; now?: Date },
+): Promise<void> {
+  const name = capped(args.name, MAX_BED_NAME_CHARS);
+  if (name === '') throw new RuleError('invalid-input', 'A bed name needs at least one character');
+  const now = args.now ?? new Date();
+  // A save that changes nothing writes nothing — decided on a plain read
+  // first, because a transaction whose callback writes nothing still commits
+  // a revision on Blobs. The transaction below re-decides both checks; the
+  // steward check is read here too so this path never answers OK to a caller
+  // the rule never authorized.
+  const standing = await getActiveBed(store, args.plate);
+  if (standing !== null && standing.bedName === name) {
+    const standingStewards = await store.getActiveAdoptions(args.plate);
+    if (standingStewards.some((a) => a.userId === args.userId)) return;
+  }
+  await store.transaction(async (tx) => {
+    const bed = await getActiveBed(tx, args.plate);
+    if (!bed) throw new RuleError('bed-not-found', `No bed with plate ${args.plate}`);
+    const stewards = await tx.getActiveAdoptions(args.plate);
+    if (!stewards.some((a) => a.userId === args.userId)) {
+      // The route already redirects a non-steward away; this is the rule the
+      // screen cannot be trusted to be (spec §7).
+      throw new RuleError('not-steward', `Not an active steward of ${args.plate}`);
+    }
+    if (bed.bedName === name) return;
+    await tx.updateBed({ ...bed, bedName: name });
+    await appendEvent(tx, args.plate, 'rename', args.userId, null, now, { note: name });
+  });
+}
+
 // ── Sign-in by emailed link ─────────────────────────────────────────────
 //
 // Passwordless, by the captain's standing decision (adopt-name-split-r5): the
@@ -1038,6 +1280,14 @@ export interface AdminBedView {
    * themselves. Empty on every bed but the one the caller named.
    */
   openReportConfirms: Array<{ categories: ProblemCategory[]; note: string }>;
+  /**
+   * The bed's stored care photos, newest first — resolved for the ONE bed the
+   * caller names, like `openReport`, and empty on every other. The panel is
+   * the only surface that renders them (photos are admin-only), splitting
+   * them into the open report's own and the earlier reports' history by
+   * `ReportPhoto.reportId`.
+   */
+  photos: ReportPhoto[];
 }
 
 /** The block and its beds, in block order. */
@@ -1114,10 +1364,11 @@ export async function getBlockView(
       const user = await store.getUser(adoption.userId);
       if (user) stewards.push({ adoption, user });
     }
-    const openReport =
-      bed.plate === openReportFor ? ((await store.getOpenReport(bed.plate)) ?? null) : null;
+    const opened = bed.plate === openReportFor;
+    const openReport = opened ? ((await store.getOpenReport(bed.plate)) ?? null) : null;
     const openReportConfirms = await getOpenReportConfirms(store, bed.plate, openReport);
-    beds.push({ bed, stewards, openReport, openReportConfirms });
+    const photos = opened ? await store.getReportPhotosForBed(bed.plate) : [];
+    beds.push({ bed, stewards, openReport, openReportConfirms, photos });
   }
   return { block, beds, retired };
 }
@@ -1593,6 +1844,8 @@ export async function addBedByAdmin(
       careNote: '',
       blockId: args.blockId,
       blockPosition: position,
+      applauseNoticeAt: null,
+      applauseNoticeDueAt: null,
       nycSyncedAt: null,
       nycMissingSince: null,
       retiredAt: null,
@@ -1630,7 +1883,11 @@ export async function retireBedByAdmin(
       throw new RuleError('bed-not-found', `No bed ${args.plate} in block ${args.blockId}`);
     }
     if (bed.retiredAt !== null) return;
-    await tx.updateBed({ ...bed, retiredAt: now.toISOString() });
+    await tx.updateBed({
+      ...bed,
+      retiredAt: now.toISOString(),
+      applauseNoticeDueAt: null,
+    });
   });
 }
 
@@ -1663,6 +1920,39 @@ export async function restoreBedByAdmin(
 }
 
 /**
+ * "DELETE THIS PHOTO" on the block admin page, confirmed — the moderation
+ * control that accepting public uploads obliges: without it there is no way
+ * to take down something inappropriate.
+ *
+ * Removes the metadata ROW and answers with it; the caller deletes the blob
+ * behind it (blobs sit outside the transaction — store.ts, `PhotoBlobs`), in
+ * that order, so a crash between the two leaves an invisible orphan blob
+ * rather than a row pointing at nothing. Scoped to the block the page names,
+ * like `retireBedByAdmin`, so the route cannot be used to walk photo ids at
+ * large. The report the photo rode in on is untouched: what the neighbour
+ * SAID is not what is being moderated.
+ *
+ * Idempotent at the route's confirmation shape: a photo already gone answers
+ * `photo-not-found`, which the confirmation page turns into the block page
+ * rather than an error — the same stale-tab answer the bed delete gives.
+ */
+export async function deleteReportPhotoByAdmin(
+  store: Store,
+  args: { blockId: string; photoId: string },
+): Promise<ReportPhoto> {
+  return store.transaction(async (tx) => {
+    const photo = await tx.getReportPhoto(args.photoId);
+    if (!photo) throw new RuleError('photo-not-found', `No stored photo ${args.photoId}`);
+    const bed = await tx.getBed(photo.bedPlate);
+    if (!bed || bed.blockId !== args.blockId) {
+      throw new RuleError('photo-not-found', `Photo ${args.photoId} is not on block ${args.blockId}`);
+    }
+    await tx.deleteReportPhoto(photo.id);
+    return photo;
+  });
+}
+
+/**
  * The next plate in a block's own sequence: the siblings' prefix with the
  * next number, walked past any plate that exists anywhere — plates are the
  * global join key, so a collision outside the block still counts.
@@ -1685,7 +1975,9 @@ async function appendEvent(
   actorId: string | null,
   severity: Severity | null,
   now?: Date,
-  said?: { categories?: ProblemCategory[]; note?: string; reportId: string },
+  // `reportId` is optional because not everything said is about a report: a
+  // `rename` carries the chosen name in `note` and names no report.
+  said?: { categories?: ProblemCategory[]; note?: string; reportId?: string },
 ): Promise<void> {
   await store.appendEvent({
     id: `event-${randomUUID()}`,

@@ -34,6 +34,8 @@ const BED: Bed = {
   careNote: '',
   blockId: null,
   blockPosition: null,
+  applauseNoticeAt: null,
+  applauseNoticeDueAt: null,
   nycSyncedAt: null,
   nycMissingSince: null,
   retiredAt: null,

@@ -5,8 +5,10 @@ Tap a tag on a tree guard and the bed's own state picks the screen.
 A bed with no steward yet asks to be adopted; a bed that has one shows who stewards it and offers applause.
 A steward is engraved as a handle and their initials — `@MapleSteward42`, `M. R.` — never as their name: the handle is generated server-side for everyone who adopts at the tag, and for a sidewalk signup written in on the admin page unless the admin deliberately types one.
 A bed the admin has opened no slot on says so instead of inviting anyone — the adoption invitation is withheld on either door until a slot is offered, which is the state the six older W 171st tags open in, while the captain's 22 named-run beds open with their one slot already offered.
-The first steward to adopt a bed gets to name it, and that name is the bed's from then on — it shows on both doors for the whole block, outlives the steward who gave it, and only the block admin can take it down.
+The first steward to adopt a bed gets to name it, and that name is the bed's from then on — it shows on both doors for the whole block and outlives the steward who gave it.
+Any active steward can rename it afterwards from their own view, each rename recorded as an event saying who changed it, when, and to what; the block admin never authors a name and can only take one down.
 Either door's second button is "this bed needs care" — thirsty plants, litter, guard damage or something else, as many as apply, with an optional photo — and both actions end on a full-screen takeover.
+Applause is counted once per person per bed per day, and the first one each day tells the bed's stewards by email — at most one notice per bed per day, however many people press it, and the press itself waits on no mail.
 A steward is shown the bed's own `/t/<id>` URL to bookmark — on the "Adopted!" takeover and on the door they come back to — so getting back to their bed never depends on tapping the tag again.
 
 Every tap screen stands on solid Post No Bills Green with Poster Beige as the secondary — the ink, the buttons and the paper under the containers and picker tiles.
@@ -30,6 +32,7 @@ The species is the profile's one typed row, because a species is a name and not 
 A bed whose species nobody has recorded — which is how the 22 named-run beds seed — still gets whole sentences on both doors, framed on the generic tree ("This tree's bed is looking for a steward."), while the About page states "not recorded" rather than guessing.
 That profile is what the public "About this bed" page (`/t/<tag>/about`, a small text link under either door's buttons) states, above a network-wide FAQ and links to NYC Parks and 311.
 The same panel states the bed's open report read-only — what was picked, the note, when it was opened, how many neighbours added their weight and what each of them picked and typed — so a report filed at the tag is seen there in full; closing it stays the steward's act.
+The photos neighbours attach are stored and shown there too, and nowhere else: the open report's under its band, earlier reports' below it as the bed's history, and the only way one comes off is the admin deleting it behind its own confirmation page.
 
 ## Run it
 
@@ -65,6 +68,7 @@ Some of the six older W 171st beds are physically among the 22, but nothing can 
 Sign-in is passwordless: the steward asks for a link at `/t/<tag>/auth` with the email they adopted with, and with no `BREVO_API_KEY` configured the mail lands as a JSON file in `.data/outbox/` — open the link inside it and press its one SIGN IN button to sign in locally (the seeded steward's email is `seed-marisol@example.invalid`; opening the link alone spends nothing, because mail scanners prefetch links).
 The site root redirects to the demo binding by name, so monitors and crawlers hitting `/` never land on a real bed — and only while that binding still names a live bed, so retiring the demo bed (or a store that can't be read) leaves a calm bilingual screen at 200 rather than turning a pinned uptime check red.
 The checked-in blocks and beds also backfill into an already-seeded store on its next load, insert-only, so a live store gains them without a migration step.
+Care photos are stored beside that file in `.data/photos/` (their own blobs on Netlify), outside the dataset itself, because every commit rewrites the dataset whole.
 Delete `.data/` to reset.
 `TREEBED_DATA_DIR` puts that directory — the store and the dev session secret both — somewhere else; the end-to-end suite uses it to give every server it spawns a fresh one.
 
@@ -92,7 +96,8 @@ NETLIFY_SITE_ID=449a9585-ae51-4e23-9614-fe5b3ac669f1 npx netlify-cli@latest depl
 Don't set the build-time three with `netlify env:set` — a site-level variable silently overrides this file.
 `TREEBED_ADMIN_KEY` is what gives a deployed site an admin at all; the pilot has held one since 2026-09-10, and where it is unset `/admin` stays a 404.
 Like the session secret it belongs in the site's own environment, never in `netlify.toml` — a key checked into the repo is a published one.
-Where the mail keys are unset, email sign-in says it isn't ready and the daily digest function (`netlify/functions/digest.mts`) no-ops with a log line; the digest also stays silent until the block admin turns its cadence on — it ships defaulted to off.
+Where the mail keys are unset, email sign-in says it isn't ready and the daily scheduled function (`netlify/functions/digest.mts`) no-ops with a log line; the digest also stays silent until the block admin turns its cadence on — it ships defaulted to off.
+That same daily run delivers the applause notices a press queued, which do not wait on the digest cadence: they are a different mail, and a notice stays queued rather than burnt while mail is unconfigured.
 The seed holds no sign-in secret on any backend: the seeded steward's `.invalid` email can receive no link, so nothing opens that account on the deployed site.
 
 A field a live store was written with before a rule existed is corrected by appending a forward revision, never by wiping and re-seeding.

@@ -15,6 +15,7 @@
 // CLAIMS dirt when a script has watched it happen; without the script the
 // line states what the server last knew.
 import AdminScreen from '../../../../layouts/AdminScreen.astro';
+import AdminPhotoGrid from '../../../../components/AdminPhotoGrid.astro';
 import { refuseAdminWithBody, requireAdmin } from '../../../../lib/admin-route';
 import { bi } from '../../../../lib/bilingual';
 import { ADMIN, ADOPT, COMMON } from '../../../../lib/copy';
@@ -32,6 +33,7 @@ import { MAX_NOTE_CHARS, problemFor } from '../../../../lib/problem';
 import { MAX_FORM_BYTES, readFormOrRefuse } from '../../../../lib/request-body';
 import { capped } from '../../../../lib/typed-text';
 import {
+  ADMIN_EARLIER_PHOTOS_SHOWN,
   MAX_ADDRESS_CHARS,
   MAX_BED_NOTE_CHARS,
   MAX_BED_SLOTS,
@@ -49,7 +51,6 @@ import {
   guardMaterialFrom,
   publicHandle,
   publicInitials,
-  type Bed,
   type GuardMaterial,
   type Report,
 } from '../../../../lib/types';
@@ -220,6 +221,10 @@ if (Astro.request.method === 'POST') {
     const params = new URLSearchParams();
     if (plate !== '') params.set('bed', plate);
     params.set('saved', '1');
+    // The form's action carries the whole query string through, so a save made
+    // with the older photos revealed comes back revealed: collapsing to the
+    // capped six would cost a tap on a phone on the sidewalk.
+    if (Astro.url.searchParams.get('photos') === 'all') params.set('photos', 'all');
     return Astro.redirect(langLink(`/admin/blocks/${blockId}?${params}`, lang), 303);
   }
 }
@@ -240,6 +245,9 @@ const savedFlash = Astro.url.searchParams.get('saved') === '1';
 const deletedFlash = Astro.url.searchParams.get('deleted') === '1';
 // And the way back from one: the bed is on the list again, with its tag live.
 const restoredFlash = Astro.url.searchParams.get('restored') === '1';
+// The photo delete confirmation (`delete-photo.astro`) lands back here with
+// this flag, on the bed panel it left from.
+const photoDeletedFlash = Astro.url.searchParams.get('photodeleted') === '1';
 // A panel link to a bed that has since been deleted — a bookmark, history, or
 // the language toggle carrying the stale `bed=` along — lands in list mode,
 // and says the bed is gone rather than nothing, the way `add-steward.astro`
@@ -267,7 +275,9 @@ const flash: Phrase | null = staleBed
     ? ADMIN.bedDeleted
     : restoredFlash
       ? ADMIN.bedRestored
-      : null;
+      : photoDeletedFlash
+        ? ADMIN.photoDeleted
+        : null;
 // The slot count the panel draws. A "+ ADD SLOT" press — and a refused save
 // that had made one — comes back with that slot on the page, and a hidden
 // field carries it into the next submit, so nothing but SAVE CHANGES grows
@@ -341,6 +351,28 @@ const openReportLines = (report: Report, confirms: AdminBedView['openReportConfi
 const openReport = selected?.openReport
   ? openReportLines(selected.openReport, selected.openReportConfirms)
   : null;
+
+// The opened bed's stored photos, split by the exact report join — never a
+// time window: the open report's own sit under its band, and the rest are the
+// bed's history from reports since closed. Each is a link to the delete
+// confirmation (`delete-photo.astro`), a LINK for the same two reasons the
+// retired rows' RESTORE is one: the panel sits inside the page's single big
+// form, and a destructive act gets its own deliberate second tap.
+const openReportPhotos = (selected?.photos ?? []).filter(
+  (p) => selected?.openReport !== null && p.reportId === selected?.openReport?.id,
+);
+const allEarlierPhotos = (selected?.photos ?? []).filter(
+  (p) => selected?.openReport === null || p.reportId !== selected?.openReport?.id,
+);
+// Capped at the most recent few unless the captain asked for the rest: the
+// history has no pruning behind it, and every photo drawn is a full download
+// through the function. The reveal is a query param the server reads, so it
+// works with no script like every other state on this page.
+const showAllPhotos = Astro.url.searchParams.get('photos') === 'all';
+const earlierPhotos = showAllPhotos
+  ? allEarlierPhotos
+  : allEarlierPhotos.slice(0, ADMIN_EARLIER_PHOTOS_SHOWN);
+const olderPhotosHidden = allEarlierPhotos.length - earlierPhotos.length;
 
 // What the panel's three-way rows stand at right now: the pick a refused save
 // left on the page, otherwise the record. The badge, the sub-line and the
@@ -666,6 +698,17 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                     <span {...bi(openReport.opened, lang)}>{openReport.opened[lang]}</span> ·{' '}
                     <span {...bi(openReport.confirmations, lang)}>{openReport.confirmations[lang]}</span>
                   </div>
+                  {/* The stored photos this report carried — what "Photo
+                      attached" means now that photos are kept. Admin-only:
+                      this panel is the one surface that renders them. */}
+                  {openReportPhotos.length > 0 && (
+                    <AdminPhotoGrid
+                      photos={openReportPhotos}
+                      base={base}
+                      showAllPhotos={showAllPhotos}
+                      lang={lang}
+                    />
+                  )}
                   {openReport.alsoSaid.length > 0 && (
                     <div class="report-also">
                       <div class="report-also-title" {...bi(ADMIN.reportAlsoSaid, lang)}>
@@ -698,6 +741,35 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
                 <div class="blockmeta" {...bi(ADMIN.noOpenReport, lang)}>
                   {ADMIN.noOpenReport[lang]}
                 </div>
+              )}
+
+              {/* Photos from reports since closed: kept as the bed's history
+                  (a photo stays with its report when the report closes), each
+                  still deletable — moderation does not expire. */}
+              {earlierPhotos.length > 0 && (
+                <>
+                  <div class="panel-title photos-head" {...bi(ADMIN.photosEarlierHead, lang)}>
+                    {ADMIN.photosEarlierHead[lang]}
+                  </div>
+                  <div class="blockmeta" {...bi(ADMIN.photosEarlierNote, lang)}>
+                    {ADMIN.photosEarlierNote[lang]}
+                  </div>
+                  <AdminPhotoGrid
+                    photos={earlierPhotos}
+                    base={base}
+                    showAllPhotos={showAllPhotos}
+                    lang={lang}
+                  />
+                  {olderPhotosHidden > 0 && (
+                    <a
+                      class="photos-older"
+                      href={langLink(`${base}?bed=${selected.bed.plate}&photos=all`, lang)}
+                      {...bi(ADMIN.photosShowOlder, lang)}
+                    >
+                      {ADMIN.photosShowOlder[lang]}
+                    </a>
+                  )}
+                </>
               )}
 
               {/* Only a NAMED bed gets this row: the switch removes the
@@ -1297,6 +1369,18 @@ const saveState = submitted ? ADMIN.unsaved : savedFlash ? ADMIN.saved : ADMIN.n
   .report-also-cats { font-weight: 500; }
   .report-also-sep { margin: 0 4px; color: var(--ink-quiet); }
   .report-also-note { font-style: italic; margin-left: 6px; }
+  /* Stored care photos are their own component (AdminPhotoGrid), styles
+     included; this is only the heading above the history section. */
+  .photos-head { margin-top: 18px; }
+  .photos-older {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--theme-action);
+    text-decoration: none;
+  }
   .profile-head { margin-top: 22px; }
   .note-field { margin: 12px 0 4px; }
   .note-field .freetext { min-height: 0; }
