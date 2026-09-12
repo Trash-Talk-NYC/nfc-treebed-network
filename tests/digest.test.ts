@@ -131,6 +131,32 @@ describe('one run', () => {
     expect(sent.map((m) => m.to.email)).toEqual(['seed-marisol@example.invalid']);
   });
 
+  it('opens no transaction for a steward with nothing to send', async () => {
+    await weeklyCadence();
+    await store.createUser(
+      seededMarisol({ id: 'user-bedless', username: 'bedless', email: 'b@example.com' }),
+    );
+    // Such a steward is never claimed, so they stay due for every run from
+    // here on — and on the Blobs backend a transaction that writes nothing
+    // still commits a revision, so the run must not open one for them.
+    let transactions = 0;
+    const counted = new Proxy(store, {
+      get(target, prop, receiver) {
+        if (prop === 'transaction') {
+          return (...args: Parameters<typeof store.transaction>) => {
+            transactions += 1;
+            return store.transaction(...args);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const { sent, send } = capture();
+    await runDigest(counted, { origin: 'https://example.org', now: NOW, send });
+    expect(sent).toHaveLength(1);
+    expect(transactions).toBe(1);
+  });
+
   it('does nothing at all on the shipped default, which is off', async () => {
     const { sent, send } = capture();
     const run = await runDigest(store, { origin: 'https://example.org', now: NOW, send });

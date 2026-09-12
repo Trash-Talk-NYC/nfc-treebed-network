@@ -712,11 +712,13 @@ export const MAX_SIGNIN_REQUESTS_PER_BED = 12;
  * grows the dataset.
  *
  * Residual, accepted: a request past the ceiling makes no commit and is
- * therefore measurably faster, so the ceiling is a timing signal for "this bed
- * has taken 200 misses this hour" — which is a fact about the bed, not about
- * any address, and so says nothing about who is on the network. It sits in the
- * same accepted tier as the mail call a resolved request makes, and the answer
- * itself stays byte-identical.
+ * therefore measurably faster, and only UNRESOLVED requests skip it — so on a
+ * bed somebody has cheaply pushed past 200 misses, the ceiling WIDENS the
+ * resolved-versus-unresolved timing gap that already exists there rather than
+ * being neutral: fast means the address resolved to nobody, slow means a real
+ * steward. It grants nothing over the mail call a resolved request makes, which
+ * is the same accepted tier (documented below), and the answer itself stays
+ * byte-identical.
  */
 export const MAX_SIGNIN_MISSES_PER_BED = 200;
 

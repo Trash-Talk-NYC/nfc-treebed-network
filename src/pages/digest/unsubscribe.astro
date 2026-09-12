@@ -62,13 +62,23 @@ if (method === 'POST') {
   // a user that no longer exists still lands on the calm done screen —
   // there is nothing left to mail either way, and "did this id ever exist"
   // is not worth answering.
+  //
+  // Whether there is anything to flip is decided on a plain read FIRST,
+  // because BlobsStore.transaction commits a revision even when the callback
+  // writes nothing: this link never expires, so a scanner or a forwarded
+  // digest replaying the POST would otherwise mint one whole-dataset
+  // re-serialization per request forever. The transaction still re-decides,
+  // so the claim stays race-safe; the answer is the same screen either way.
   const store = getStore();
-  await store.transaction(async (tx) => {
-    const user = await tx.getUser(userId);
-    if (user && !user.digestOptedOut) {
-      await tx.updateUser({ ...user, digestOptedOut: true });
-    }
-  });
+  const existing = await store.getUser(userId);
+  if (existing && !existing.digestOptedOut) {
+    await store.transaction(async (tx) => {
+      const user = await tx.getUser(userId);
+      if (user && !user.digestOptedOut) {
+        await tx.updateUser({ ...user, digestOptedOut: true });
+      }
+    });
+  }
   done = true;
 }
 

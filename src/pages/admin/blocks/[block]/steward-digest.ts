@@ -28,16 +28,23 @@ export const POST: APIRoute = async ({ request, cookies, url, params }) => {
   const plate = String(form.get('bed') ?? '');
   const stewardId = String(form.get('steward') ?? '');
   const store = getStore();
-  await store.transaction(async (tx) => {
-    const bed = await tx.getBed(plate);
-    if (!bed || bed.blockId !== blockId) return;
-    const holds = (await tx.getActiveAdoptions(plate)).some((a) => a.userId === stewardId);
-    if (!holds) return;
-    const user = await tx.getUser(stewardId);
-    if (user && user.digestOptedOut) {
-      await tx.updateUser({ ...user, digestOptedOut: false });
-    }
-  });
+  // Plain read first, for the reason the unsubscribe POST does the same: a
+  // transaction whose callback writes nothing still commits a revision on the
+  // Blobs backend, and a press that matches nothing should cost a read. The
+  // transaction below re-decides all three checks, so the write stays race-safe.
+  const existing = await store.getUser(stewardId);
+  if (existing?.digestOptedOut) {
+    await store.transaction(async (tx) => {
+      const bed = await tx.getBed(plate);
+      if (!bed || bed.blockId !== blockId) return;
+      const holds = (await tx.getActiveAdoptions(plate)).some((a) => a.userId === stewardId);
+      if (!holds) return;
+      const user = await tx.getUser(stewardId);
+      if (user && user.digestOptedOut) {
+        await tx.updateUser({ ...user, digestOptedOut: false });
+      }
+    });
+  }
   // Back to the steward panel either way: a press that matched nothing
   // changed nothing, and the panel shows the state as it stands.
   //

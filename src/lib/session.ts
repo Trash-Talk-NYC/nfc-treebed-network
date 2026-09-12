@@ -14,6 +14,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AstroCookies } from 'astro';
 
+import { devFallbackSecret } from './signing-secret';
+
 const SESSION_COOKIE = 'tg_session';
 const VISITOR_COOKIE = 'tg_visitor';
 const YEAR_SECONDS = 60 * 60 * 24 * 365;
@@ -37,16 +39,11 @@ function getSecret(): string {
       'TREEBED_SESSION_SECRET must be set in production — refusing to sign cookies with a generated secret.',
     );
   }
-  // Local-dev fallback: generate once and keep next to the JSON store.
-  const dir = process.env.TREEBED_DATA_DIR ?? path.resolve('.data');
-  const file = path.join(dir, 'session-secret');
-  try {
-    secret = readFileSync(file, 'utf8').trim();
-  } catch {
-    secret = randomBytes(32).toString('hex');
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(file, secret, { mode: 0o600 });
-  }
+  // Local-dev fallback, owned by signing-secret.ts so there is one place that
+  // decides where the dev secret lives and one copy of it: this module and the
+  // no-`import.meta` resolver the scheduled function uses must key the same
+  // MACs, and two independent generators could race the file and disagree.
+  secret = devFallbackSecret();
   return secret;
 }
 

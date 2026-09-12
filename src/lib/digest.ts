@@ -250,6 +250,11 @@ export async function runDigest(
   // duplicate mail.
   const candidates = (await store.getUsers()).filter((user) => digestDue(user, digestCadence, now));
   for (const candidate of candidates) {
+    // A steward with no active adoption has nothing to gather and never has
+    // its claim advanced, so it stays due for every run from here on. Deciding
+    // that on a plain read keeps it from costing a revision each time, since a
+    // transaction whose callback writes nothing still commits one on Blobs.
+    if ((await store.getActiveAdoptionsForUser(candidate.id)).length === 0) continue;
     const content = await store.transaction(async (tx) => {
       const user = await tx.getUser(candidate.id);
       if (!user || !digestDue(user, digestCadence, now)) return null;
