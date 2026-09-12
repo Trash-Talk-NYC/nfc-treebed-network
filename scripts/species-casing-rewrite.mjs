@@ -5,9 +5,7 @@
 // it carries the whole rationale for this remediation.
 
 import { englishSpeciesFor, tableSpeciesCasingFor } from '../src/lib/tree-species.ts';
-import { HEAD_KEY, REVISION_PREFIX } from '../src/lib/store-keys.ts';
-
-const MAX_COMMIT_ATTEMPTS = 5;
+import { commitForwardRevision } from './forward-revision.mjs';
 
 /**
  * The table's own spelling of an English common name a store holds, when the
@@ -84,35 +82,6 @@ export function rewriteSpeciesCasing(data) {
   return { data: next, changes, kept };
 }
 
-const revisionKey = (revision) => `${REVISION_PREFIX}${revision}`;
-
-/** The newest revision in the chain, and the raw dataset it holds. */
-async function readNewest(blobs) {
-  const raw = await blobs.get(HEAD_KEY, { type: 'text' });
-  const head = Number(raw);
-  let revision = Number.isInteger(head) && head > 0 ? head : await newestListed(blobs);
-  let data = await blobs.get(revisionKey(revision), { type: 'json' });
-  if (data === null) throw new Error(`No dataset at ${revisionKey(revision)} — nothing to rewrite.`);
-  // The pointer is a lower bound; forward gets are what say where the chain ends.
-  for (;;) {
-    const next = await blobs.get(revisionKey(revision + 1), { type: 'json' });
-    if (next === null) return { data, revision };
-    revision += 1;
-    data = next;
-  }
-}
-
-async function newestListed(blobs) {
-  const { blobs: keys } = await blobs.list({ prefix: REVISION_PREFIX });
-  let newest = 0;
-  for (const { key } of keys) {
-    const revision = Number(key.slice(REVISION_PREFIX.length));
-    if (Number.isInteger(revision) && revision > newest) newest = revision;
-  }
-  if (newest === 0) throw new Error('No revisions in the store — nothing to rewrite.');
-  return newest;
-}
-
 /**
  * Read the newest revision, rewrite what is safe to rewrite, and (with
  * `commit`) append the result as the next revision. Returns what changed.
@@ -122,32 +91,28 @@ async function newestListed(blobs) {
  */
 export async function rewriteStoredSpeciesCasing(blobs, options = {}) {
   const { commit = false, log = () => {} } = options;
-  for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
-    const { data, revision } = await readNewest(blobs);
-    const { data: rewritten, changes, kept } = rewriteSpeciesCasing(data);
-    for (const { plate, field, value, reason } of kept) {
-      log(`  kept  ${plate} ${field}: "${value}" — ${reason}`);
-    }
-    if (changes.length === 0) {
-      log(`rev/${revision}: every species name is already the table's own — nothing to do.`);
-      return { changes, kept, revision, committed: null };
-    }
-    for (const { plate, field, from, to } of changes) {
-      log(`change ${plate} ${field}: "${from}" → "${to}"`);
-    }
-    if (!commit) {
-      log(`\nDry run. Re-run with --commit to append rev/${revision + 1}.`);
-      return { changes, kept, revision, committed: null };
-    }
-    const write = await blobs.set(revisionKey(revision + 1), JSON.stringify(rewritten), {
-      onlyIfNew: true,
-    });
-    if (write.modified) {
-      await blobs.set(HEAD_KEY, String(revision + 1));
-      log(`\nCommitted rev/${revision + 1} (${changes.length} field(s) rewritten).`);
-      return { changes, kept, revision, committed: revision + 1 };
-    }
-    log(`rev/${revision + 1} was taken by a concurrent commit — re-reading.`);
-  }
-  throw new Error(`Lost ${MAX_COMMIT_ATTEMPTS} commits in a row — nothing was written.`);
+  const { result, revision, committed } = await commitForwardRevision(
+    blobs,
+    (data, revision) => {
+      const { data: rewritten, changes, kept } = rewriteSpeciesCasing(data);
+      for (const { plate, field, value, reason } of kept) {
+        log(`  kept  ${plate} ${field}: "${value}" — ${reason}`);
+      }
+      if (changes.length === 0) {
+        log(`rev/${revision}: every species name is already the table's own — nothing to do.`);
+      }
+      for (const { plate, field, from, to } of changes) {
+        log(`change ${plate} ${field}: "${from}" → "${to}"`);
+      }
+      return { data: rewritten, result: { changes, kept }, skip: changes.length === 0 };
+    },
+    {
+      commit,
+      log,
+      subject: 'rewrite',
+      committedLine: (revision, { changes }) =>
+        `Committed rev/${revision} (${changes.length} field(s) rewritten).`,
+    },
+  );
+  return { ...result, revision, committed };
 }

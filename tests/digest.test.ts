@@ -16,7 +16,7 @@ import {
   unsubscribePath,
   verifyUnsubscribe,
 } from '../src/lib/digest';
-import { reportProblem, sendApplause } from '../src/lib/service';
+import { adoptBed, reportProblem, sendApplause } from '../src/lib/service';
 import type { MailMessage } from '../src/lib/mail';
 import type { User } from '../src/lib/types';
 
@@ -205,6 +205,25 @@ describe('what the mail says', () => {
     expect(mail.text).toMatch(/\/digest\/unsubscribe\?u=user-marisol&s=[A-Za-z0-9_-]+/);
     expect(mail.headers?.['List-Unsubscribe']).toMatch(/^<https:\/\/example\.org\/digest\/unsubscribe\?u=user-marisol&s=[A-Za-z0-9_-]+&lang=es>$/);
     expect(mail.headers?.['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
+  });
+
+  it('links a renamed bed by the captain’s named id, not the older tag it kept', async () => {
+    // BED-WH-1712 carries two active bindings — the opaque `1hc0t9cj` the
+    // captain shared before the rename, and the `9nhfw171` he renamed it to,
+    // which is newer. The mail must speak the address he asked for; the old
+    // tag stays live for whoever already holds it (tag-bindings.ts).
+    await weeklyCadence();
+    await adoptBed(store, {
+      plate: 'BED-WH-1712',
+      input: { firstName: 'Rita', lastName: 'Okafor', email: 'rita@example.invalid', phone: '' },
+      now: new Date(NOW.getTime() - 2 * WEEK_MS),
+    });
+    const { sent, send } = capture();
+    await runDigest(store, { origin: 'https://example.org', now: NOW, send });
+    const mail = sent.find((m) => m.to.email === 'rita@example.invalid');
+    expect(mail).toBeDefined();
+    expect(mail!.text).toContain('https://example.org/t/9nhfw171/mine');
+    expect(mail!.text).not.toContain('/t/1hc0t9cj/');
   });
 
   it('escapes the visitor-typed bed name in the HTML half', async () => {

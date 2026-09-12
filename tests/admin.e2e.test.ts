@@ -406,7 +406,7 @@ describe('the admin door', () => {
   });
 
   it('records a species on a named-run bed, and takes it back on a cleared name', async () => {
-    // The 22 named-run beds seed with no species (checked-in-beds.ts), so this
+    // The 20 fresh named-run beds seed with no species (checked-in-beds.ts), so this
     // row is the captain's only way to record one — and the doors headline
     // what it writes. Through the rendered page and its own field names,
     // because that is where a form and a rule can drift apart.

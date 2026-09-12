@@ -104,29 +104,37 @@ describe('the six real beds on W 171st', () => {
     expect(new Set(globals).size).toBe(6);
   });
 
-  it('seeds every bed with the profile defaults: nothing recorded at all', async () => {
+  it('seeds every bed with the profile defaults: nothing recorded he did not say', async () => {
     // Guards are ordered in the real world and tags go in with them, so the
     // profile asserts nothing about the guard — null, never 'none' — until
     // the captain records the material on the admin page. The tree, the
     // plants and the planting recommendation follow the same rule: null,
-    // never false, so the public page publishes "nothing planted yet" — or
-    // "no tree" — only once somebody has stood at the bed and said so.
+    // never false — EXCEPT where the captain said so himself: the two beds
+    // he renamed 9NHFW171/8NHFW171 (BED-WH-1712/1713) carry his "no plants
+    // and don't recommend planting" (checked-in-beds.ts, `captainNamed`).
+    const renamed = new Set(['BED-WH-1712', 'BED-WH-1713']);
     const view = await getBlockView(freshStore(), W171_BLOCK_ID);
     for (const { bed } of view!.beds) {
       expect(bed.guard, bed.plate).toBeNull();
       expect(bed.treePresent, bed.plate).toBeNull();
-      expect(bed.plantsPresent, bed.plate).toBeNull();
-      expect(bed.plantingRecommended, bed.plate).toBeNull();
+      if (renamed.has(bed.plate)) {
+        expect(bed.plantsPresent, bed.plate).toBe(false);
+        expect(bed.plantingRecommended, bed.plate).toBe(false);
+      } else {
+        expect(bed.plantsPresent, bed.plate).toBeNull();
+        expect(bed.plantingRecommended, bed.plate).toBeNull();
+      }
       expect(bed.plantsNote, bed.plate).toBe('');
       expect(bed.recommendedPlantsNote, bed.plate).toBe('');
       expect(bed.careNote, bed.plate).toBe('');
     }
   });
 
-  it('starts every bed unoffered: opening one is the captain’s act, on the admin page', async () => {
+  it('starts every bed unoffered except the two the captain renamed and opened', async () => {
+    const renamed = new Set(['BED-WH-1712', 'BED-WH-1713']);
     const view = await getBlockView(freshStore(), W171_BLOCK_ID);
     for (const { bed } of view!.beds) {
-      expect(bed.offeredSlots, bed.plate).toBe(0);
+      expect(bed.offeredSlots, bed.plate).toBe(renamed.has(bed.plate) ? 1 : 0);
       expect(bed.slots, bed.plate).toBe(1);
     }
   });
@@ -1052,7 +1060,7 @@ describe('restoring a deleted bed', () => {
 });
 
 describe('the panel’s species row', () => {
-  // The 22 named-run beds seed with no species at all (checked-in-beds.ts,
+  // The 20 fresh named-run beds seed with no species at all (checked-in-beds.ts,
   // "i will update it to match NYC parks"), so this row is the only way the
   // captain records one — and it must read like the add-bed form, because
   // both go through `resolveSpecies`.

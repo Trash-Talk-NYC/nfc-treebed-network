@@ -32,9 +32,8 @@ Promotion always requires the exact predecessor, so nothing can skip a step on t
 The back-merge sources travel the other way, down the chain, and exist for the hotfix path below.
 
 CI (`promotion-chain.yml`) flags any PR into `qa`/`stage`/`prod`/`main` that comes from a branch outside that table, by failing a check on the PR.
-It runs on every pull request and passes immediately for any other base, so if you opened a PR against the wrong branch, retargeting it to `dev` is the fix — never a change to the check.
-Retargeting on its own does not always report a fresh answer, though: the re-run depends on the `edited` event producing one, and where it does not, the earlier failure stays on the PR's unchanged head SHA and the PR reads red although its base is now correct.
-Push a commit to the branch (or re-run the workflow from the Actions tab) after retargeting, and the check re-evaluates against the new base and clears.
+It runs on every pull request and passes immediately for any other base, so if you opened a PR against the wrong branch, retargeting it to `dev` clears it.
+The check reads the pull request's base from the API rather than from the event payload, because a payload records the base the run was created with and a re-run replays it — so a re-run of the failed check clears a retargeted PR too, without needing a new commit.
 
 ## Hotfix
 

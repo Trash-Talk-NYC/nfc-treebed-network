@@ -1,9 +1,15 @@
 // Carry a steward from one bed's record to another's on the LIVE store —
-// the day the captain stands at his tree and says which of the 22 named-run
-// beds (checked-in-beds.ts, `captainRunBeds`) is the one his adoption on
+// the day the captain stands at his tree and says which of the named-run ids
+// (checked-in-beds.ts, `captainRunBeds`) is the one his adoption on
 // BED-WH-1711 actually belongs to. Nothing can map the old records onto the
 // new ids for him: his street numbers are loose cluster references, not
 // locators, so the answer only exists at the tree.
+//
+// Where he names a bed the network already holds, the shape 8N/9N set is the
+// one to follow — bind the named id to the EXISTING plate rather than minting
+// a fresh bed, and no carry is needed at all. This script is for the case
+// that shape cannot fix: a steward who has meanwhile adopted the duplicate
+// record, who has to be carried off it before it retires.
 //
 // The rule is `carrySteward` in src/lib/steward-carry.ts — the same rule the
 // service layer and the tests run — and its header says exactly what moves

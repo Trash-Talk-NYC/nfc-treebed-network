@@ -1,5 +1,5 @@
 // Carrying a steward between beds (steward-carry.ts) — the tested, reversible
-// path for the day the captain says which of the 22 named-run beds his
+// path for the day the captain says which of the named-run ids his
 // adoption on BED-WH-1711 belongs to. What these prove, deliberately in the
 // captain's own scenario: the adoption survives the carry intact, the carry
 // reverses to exactly the state it started from, and every refusal refuses

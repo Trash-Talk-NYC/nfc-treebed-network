@@ -82,8 +82,10 @@ export interface Bed {
    * typed both deliberately looks like.
    *
    * `null` is NOT YET RECORDED, the same rule as `guard` below: nobody has
-   * said what stands (or belongs) in this bed. The 22 captain-run beds seed
-   * here — he will fill species in from NYC Parks' data — and the screens
+   * said what stands (or belongs) in this bed. The 20 fresh captain-run beds
+   * seed here — he will fill species in from NYC Parks' data; the other two
+   * named ids are the renamed BED-WH-1712/1713, which keep the willow-oak
+   * species they were already recorded with — and the screens
    * degrade to the generic tree (`GENERIC_TREE`) inside the door frames,
    * which stay grammatical in both languages ("This tree's bed…" / "El
    * cantero de este árbol…"), never to a guessed species and never to a

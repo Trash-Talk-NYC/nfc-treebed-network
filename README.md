@@ -4,7 +4,7 @@ The post-tap experience for Trash Talk NYC's NFC tree bed network.
 Tap a tag on a tree guard and the bed's own state picks the screen.
 A bed with no steward yet asks to be adopted; a bed that has one shows who stewards it and offers applause.
 A steward is engraved as a handle and their initials — `@MapleSteward42`, `M. R.` — never as their name: the handle is generated server-side for everyone who adopts at the tag, and for a sidewalk signup written in on the admin page unless the admin deliberately types one.
-A bed the admin has opened no slot on says so instead of inviting anyone — the adoption invitation is withheld on either door until a slot is offered, which is the state the six older W 171st tags open in, while the captain's 22 named-run beds open with their one slot already offered.
+A bed the admin has opened no slot on says so instead of inviting anyone — the adoption invitation is withheld on either door until a slot is offered, which is the state four of the six older W 171st tags open in, while the captain's named-run beds — and the two older beds he renamed onto N-run ids — open with their one slot already offered.
 The first steward to adopt a bed gets to name it, and that name is the bed's from then on — it shows on both doors for the whole block and outlives the steward who gave it.
 Any active steward can rename it afterwards from their own view, each rename recorded as an event saying who changed it, when, and to what; the block admin never authors a name and can only take one down.
 Either door's second button is "this bed needs care" — thirsty plants, litter, guard damage or something else, as many as apply, with an optional photo — and both actions end on a full-screen takeover.
@@ -27,9 +27,9 @@ It is where a block's beds are opened for adoption one slot at a time (`Bed.offe
 A bed can also be added, and deleted one at a time behind a confirmation page; deleting retires the row rather than erasing it (`Bed.retiredAt`), so the plate keeps its history and a "Deleted beds" section below the street list restores it.
 Adding a bed there asks only for the English species name: the Spanish one defaults from a checked-in table (`src/lib/tree-species.ts`), a typed Spanish name wins over it, and a species the table doesn't know falls back to the generic "árbol" rather than a guess — nobody has to go and look a translation up.
 It is also where each bed's profile is kept: the species, the guard (none, wood or metal), whether a tree and plants are present, whether Trash Talk recommends planting, and the admin's typed notes on what is planted, what to plant and what care the bed needs.
-The guard, the tree, the plants and the planting recommendation are each three-way — every bed starts at not yet recorded, the public page then says nothing about it, and a NOT RECORDED choice beside the answers is how a mis-tap goes back.
+The guard, the tree, the plants and the planting recommendation are each three-way — a bed starts at not yet recorded unless the captain has already stated the fact (as he has for the plants on `2SHFW171`, `5SHFW171` and the two beds he renamed to `8NHFW171`/`9NHFW171`), the public page then says nothing about what nobody has recorded, and a NOT RECORDED choice beside the answers is how a mis-tap goes back.
 The species is the profile's one typed row, because a species is a name and not a yes/no: it takes the same English-and-optional-Spanish pair the add-bed form does, both fields arrive pre-filled so a Spanish name our own table gave the old species re-derives while one a human wrote survives the correction, and clearing the English name is the way back to not yet recorded.
-A bed whose species nobody has recorded — which is how the 22 named-run beds seed — still gets whole sentences on both doors, framed on the generic tree ("This tree's bed is looking for a steward."), while the About page states "not recorded" rather than guessing.
+A bed whose species nobody has recorded — which is how the 20 fresh named-run beds seed — still gets whole sentences on both doors, framed on the generic tree ("This tree's bed is looking for a steward."), while the About page states "not recorded" rather than guessing.
 That profile is what the public "About this bed" page (`/t/<tag>/about`, a small text link under either door's buttons) states, above a network-wide FAQ and links to NYC Parks and 311.
 The same panel states the bed's open report read-only — what was picked, the note, when it was opened, how many neighbours added their weight and what each of them picked and typed — so a report filed at the tag is seen there in full; closing it stays the steward's act.
 The photos neighbours attach are stored and shown there too, and nowhere else: the open report's under its band, earlier reports' below it as the bed's history, and the only way one comes off is the admin deleting it behind its own confirmation page.
@@ -62,9 +62,10 @@ Generate it **once**, with `openssl rand -hex 32`, and keep that same value — 
 Generating it inside the run command is the failure the requirement exists to prevent.
 Dev needs nothing — it falls back to `.data/session-secret`.
 
-Local state lives in `.data/store.json` (gitignored), seeded on first boot with the captain's real block — W 171st between Fort Washington and Haven, six beds `BED-WH-1711`…`1716`, each bound to its real NYC planting space and all unoffered until the admin page opens them — plus his three named runs of 2026-09-12: 22 more beds (`1E170171HFW`…`6E170171HFW` on Haven Ave, `1SHFW171`…`7SHFW171` and `1NHFW171`…`9NHFW171` on W 171st), one block per run, each seeded unasserted — no species, no NYC ids, no profile facts recorded — and each opening with its one slot already offered.
+Local state lives in `.data/store.json` (gitignored), seeded on first boot with the captain's real block — W 171st between Fort Washington and Haven, six beds `BED-WH-1711`…`1716`, each bound to its real NYC planting space, four of them unoffered until the admin page opens them and two (`BED-WH-1712`, `BED-WH-1713` — the beds he renamed onto `9NHFW171` and `8NHFW171`) already open, carrying the plant facts he stated for them — plus his three named runs of 2026-09-12: 22 named bed ids, of which 20 are fresh beds (`1E170171HFW`…`6E170171HFW` on Haven Ave, `1SHFW171`…`7SHFW171` and `1NHFW171`…`7NHFW171` on W 171st), one block per run, each seeded unasserted — no species, no NYC ids, no profile facts recorded beyond the plant facts he stated for `2SHFW171` and `5SHFW171` — and each opening with its one slot already offered.
 Beside them sits the demo bed `BED-HRL-0847` and steward `marisol_r` in its own demo-flagged block; the checked-in registry (`src/lib/tag-bindings.ts`) binds demo tag `2mq2amhv` to that bed, opaque tags to four of the W 171st beds, and each named-run bed to its own lowercase id.
-Some of the six older W 171st beds are physically among the 22, but nothing can say which until the captain stands at the tree, so the six keep their own ids and records for now.
+The other two named ids are RENAMES: standing at the beds the captain said `9NHFW171` is `BED-WH-1712` and `8NHFW171` is `BED-WH-1713`, so those ids bind to the existing plates — beside the old opaque tags, which stay live because the old URLs may already be in people's hands — and those two beds keep their species, their NYC ids and their history.
+Which run beds the remaining four older W 171st beds are is still unsaid, so they keep their own ids and records until he stands at the tree and names them.
 Sign-in is passwordless: the steward asks for a link at `/t/<tag>/auth` with the email they adopted with, and with no `BREVO_API_KEY` configured the mail lands as a JSON file in `.data/outbox/` — open the link inside it and press its one SIGN IN button to sign in locally (the seeded steward's email is `seed-marisol@example.invalid`; opening the link alone spends nothing, because mail scanners prefetch links).
 The site root redirects to the demo binding by name, so monitors and crawlers hitting `/` never land on a real bed — and only while that binding still names a live bed, so retiring the demo bed (or a store that can't be read) leaves a calm bilingual screen at 200 rather than turning a pinned uptime check red.
 The checked-in blocks and beds also backfill into an already-seeded store on its next load, insert-only, so a live store gains them without a migration step.
@@ -110,13 +111,25 @@ NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/rewrite-species-casing.m
 NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/rewrite-species-casing.mjs --commit   # writes the revision
 ```
 
-`scripts/carry-steward.mjs` is the same shape for the day the captain says which named-run bed one of the six older W 171st records actually is: it releases the adoption on the old plate and recreates it on the new one keeping its original `adoptedAt`, moves nothing else — reports, events and the bed's given name stay keyed where they were written — and is reversible by swapping `--from` and `--to`.
+`scripts/carry-steward.mjs` is the same shape for the day the captain says which named-run bed one of the four remaining older W 171st records actually is, if a steward has meanwhile landed on a duplicate: it releases the adoption on the old plate and recreates it on the new one keeping its original `adoptedAt`, moves nothing else — reports, events and the bed's given name stay keyed where they were written — and is reversible by swapping `--from` and `--to`.
 It applies the checked-in records first, so a run bed no commit has persisted yet is still found.
 
 ```sh
 NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/carry-steward.mjs \
   --user marisol_r --from BED-WH-1711 --to 5SHFW171        # add --commit to write
 ```
+
+Two of these passes are owed by THIS branch's deploy, because seeding is insert-only and the captain's rename arrived after PR #29 had already written to the live store.
+Run them in this order, dry first:
+
+```sh
+NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/seed-captain-facts.mjs       # add --commit to write
+NETLIFY_SITE_ID=… NETLIFY_AUTH_TOKEN=… node scripts/retire-orphan-run-beds.mjs   # add --commit to write
+```
+
+`scripts/seed-captain-facts.mjs` puts the captain's stated plant facts on the existing `BED-WH-1712`/`BED-WH-1713` rows the named ids `8NHFW171`/`9NHFW171` now open — it fills only fields still reading NOT RECORDED, so the admin's own unrecord radio keeps sticking, and a field the seed itself does not assert is left alone.
+`scripts/retire-orphan-run-beds.mjs` retires the two blank rows PR #29 seeded under those plates before the rename, which no tag reaches now.
+It refuses a row still holding an ACTIVE adoption and says so: run `scripts/carry-steward.mjs` on that row first, then re-run this one — the carry's leftover released adoption does not refuse, and the retire's report line names everything the tombstone still holds.
 
 ## Contributing
 

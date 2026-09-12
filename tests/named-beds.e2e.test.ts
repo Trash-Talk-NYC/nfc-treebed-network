@@ -3,7 +3,8 @@
 // resolves to the same bed screen without the app reading it, a bed whose
 // species is not yet recorded renders whole sentences in both languages on
 // both doors and the About page, and the six earlier W 171st beds still
-// answer on their old tags, untouched.
+// answer on their old opaque tags — including the two the captain renamed
+// onto 8N/9N, which now answer on both their old tag and their named one.
 //
 // Slow by nature (a build plus a server), so it lives in the e2e suite.
 
@@ -40,7 +41,8 @@ beforeAll(async () => {
   });
   if (built.status !== 0) throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
 
-  // The plain seed: the 22 run beds exactly as a fresh (or additively
+  // The plain seed: the 20 fresh run beds — and the two older beds the
+  // captain renamed onto N-run ids — exactly as a fresh (or additively
   // upgraded) store holds them.
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-named-'));
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
@@ -182,18 +184,89 @@ describe('the decorative /m suffix', () => {
   });
 });
 
-describe('the six earlier W 171st beds', () => {
+describe('the earlier W 171st beds', () => {
   it('still answer on their old opaque tags, unoffered and species-recorded', async () => {
     const response = await fetch(`${origin}/t/${OLD_TAG}`);
     expect(response.status).toBe(200);
     const html = await response.text();
     // Willow oak, door 1, and still no adoption invitation: the captain has
-    // not opened these six, and the named scheme changed nothing about them.
+    // not opened this bed, and the named scheme changed nothing about it.
     // The door frame puts the species mid-sentence, so it reads lowercase
     // there whatever casing the stored row was written in, while the
     // standalone document title capitalizes at the render site.
     expect(html.replace(/<[^>]+>/g, '')).toContain('This willow oak');
     expect(html).toContain('<title>Willow oak · ');
     expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.en);
+  });
+});
+
+describe('the two beds the captain renamed (8NHFW171, 9NHFW171)', () => {
+  // His words: "Can you change …/t/1hc0t9cj for the end to be 9NHFW171 and
+  // then …/t/729v19w4 change to 8NHFW171". A rename of two EXISTING beds:
+  // the named id and the old tag must open the same record, with its real
+  // NYC identity and species intact — never a blank duplicate beside it.
+  const RENAMED = [
+    { named: '9nhfw171', spelled: '9NHFW171', oldTag: '1hc0t9cj', nycId: '#2332470' },
+    { named: '8nhfw171', spelled: '8NHFW171', oldTag: '729v19w4', nycId: '#2332469' },
+  ] as const;
+
+  it('opens the same real bed from the named id and from the old tag', async () => {
+    for (const { named, spelled, oldTag, nycId } of RENAMED) {
+      // The id as the chip spells it redirects to canonical…
+      const chip = await fetch(`${origin}/t/${spelled}`, { redirect: 'manual' });
+      expect(chip.status).toBe(302);
+      expect(chip.headers.get('location')).toBe(`/t/${named}`);
+      // …and both URLs render the SAME bed: NYC number, species, invitation.
+      for (const tag of [named, oldTag]) {
+        const html = await (await fetch(`${origin}/t/${tag}`)).text();
+        expect(html, tag).toContain(nycId);
+        expect(html.replace(/<[^>]+>/g, ''), tag).toContain('This willow oak');
+        expect(html, tag).toContain(DOOR_UNSTEWARDED.adopt.en);
+      }
+    }
+  });
+
+  it('shares one adoption between both URLs — adopt at the old tag, adopted at the new id', async () => {
+    const posted = await fetch(`${origin}/t/1hc0t9cj/adopt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin },
+      body: new URLSearchParams({
+        firstName: 'Rosa',
+        lastName: 'Marte',
+        email: 'rosa-e2e@example.invalid',
+        phone: '',
+        bedName: '',
+      }).toString(),
+      redirect: 'manual',
+    });
+    expect(posted.status).toBe(303);
+    // The named id shows the same bed adopted, steward and all: one record,
+    // two addresses, nothing duplicated and nothing lost.
+    const html = await (await fetch(`${origin}/t/9nhfw171`)).text();
+    expect(html).toContain(DOOR_STEWARDED.headAfter.en);
+    expect(html).not.toContain(DOOR_UNSTEWARDED.adopt.en);
+    const old = await (await fetch(`${origin}/t/1hc0t9cj`)).text();
+    expect(old).toContain(DOOR_STEWARDED.headAfter.en);
+  });
+});
+
+describe('the plant facts the captain stated', () => {
+  it('2SHFW171 states plants present — and nothing he did not say', async () => {
+    const html = await (await fetch(`${origin}/t/2shfw171/about`)).text();
+    expect(html).toContain(ABOUT.plantsYes.en);
+    expect(html).toContain(ABOUT.plantsYes.es);
+    // No recommendation either way: he did not say, so the row is absent.
+    expect(html).not.toContain(ABOUT.plantingYes.en);
+    expect(html).not.toContain(ABOUT.plantingNo.en);
+  });
+
+  it('5SHFW171 and the renamed 8N/9N state no plants and no recommendation, bilingually', async () => {
+    for (const tag of ['5shfw171', '8nhfw171', '9nhfw171']) {
+      const html = await (await fetch(`${origin}/t/${tag}/about`)).text();
+      expect(html, tag).toContain(ABOUT.plantsNo.en);
+      expect(html, tag).toContain(ABOUT.plantsNo.es);
+      expect(html, tag).toContain(ABOUT.plantingNo.en);
+      expect(html, tag).toContain(ABOUT.plantingNo.es);
+    }
   });
 });

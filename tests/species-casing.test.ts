@@ -14,9 +14,9 @@ import { rewriteSpeciesCasing } from '../scripts/species-casing-rewrite.mjs';
 import { seedData } from '../src/lib/store-dataset';
 
 /**
- * The store as it was seeded before the casing rule — "Roble sauce". The 22
- * captain-run beds seed with no species at all (`treeType: null`, not yet
- * recorded) and are skipped: a pre-rule store never held them capitalized,
+ * The store as it was seeded before the casing rule — "Roble sauce". The 20
+ * fresh captain-run beds seed with no species at all (`treeType: null`, not
+ * yet recorded) and are skipped: a pre-rule store never held them capitalized,
  * and the rewrite has nothing to say about a species nobody recorded.
  */
 async function datasetSeededCapitalized() {

@@ -4,46 +4,16 @@
 // server — the same wire protocol the pilot store speaks. Read the entry
 // script first: it carries the whole rationale for the carry.
 //
-// Same forward-revision shape as species-casing-rewrite.mjs: read the newest
-// revision, apply the change to a copy, append it as `rev/<n+1>` with
-// `onlyIfNew` — nothing wiped, no key deleted, no revision pruned, and a
-// lost race re-reads rather than overwrites.
+// The forward-revision procedure itself is shared (forward-revision.mjs):
+// read the newest revision, apply the change to a copy, append it as
+// `rev/<n+1>` with `onlyIfNew` — nothing wiped, no key deleted, no revision
+// pruned, and a lost race re-reads rather than overwrites.
 
 import { CarryRefusal, carrySteward, dataCarryPort } from '../src/lib/steward-carry.ts';
 import { ensureCheckedInRecords } from '../src/lib/checked-in-beds.ts';
-import { HEAD_KEY, REVISION_PREFIX } from '../src/lib/store-keys.ts';
+import { commitForwardRevision } from './forward-revision.mjs';
 
 export { CarryRefusal };
-
-const MAX_COMMIT_ATTEMPTS = 5;
-
-const revisionKey = (revision) => `${REVISION_PREFIX}${revision}`;
-
-/** The newest revision in the chain — the head pointer is a lower bound. */
-async function readNewest(blobs) {
-  const raw = await blobs.get(HEAD_KEY, { type: 'text' });
-  const head = Number(raw);
-  let revision = Number.isInteger(head) && head > 0 ? head : await newestListed(blobs);
-  let data = await blobs.get(revisionKey(revision), { type: 'json' });
-  if (data === null) throw new Error(`No dataset at ${revisionKey(revision)} — nothing to carry.`);
-  for (;;) {
-    const next = await blobs.get(revisionKey(revision + 1), { type: 'json' });
-    if (next === null) return { data, revision };
-    revision += 1;
-    data = next;
-  }
-}
-
-async function newestListed(blobs) {
-  const { blobs: keys } = await blobs.list({ prefix: REVISION_PREFIX });
-  let newest = 0;
-  for (const { key } of keys) {
-    const revision = Number(key.slice(REVISION_PREFIX.length));
-    if (Number.isInteger(revision) && revision > newest) newest = revision;
-  }
-  if (newest === 0) throw new Error('No revisions in the store — nothing to carry.');
-  return newest;
-}
 
 /**
  * The steward named on the command line: a public @username (with or without
@@ -77,39 +47,35 @@ export function resolveUser(data, named) {
  */
 export async function carryStoredSteward(blobs, args, options = {}) {
   const { commit = false, log = () => {} } = options;
-  for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
-    const { data, revision } = await readNewest(blobs);
-    const user = resolveUser(data, args.user);
-    const next = structuredClone(data);
-    // The checked-in records first, the same insert-only pass every load
-    // makes (`ensureCheckedInRecords`): the 22 named-run beds exist as
-    // checked-in seed until some commit happens to persist them, so without
-    // this the carry would refuse the captain's own day-one target as a bed
-    // that does not exist. What this appends is therefore exactly what the
-    // next `normalizeData` load would have inserted anyway — nothing is
-    // overwritten, and a bed the store already holds keeps every edit.
-    ensureCheckedInRecords(next);
-    const adoption = await carrySteward(dataCarryPort(next), {
-      userId: user.id,
-      fromPlate: args.from,
-      toPlate: args.to,
-    });
-    log(
-      `@${user.username} (${user.id}): ${args.from} → ${args.to}, keeping adoptedAt ${adoption.adoptedAt}.`,
-    );
-    if (!commit) {
-      log(`\nDry run. Re-run with --commit to append rev/${revision + 1}.`);
-      return { adoption, revision, committed: null };
-    }
-    const write = await blobs.set(revisionKey(revision + 1), JSON.stringify(next), {
-      onlyIfNew: true,
-    });
-    if (write.modified) {
-      await blobs.set(HEAD_KEY, String(revision + 1));
-      log(`\nCommitted rev/${revision + 1}. To reverse: swap --from and --to.`);
-      return { adoption, revision, committed: revision + 1 };
-    }
-    log(`rev/${revision + 1} was taken by a concurrent commit — re-reading.`);
-  }
-  throw new Error(`Lost ${MAX_COMMIT_ATTEMPTS} commits in a row — nothing was written.`);
+  const { result, revision, committed } = await commitForwardRevision(
+    blobs,
+    async (data) => {
+      const user = resolveUser(data, args.user);
+      const next = structuredClone(data);
+      // The checked-in records first, the same insert-only pass every load
+      // makes (`ensureCheckedInRecords`): the named-run beds exist as
+      // checked-in seed until some commit happens to persist them, so without
+      // this the carry would refuse the captain's own day-one target as a bed
+      // that does not exist. What this appends is therefore exactly what the
+      // next `normalizeData` load would have inserted anyway — nothing is
+      // overwritten, and a bed the store already holds keeps every edit.
+      ensureCheckedInRecords(next);
+      const adoption = await carrySteward(dataCarryPort(next), {
+        userId: user.id,
+        fromPlate: args.from,
+        toPlate: args.to,
+      });
+      log(
+        `@${user.username} (${user.id}): ${args.from} → ${args.to}, keeping adoptedAt ${adoption.adoptedAt}.`,
+      );
+      return { data: next, result: { adoption } };
+    },
+    {
+      commit,
+      log,
+      subject: 'carry',
+      committedLine: (revision) => `Committed rev/${revision}. To reverse: swap --from and --to.`,
+    },
+  );
+  return { ...result, revision, committed };
 }

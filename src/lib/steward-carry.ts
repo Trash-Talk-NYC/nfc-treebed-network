@@ -1,12 +1,16 @@
 // Carrying a steward from one bed's record to another's — the one rule, in a
 // LEAF module both callers share.
 //
-// Why it exists: the captain's 2026-09-12 named bed ids seed 22 fresh records
-// (checked-in-beds.ts, `captainRunBeds`), and some of the six earlier W 171st
-// beds are physically among them — his own real adoption on BED-WH-1711
-// included. His street numbers are loose cluster references, his words, not
-// locators, so nothing can MAP the old records onto the new ids. The day he
-// stands at the tree and says which of the 22 is his, the steward MOVES:
+// Why it exists: the captain's 2026-09-12 named bed ids span 22 ids, of which
+// 20 seed as fresh records (checked-in-beds.ts, `captainRunBeds`), and some of
+// the four earlier W 171st beds he has not yet named are physically among them
+// — his own real adoption on BED-WH-1711 included. His street numbers are
+// loose cluster references, his words, not locators, so nothing can MAP the
+// old records onto the new ids. When he names one, the shape 8N/9N set is the
+// first answer: bind the named id to the EXISTING plate and mint nothing (see
+// `captainRunBeds`), which needs no carry at all. This rule is for the case
+// that cannot fix — a steward already standing on a duplicate record. Then the
+// steward MOVES:
 // `carryStewardByAdmin` (service.ts) runs this inside a store transaction,
 // and `scripts/carry-steward.mjs` runs it against the live Blobs store as a
 // forward revision.
