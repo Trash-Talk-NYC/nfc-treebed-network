@@ -417,12 +417,12 @@ export const ADMIN = {
   profileHead: { en: 'About this bed', es: 'Sobre este cantero' },
   profileHint: {
     en: 'This feeds the public “About this bed” page: a fact left Not set says nothing there, each plants note shows only while its own choice reads yes, and the care note always shows.',
-    es: 'Esto alimenta la página pública «Sobre este cantero»: un dato en Sin registrar no dice nada allí, cada nota de plantas aparece solo mientras su propia opción dice que sí, y la nota de cuidado siempre aparece.',
+    es: 'Esto alimenta la página pública “Sobre este cantero”: un dato en Sin registrar no dice nada allí, cada nota de plantas aparece solo mientras su propia opción dice que sí, y la nota de cuidado siempre aparece.',
   },
   treePresentToggle: { en: 'Tree in the bed', es: 'Árbol en el cantero' },
   treePresentSub: {
     en: 'A stump or an empty pit is “No tree”',
-    es: 'Un tocón o un hoyo vacío es «Sin árbol»',
+    es: 'Un tocón o un hoyo vacío es “Sin árbol”',
   },
   /** The same row while nobody has recorded it — the guard's rule, applied here. */
   treePresentUnsetSub: {

@@ -38,4 +38,6 @@ The one thing this set cannot cover is typed free text: the bed's given name (`B
 A character outside the subset falls back per glyph there, by design — the alternative is refusing a neighbour's own name, or the captain's own note, for its spelling.
 The subset is sized for the Spanish this block speaks, and widening it further is a size decision, not a correctness one.
 
-Neither family contains `✓ ✕ ← → ＋` glyphs; those characters intentionally render from system fallback fonts, exactly as they did in the approved screens.
+Neither family contains `✓ ✕ ← → ＋ ›` glyphs; those characters intentionally render from system fallback fonts, exactly as they did in the approved screens — the chevron is the admin list rows' "go" marker.
+
+Our own copy stays inside the subset, which is why quotation in both languages is written with the curly `“ ”` already in it (`U+201C`/`U+201D`) rather than the Spanish guillemets `« »`, which are not.
