@@ -32,7 +32,10 @@ jobs:
       # production actually ships and then loads the emitted function and
       # renders a request through it — the break this repo hit (an adapter
       # satisfying its peer range and calling an astro API that isn't there)
-      # is a load-time crash that a build alone passes green.
+      # is a load-time crash that a build alone passes green. It then bundles
+      # and loads the scheduled digest function, which nothing else here sees:
+      # Netlify bundles that one with its own esbuild at deploy, so a broken
+      # import would first show up as a scheduled run that did nothing.
       - run: npm run test:netlify-build
         env:
           TREEBED_SESSION_SECRET: ci-secret-not-a-real-one

@@ -4,13 +4,14 @@
 // in devtools. This layer is storage-agnostic: it only talks to the narrow
 // Store interface, so swapping the persistence backend never touches a rule.
 
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { Store } from './store';
 import type { Adoption, Bed, BedEvent, Block, GuardMaterial, Report, Severity, SignInToken, User } from './types';
 import type { Lang } from './i18n';
 import type { ProblemCategory } from './problem';
 import { MAX_NOTE_CHARS, problemsFrom } from './problem';
 import { nyCalendarDay } from './format';
+import { signingSecret } from './signing-secret';
 import { GENERIC_TREE, spanishSpeciesFor, tableSpeciesCasingFor } from './tree-species';
 import { capped } from './typed-text';
 
@@ -664,16 +665,46 @@ export const SIGNIN_RATE_WINDOW_MS = 60 * 60 * 1000;
 export const MAX_SIGNIN_REQUESTS_PER_EMAIL = 3;
 
 /**
- * Link requests one bed's auth screen may take per window, across every
- * email. The per-email cap resets with each fresh address, so without this a
+ * Link requests one bed's auth screen may take per window, counted across
+ * every email but only over requests that RESOLVED to a mailable steward. The
+ * per-email cap resets with each fresh address, so without a per-bed cap a
  * script cycling addresses would buy unbounded sends (and store growth) from
  * one tag URL.
+ *
+ * Only resolved requests count because the availability side of the trade is
+ * the more expensive one: a tag URL is printed on a public street object, so if
+ * misses counted, a passer-by could spend the whole window on twelve made-up
+ * addresses and lock every real steward of that bed out of signing in — over
+ * and over, for free. A miss sends no mail, so it costs nothing this cap
+ * exists to bound; what bounds the misses themselves is the per-email cap plus
+ * the row pruning, and the per-IP limiting still owed at the platform tier
+ * (request-body.ts).
+ *
+ * A row is appended for a miss all the same, so the write pattern — and
+ * therefore the answer and its timing — cannot tell the two kinds apart.
  */
 export const MAX_SIGNIN_REQUESTS_PER_BED = 12;
 
-/** SHA-256 hex of the lowercased email — the rate-limit ledger's key. */
+/**
+ * The rate-limit ledger's key for an address: an HMAC-SHA-256 of the
+ * lowercased email, hex, keyed by the server's signing secret.
+ *
+ * Keyed rather than a bare digest because a bare SHA-256 of an email is not
+ * opaque — anyone holding a copy of the dataset can test any address they care
+ * about, or run a dictionary, and the ledger is then a checkable list of who
+ * typed something into a tree bed's sign-in screen, including people with no
+ * record on the network at all. With the key, the rows are meaningless without
+ * the secret and still compare exactly, which is all the caps need.
+ *
+ * The secret resolves through signing-secret.ts, the same no-`import.meta`
+ * path unsubscribe-link.ts uses. Rotating it re-keys the ledger, which needs
+ * no migration: the rows live one `SIGNIN_RATE_WINDOW_MS` and are deleted on
+ * the way past, so a re-key costs at most one hour of unclaimed allowance.
+ */
 export function hashSignInEmail(email: string): string {
-  return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+  return createHmac('sha256', signingSecret())
+    .update(email.trim().toLowerCase())
+    .digest('hex');
 }
 
 /** SHA-256 hex of the raw token — the only form the store ever sees. */
@@ -703,7 +734,9 @@ export type SignInLinkOutcome =
  * the email is ever looked up, so a known and an unknown address are refused
  * — and admitted — identically. The request row is appended for both kinds
  * for the same reason: both paths make the same writes, so the response
- * cannot say which one ran. What still differs is the mail call the route
+ * cannot say which one ran. What the row RECORDS differs (`resolved`), and
+ * only the per-bed cap reads it, so a stranger's misses cannot spend the
+ * budget a real steward needs. What still differs is the mail call the route
  * makes for a real steward, a residual timing signal noted on the route.
  *
  * The raw token is returned to the caller for the one journey it exists for
@@ -727,16 +760,21 @@ export async function requestSignInLink(
     const recent = await tx.getSignInRequestsSince(windowStart);
     if (
       recent.filter((r) => r.emailHash === emailHash).length >= MAX_SIGNIN_REQUESTS_PER_EMAIL ||
-      recent.filter((r) => r.bedPlate === args.plate).length >= MAX_SIGNIN_REQUESTS_PER_BED
+      recent.filter((r) => r.bedPlate === args.plate && r.resolved).length >=
+        MAX_SIGNIN_REQUESTS_PER_BED
     ) {
       // Refused attempts are deliberately NOT recorded: recording them would
       // let a stranger hold somebody's address at the cap forever with a
       // request a minute, where this way the cap only ever counts sends.
       throw new RuleError('rate-limited', 'Too many sign-in link requests');
     }
-    await tx.appendSignInRequest({ emailHash, bedPlate: args.plate, requestedAt: nowIso });
+    // The lookup happens before the row is written so the row can record which
+    // kind this was — but BOTH kinds write exactly one row, so nothing about
+    // the sequence of store calls differs between them.
     const user = await tx.getUserByEmail(email);
-    if (!user || !user.hasSignInRoute) return { kind: 'unknown-email' };
+    const resolved = user !== null && user.hasSignInRoute;
+    await tx.appendSignInRequest({ emailHash, bedPlate: args.plate, requestedAt: nowIso, resolved });
+    if (!resolved || !user) return { kind: 'unknown-email' };
     const token = randomBytes(32).toString('base64url');
     await tx.createSignInToken({
       tokenHash: hashSignInToken(token),

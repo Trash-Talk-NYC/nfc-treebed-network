@@ -11,48 +11,20 @@
 // and every lib module a screen imports is held prose-free by
 // tests/i18n.test.ts; the digest builder imports the build half.
 //
-// The secret is resolved WITHOUT import.meta (unlike session.ts, whose
-// `import.meta.env.PROD` is a Vite replacement this module cannot rely on —
-// the scheduled digest function is bundled outside the Vite build): the
-// environment variable production requires anyway, with the same `.data/`
-// dev fallback file session.ts keeps, so links signed by the scheduled
-// function verify in the app and vice versa.
+// The secret is resolved through signing-secret.ts, WITHOUT import.meta
+// (unlike session.ts, whose `import.meta.env.PROD` is a Vite replacement this
+// module cannot rely on — the scheduled digest function is bundled outside the
+// Vite build), so links signed by the scheduled function verify in the app and
+// vice versa.
 
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { langLink } from './i18n';
-import { isProductionLike } from './mail';
+import { signingSecret } from './signing-secret';
 import type { User } from './types';
 
-function unsubscribeSecret(): string {
-  const configured = process.env.TREEBED_SESSION_SECRET;
-  if (configured) return configured;
-  // The same refusal session.ts makes, because the failure mode here is
-  // worse than a crash: on a function instance a generated fallback would be
-  // a per-instance secret, and every unsubscribe link in a sent digest would
-  // verify nowhere — dead links on the one control a recipient must be able
-  // to trust. The dev fallback below is for local runs only.
-  if (isProductionLike()) {
-    throw new Error(
-      'TREEBED_SESSION_SECRET must be set in production — refusing to sign unsubscribe links with a generated secret.',
-    );
-  }
-  const dir = process.env.TREEBED_DATA_DIR ?? path.resolve('.data');
-  const file = path.join(dir, 'session-secret');
-  try {
-    return readFileSync(file, 'utf8').trim();
-  } catch {
-    const secret = randomBytes(32).toString('hex');
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(file, secret, { mode: 0o600 });
-    return secret;
-  }
-}
-
 function unsubscribeMac(userId: string): string {
-  return createHmac('sha256', unsubscribeSecret())
+  return createHmac('sha256', signingSecret())
     .update(`digest-unsubscribe:${userId}`)
     .digest('base64url');
 }

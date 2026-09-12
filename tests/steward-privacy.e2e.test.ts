@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { seedData } from '../src/lib/store-dataset';
 import { signInByLink } from './helpers/steward-session';
+import { serverEnv } from './helpers/server-env';
 import { defaultPresentation } from '../src/lib/presentation';
 import { DOOR_NOT_OFFERED, DOOR_STEWARDED, DOOR_UNSTEWARDED, COMMON } from '../src/lib/copy';
 import { problemFor } from '../src/lib/problem';
@@ -55,13 +56,12 @@ beforeAll(async () => {
   await writeFile(path.join(dataDir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
 
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
-    env: {
-      ...process.env,
+    env: serverEnv({
       TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
       TREEBED_DATA_DIR: dataDir,
       HOST: '127.0.0.1',
       PORT: '0',
-    },
+    }),
   }) as ChildProcessWithoutNullStreams;
   let log = '';
   child.stderr.on('data', (buf: Buffer) => {
@@ -95,13 +95,12 @@ async function startOn(data: Awaited<ReturnType<typeof seedData>>): Promise<[Chi
   const dir = await mkdtemp(path.join(tmpdir(), 'treebed-door1-'));
   await writeFile(path.join(dir, 'store.json'), JSON.stringify(data, null, 2), 'utf8');
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
-    env: {
-      ...process.env,
+    env: serverEnv({
       TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
       TREEBED_DATA_DIR: dir,
       HOST: '127.0.0.1',
       PORT: '0',
-    },
+    }),
   }) as ChildProcessWithoutNullStreams;
   let log = '';
   child.stderr.on('data', (buf: Buffer) => {

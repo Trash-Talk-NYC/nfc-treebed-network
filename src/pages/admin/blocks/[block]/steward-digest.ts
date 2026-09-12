@@ -40,10 +40,19 @@ export const POST: APIRoute = async ({ request, cookies, url, params }) => {
   });
   // Back to the steward panel either way: a press that matched nothing
   // changed nothing, and the panel shows the state as it stands.
+  //
+  // Built with URLSearchParams rather than interpolation because `bed` and
+  // `steward` come off the form: an `&` or a `#` in one would silently retarget
+  // the redirect, and a CR/LF would make the Response constructor throw and
+  // turn an admin press into a 500.
+  const back = new URLSearchParams({ bed: plate, steward: stewardId });
   return new Response(null, {
     status: 303,
     headers: {
-      location: langLink(`/admin/blocks/${blockId}?bed=${plate}&steward=${stewardId}`, lang),
+      location: langLink(
+        `/admin/blocks/${encodeURIComponent(blockId)}?${back.toString()}`,
+        lang,
+      ),
     },
   });
 };

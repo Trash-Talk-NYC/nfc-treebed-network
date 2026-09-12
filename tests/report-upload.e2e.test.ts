@@ -19,6 +19,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { signInByLink } from './helpers/steward-session';
+import { serverEnv } from './helpers/server-env';
 
 // The seeded demo tag (tag-bindings.ts), bound to the seeded bed BED-HRL-0847.
 const TAG = '2mq2amhv';
@@ -68,14 +69,13 @@ interface Served {
 async function startServer(env: Record<string, string> = {}): Promise<Served> {
   const dir = await mkdtemp(path.join(tmpdir(), 'treebed-e2e-'));
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
-    env: {
-      ...process.env,
+    env: serverEnv({
       TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
       TREEBED_DATA_DIR: dir,
       HOST: '127.0.0.1',
       PORT: '0',
       ...env,
-    },
+    }),
   }) as ChildProcessWithoutNullStreams;
 
   let log = '';

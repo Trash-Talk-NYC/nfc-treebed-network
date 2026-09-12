@@ -1,7 +1,8 @@
 // The whole sign-in-by-link flow, against the real rendered app: ask for a
-// link, read it out of the dev outbox (no mail transport is configured, so
-// nothing can be sent anywhere), open it, land signed in on the steward's
-// view. Also the negative space the captain's decision demands: the token
+// link, read it out of the dev outbox (the server is spawned through
+// `serverEnv`, which strips the mail keys, so nothing can be sent anywhere
+// even on a machine that exports the org's Brevo key), open it, land signed
+// in on the steward's view. Also the negative space the captain's decision demands: the token
 // appears in no response and no server log, a spent or foreign link answers
 // one calm screen, and the unsubscribe link flips exactly one flag.
 //
@@ -12,6 +13,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { serverEnv } from './helpers/server-env';
 import { unsubscribePath } from '../src/lib/digest';
 import { seedData } from '../src/lib/store-dataset';
 
@@ -36,13 +38,12 @@ beforeAll(async () => {
 
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-signin-'));
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
-    env: {
-      ...process.env,
+    env: serverEnv({
       TREEBED_SESSION_SECRET: SECRET,
       TREEBED_DATA_DIR: dataDir,
       HOST: '127.0.0.1',
       PORT: '0',
-    },
+    }),
   }) as ChildProcessWithoutNullStreams;
   // Everything the server says, both streams: the "never log the token"
   // assertion reads this after the flow has run.
@@ -151,6 +152,9 @@ describe('signing in by emailed link', () => {
       const opened = await fetch(link, { redirect: 'manual' });
       expect(opened.status).toBe(200);
       expect(opened.headers.getSetCookie().some((c) => c.startsWith('tg_session='))).toBe(false);
+      // A live token rides this URL and this body: no intermediary may keep it,
+      // whatever the platform's caching default happens to be.
+      expect(opened.headers.get('cache-control')).toBe('no-store');
       const html = await opened.text();
       // The one button, with the token in its form — and both languages in
       // the markup, script or no script.
@@ -214,6 +218,8 @@ describe('the unsubscribe link', () => {
     const linkPath = unsubscribePath(seedData().users['user-marisol']!);
     const opened = await fetch(`${origin}${linkPath}`, { redirect: 'manual' });
     expect(opened.status).toBe(200);
+    // The signed token in this URL stands in for the steward's say-so.
+    expect(opened.headers.get('cache-control')).toBe('no-store');
     const html = await opened.text();
     expect(html).toContain('Stop the digest emails?');
     expect(html).toContain('data-es=');

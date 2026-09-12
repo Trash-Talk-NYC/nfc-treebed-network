@@ -29,6 +29,36 @@ beforeEach(() => {
   store = new LocalStore(storeFile);
 });
 
+/**
+ * `count` extra users with an email, i.e. addresses `requestSignInLink`
+ * resolves. They hold no adoption: what makes a request "resolved" is a
+ * mailable user record, which is what the per-bed cap counts.
+ */
+async function seedMailableUsers(count: number): Promise<string[]> {
+  const emails: string[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const email = `steward-${i}@example.invalid`;
+    emails.push(email);
+    await store.createUser({
+      id: `u-signin-${i}`,
+      firstName: 'Steward',
+      lastName: `Number ${i}`,
+      username: `steward_${i}`,
+      hasSignInRoute: true,
+      recordHeldOnBehalf: false,
+      email,
+      phone: '',
+      lang: 'en',
+      digestOptedOut: false,
+      digestLastSentAt: null,
+      points: 0,
+      streakWeeks: 0,
+      createdAt: new Date('2026-09-01T00:00:00Z').toISOString(),
+    });
+  }
+  return emails;
+}
+
 async function mintedToken(now = new Date()): Promise<string> {
   const outcome = await requestSignInLink(store, { plate: PLATE, email: EMAIL, now });
   if (outcome.kind !== 'sent') throw new Error(`expected a token, got ${outcome.kind}`);
@@ -126,10 +156,22 @@ describe('the rate limits, counted in the store', () => {
     expect(other.kind).toBe('unknown-email');
   });
 
-  it('caps requests per bed across every email', async () => {
-    for (let i = 0; i < MAX_SIGNIN_REQUESTS_PER_BED; i += 1) {
-      await requestSignInLink(store, { plate: PLATE, email: `probe-${i}@example.com` });
+  it('caps requests per bed across every email that resolved to a steward', async () => {
+    // Four addresses, three requests each: the per-email cap is 3, so this is
+    // the cheapest way to spend a bed's twelve resolved requests.
+    const mailboxes = await seedMailableUsers(4);
+    for (const email of mailboxes) {
+      for (let i = 0; i < MAX_SIGNIN_REQUESTS_PER_EMAIL; i += 1) {
+        const sent = await requestSignInLink(store, { plate: PLATE, email });
+        expect(sent.kind).toBe('sent');
+      }
     }
+    expect(mailboxes.length * MAX_SIGNIN_REQUESTS_PER_EMAIL).toBe(MAX_SIGNIN_REQUESTS_PER_BED);
+    await expect(
+      requestSignInLink(store, { plate: PLATE, email: EMAIL }),
+    ).rejects.toMatchObject({ code: 'rate-limited' });
+    // An unknown address is refused identically — the cap is decided off the
+    // ledger before any lookup, so the answer cannot say which kind asked.
     await expect(
       requestSignInLink(store, { plate: PLATE, email: 'fresh@example.com' }),
     ).rejects.toMatchObject({ code: 'rate-limited' });
@@ -139,6 +181,31 @@ describe('the rate limits, counted in the store', () => {
       email: 'fresh@example.com',
     });
     expect(other.kind).toBe('unknown-email');
+  });
+
+  it('does not let unresolved addresses spend a bed\'s allowance', async () => {
+    // A passer-by at a public tag URL, cycling made-up addresses: far past the
+    // per-bed cap, and the bed's real steward can still ask for their link.
+    // The per-email cap is what bounds the passer-by, one address at a time.
+    for (let i = 0; i < MAX_SIGNIN_REQUESTS_PER_BED * 3; i += 1) {
+      const miss = await requestSignInLink(store, {
+        plate: PLATE,
+        email: `probe-${i}@example.com`,
+      });
+      expect(miss.kind).toBe('unknown-email');
+    }
+    const sent = await requestSignInLink(store, { plate: PLATE, email: EMAIL });
+    expect(sent.kind).toBe('sent');
+  });
+
+  it('records every request, resolved or not, so the write pattern tells nothing apart', async () => {
+    await requestSignInLink(store, { plate: PLATE, email: EMAIL });
+    await requestSignInLink(store, { plate: PLATE, email: 'ghost@example.com' });
+    const data = JSON.parse(readFileSync(storeFile, 'utf8')) as {
+      signInRequests: { resolved: boolean }[];
+    };
+    expect(data.signInRequests).toHaveLength(2);
+    expect(data.signInRequests.map((r) => r.resolved).sort()).toEqual([false, true]);
   });
 
   it('lets the window slide: an hour later the same email may ask again', async () => {

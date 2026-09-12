@@ -46,6 +46,10 @@ if (
   return new Response('Not a valid link.', { status: 404 });
 }
 
+// Same reason as the sign-in interstitial: this URL carries a signed token
+// that stands in for the steward's say-so, so no intermediary may keep it.
+Astro.response.headers.set('cache-control', 'no-store');
+
 let done = false;
 if (method === 'POST') {
   // The press that opts out. The body is read and dropped under the short

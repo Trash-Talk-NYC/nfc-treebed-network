@@ -52,7 +52,9 @@ if (!bed || bed.blockId !== blockId) {
 if (bed.retiredAt !== null) {
   return await redirectAdminWithBody(Astro.request, langLink(`${base}?deleted=1`, lang));
 }
-const bedLink = langLink(`${base}?bed=${plate}`, lang);
+// Encoded rather than interpolated: `plate` comes off the query string, and an
+// `&` or a CR/LF in it would retarget this redirect or throw building it.
+const bedLink = langLink(`${base}?${new URLSearchParams({ bed: plate })}`, lang);
 
 let values: AdminStewardInput = { firstName: '', lastName: '', username: '', email: '', phone: '' };
 let errors: AdminStewardErrors = {};

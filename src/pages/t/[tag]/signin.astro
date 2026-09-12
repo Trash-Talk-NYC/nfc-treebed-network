@@ -73,6 +73,12 @@ if (Astro.request.method === 'GET') {
   }
 }
 if (!interstitial) Astro.response.status = 410;
+// A live sign-in token rides this URL and the interstitial's own hidden field,
+// so nothing between us and the steward may keep a copy. Netlify caches no
+// function response by default, which makes this belt rather than braces —
+// but the one response in the build that carries a secret should not depend on
+// a platform default staying what it is.
+Astro.response.headers.set('cache-control', 'no-store');
 ---
 
 <Screen

@@ -13,6 +13,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ADMIN } from '../src/lib/copy';
+import { serverEnv } from './helpers/server-env';
 import { unsubscribePath } from '../src/lib/unsubscribe-link';
 import { seedData } from '../src/lib/store-dataset';
 
@@ -32,14 +33,13 @@ beforeAll(async () => {
 
   dataDir = await mkdtemp(path.join(tmpdir(), 'treebed-admin-'));
   const child = spawn(process.execPath, ['dist/server/entry.mjs'], {
-    env: {
-      ...process.env,
+    env: serverEnv({
       TREEBED_SESSION_SECRET: 'e2e-secret-not-a-real-one',
       TREEBED_ADMIN_KEY: ADMIN_KEY,
       TREEBED_DATA_DIR: dataDir,
       HOST: '127.0.0.1',
       PORT: '0',
-    },
+    }),
   }) as ChildProcessWithoutNullStreams;
   let log = '';
   child.stderr.on('data', (buf: Buffer) => {

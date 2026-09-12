@@ -58,6 +58,11 @@ export function normalizeData(data: Data): Data {
   // until he picks a frequency on the admin index.
   data.signInTokens ??= [];
   data.signInRequests ??= [];
+  // `resolved` arrived with the per-bed cap's availability fix. A row written
+  // before it counted against that cap, so it keeps doing so; no migration is
+  // owed either way, because the ledger holds one SIGNIN_RATE_WINDOW_MS and
+  // deletes its own past on the next request.
+  for (const request of data.signInRequests) request.resolved ??= true;
   data.settings ??= { digestCadence: 'off' };
   data.settings.digestCadence ??= 'off';
   // Insert BEFORE the loops, so a freshly inserted checked-in record goes

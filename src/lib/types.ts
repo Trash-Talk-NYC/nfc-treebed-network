@@ -327,15 +327,22 @@ export interface SignInToken {
  *
  * In the store rather than in memory because function instances scale
  * horizontally — a per-process counter would be a separate allowance per
- * instance. The email is stored as a SHA-256 (lowercased first), never raw:
- * most requests name addresses that adopted nothing, and a rate-limit ledger
- * must not become a list of typed-in emails.
+ * instance. The email is stored as a keyed hash (`hashSignInEmail`), never
+ * raw: most requests name addresses that adopted nothing, and a rate-limit
+ * ledger must not become a checkable list of typed-in emails.
  */
 export interface SignInRequest {
-  /** SHA-256 of the lowercased email, hex. */
+  /** HMAC-SHA-256 of the lowercased email, hex (`hashSignInEmail`). */
   emailHash: string;
   bedPlate: string;
   requestedAt: string;
+  /**
+   * Whether the address resolved to a steward who can be mailed — i.e. whether
+   * this request actually sent something. A row is appended either way, so the
+   * answer a caller sees is identical for both; only the per-bed cap filters on
+   * it (`MAX_SIGNIN_REQUESTS_PER_BED`).
+   */
+  resolved: boolean;
 }
 
 /** How a steward came to be on the bed. The admin page shows this; the public screens do not. */
