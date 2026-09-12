@@ -15,7 +15,7 @@ import {
   unsubscribePath,
   verifyUnsubscribe,
 } from '../src/lib/digest';
-import { adoptBed, reportProblem, sendApplause } from '../src/lib/service';
+import { reportProblem, sendApplause } from '../src/lib/service';
 import type { MailMessage } from '../src/lib/mail';
 import type { User } from '../src/lib/types';
 
