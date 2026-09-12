@@ -248,21 +248,27 @@ describe('the shipped W 171st tags', () => {
   // The four Haven-end willow oaks (tag-bindings.ts) against the SHIPPED seed
   // — no data surgery, unlike the doors measured above — because these tags
   // are handed to the captain as links, and what each must open is decided by
-  // the registry row plus the seeded bed together. All four beds seed
-  // unoffered (`offeredSlots: 0`, store-dataset.ts), so every one renders the
-  // not-yet-open door until the captain opens a slot; flipping one open is a
-  // data change, and this test then follows the data, not the code.
+  // the registry row plus the seeded bed together. Which door each opens is a
+  // DATA fact, and this test follows the data, not the code: two of the four
+  // are the beds the captain renamed onto his N-run ids (9NHFW171 and
+  // 8NHFW171, 2026-09-12) and opened for adoption, and the other two still
+  // seed unoffered (`offeredSlots: 0`, checked-in-beds.ts).
   // The server behind `origin` mutates only the demo bed's adoption, so for
   // these beds it IS the shipped seed.
-  const shipped: Record<string, string> = {
+  const notYetOpen: Record<string, string> = {
     jjhq9gfj: '2332471',
-    '1hc0t9cj': '2332470',
-    '729v19w4': '2332469',
     jpv8bksx: '2332468',
   };
+  /** The two the captain renamed and opened — old tag and new named id alike. */
+  const opened: Record<string, string> = {
+    '1hc0t9cj': '2332470',
+    '9nhfw171': '2332470',
+    '729v19w4': '2332469',
+    '8nhfw171': '2332469',
+  };
 
-  it('each opens the not-yet-open door for its own bed', async () => {
-    for (const [tagId, plantingSpaceId] of Object.entries(shipped)) {
+  it('each un-renamed one opens the not-yet-open door for its own bed', async () => {
+    for (const [tagId, plantingSpaceId] of Object.entries(notYetOpen)) {
       const response = await fetch(`${origin}/t/${tagId}`);
       expect(response.status, tagId).toBe(200);
       const html = await response.text();
@@ -280,6 +286,27 @@ describe('the shipped W 171st tags', () => {
       expect(html, tagId).not.toContain(DOOR_STEWARDED.applaud.en);
 
       // The one solid green every screen stands on now.
+      expect(html, tagId).toContain('class="frame ground-clear"');
+      expect(html, tagId).toContain('class="screen screen-clear"');
+    }
+  });
+
+  it('each renamed one invites adoption, on the old tag and the named id alike', async () => {
+    for (const [tagId, plantingSpaceId] of Object.entries(opened)) {
+      const response = await fetch(`${origin}/t/${tagId}`);
+      expect(response.status, tagId).toBe(200);
+      const html = await response.text();
+
+      expect(html, tagId).toContain(`#${plantingSpaceId}`);
+      expect(html, tagId).toContain('data-es="roble sauce"');
+
+      // Door 1 with the invitation: the captain opened the slot.
+      expect(html, tagId).toContain(DOOR_UNSTEWARDED.headAfter.en);
+      expect(html, tagId).toContain(DOOR_UNSTEWARDED.adopt.en);
+      expect(html, tagId).not.toContain(DOOR_NOT_OFFERED.sub.en);
+      expect(html, tagId).toContain(COMMON.needsCare.en);
+      expect(html, tagId).not.toContain(DOOR_STEWARDED.applaud.en);
+
       expect(html, tagId).toContain('class="frame ground-clear"');
       expect(html, tagId).toContain('class="screen screen-clear"');
     }

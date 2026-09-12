@@ -17,8 +17,12 @@ import { ABOUT, ABOUT_FAQ } from '../src/lib/copy';
 const TAG = '2mq2amhv';
 /** A real W 171st tag (tag-bindings.ts) — its bed seeds unoffered, so door 1. */
 const DOOR1_TAG = 'jjhq9gfj';
-/** Another real W 171st tag, whose bed keeps the seeded profile: nothing recorded at all. */
-const UNRECORDED_TAG = '1hc0t9cj';
+/**
+ * Another real W 171st tag, whose bed keeps the seeded profile: nothing
+ * recorded at all. Not one of the two the captain renamed onto his N-run ids
+ * (`1hc0t9cj` / `729v19w4`) — those carry the plant facts he stated.
+ */
+const UNRECORDED_TAG = 'jpv8bksx';
 
 /** What the admin typed onto the demo bed's profile for this run. */
 const PLANTS_NOTE = 'Daffodils and a hosta along the guard side.';

@@ -100,9 +100,20 @@ export function checkedInBlocks(): Block[] {
  * carries exactly six Populated spaces whose living trees are five
  * `Quercus phellos` (willow oak) and one `Quercus alba` (white oak) — the
  * only combination on the block matching the captain's count, which is what
- * makes the match confident. The north side is all willow oaks; the empty
+ * made the match look confident. The north side is all willow oaks; the empty
  * pits between beds 5 and 6 (retired trees) are NYC's, not ours, and are
  * deliberately not seeded — no tree, no guard coming, nothing to steward.
+ *
+ * That south-curb fit is IN DOUBT since 2026-09-12, when the captain named
+ * two of these beds with N-run (north side) ids — BED-WH-1712 as 9NHFW171
+ * and BED-WH-1713 as 8NHFW171. His word beats a geometry fit, and if the side
+ * split was wrong for two rows the six-space count that made the whole match
+ * look confident is no longer an argument. So every NYC identifier here now
+ * awaits re-verification in the captain's own NYC Parks pass ("i will update
+ * it to match NYC parks"). Until then nothing may null them, re-guess them or
+ * shuffle them between rows: resolved-or-null, never invented, still stands,
+ * and these were resolved. What changes is only how much this docstring may
+ * be relied on — read it as the method, not as a settled answer.
  *
  * `blockPosition` is physical: 1 at the Haven end, 6 at the Fort Washington
  * corner, ordered by the records' own point geometry along the street. The
@@ -135,9 +146,14 @@ export function w171Beds(): Bed[] {
      * he said about them — open for adoption and his plant facts — while the
      * other four keep the original not-yet-opened, nothing-recorded seed.
      * On the LIVE store these two rows already exist, so this reaches only
-     * fresh stores; the live rows were opened by the captain in the admin,
-     * and their plant facts travel by the captain-facts remediation script
-     * (scripts/seed-captain-facts.mjs), never by overwriting a stored row.
+     * fresh stores. The live rows are ALREADY OPEN, verified against
+     * production on 2026-09-12 after the PR-29 deploy: GET /t/1hc0t9cj and
+     * GET /t/729v19w4 both served the ADOPT THIS BED button, which renders
+     * only with an offered slot. Their plant facts travel by the
+     * captain-facts remediation script (scripts/seed-captain-facts.mjs),
+     * never by overwriting a stored row — and `offeredSlots` deliberately
+     * does NOT, because 0 is a set value rather than NOT RECORDED and that
+     * script may only fill what nobody has said.
      */
     captainNamed?: boolean;
   }): Bed => ({
@@ -186,7 +202,10 @@ export function w171Beds(): Bed[] {
       // already have shared the old URL, and retiring it is his later call.
       // His N-side id on a bed the NYC-data analysis had fitted to the south
       // curb: his word wins over the fit; the header's side inference stands
-      // corrected for this bed and BED-WH-1713 below. Open for adoption and
+      // corrected for this bed and BED-WH-1713 below, which puts the NYC
+      // identifiers on both rows in doubt — they stay exactly as resolved and
+      // await the captain's own NYC Parks pass, and nothing may null or
+      // re-guess them meanwhile (see the header). Open for adoption and
       // "no plants, don't recommend planting" — his words, `captainNamed`.
       plate: 'BED-WH-1712',
       position: 2,
@@ -199,7 +218,8 @@ export function w171Beds(): Bed[] {
     bed({
       // The bed the captain named 8NHFW171 (2026-09-12): tag `8nhfw171`
       // binds here beside the original `729v19w4`, both live — the same
-      // story as BED-WH-1712 above.
+      // story as BED-WH-1712 above, NYC identifiers awaiting the same
+      // re-verification and untouched until it happens.
       plate: 'BED-WH-1713',
       position: 3,
       plantingSpaceId: '2332469',
@@ -242,12 +262,20 @@ export function w171Beds(): Bed[] {
 }
 
 /**
- * The 22 beds of the captain's three named runs (2026-09-12), keyed by the
- * ids he chose: `1E170171HFW`–`6E170171HFW`, `1SHFW171`–`7SHFW171`,
- * `1NHFW171`–`9NHFW171`. The id is the bed's PLATE and — lowercased — its
+ * The 20 FRESH beds of the captain's three named runs (2026-09-12), keyed by
+ * the ids he chose: `1E170171HFW`–`6E170171HFW`, `1SHFW171`–`7SHFW171`, and
+ * `1NHFW171`–`7NHFW171`. The id is the bed's PLATE and — lowercased — its
  * tag URL (`tag-bindings.ts`), by his decision: "it's supposed to be the url
  * actually and the bed id". See tag-id.ts for the opacity rule this
  * deliberately overrides.
+ *
+ * The N run spans NINE ids but mints only seven beds. `8NHFW171` and
+ * `9NHFW171` are RENAMES of two beds the network already held, which the
+ * captain identified standing at them (verbatim: "Can you change
+ * …/t/1hc0t9cj for the end to be 9NHFW171 and then …/t/729v19w4 change to
+ * 8NHFW171") — so those two ids bind to `BED-WH-1713` and `BED-WH-1712` in
+ * `w171Beds` above, and minting them here would duplicate two real beds with
+ * real NYC identities and real history. Do not "complete" the run.
  *
  * Everything about them is seeded UNASSERTED, because the captain will fill
  * the records in from NYC Parks' data ("i will update it to match NYC
@@ -255,20 +283,25 @@ export function w171Beds(): Bed[] {
  * species NOT YET RECORDED (`treeType: null`; the doors degrade to the
  * generic tree), every three-way profile fact NOT YET RECORDED, no notes, no
  * address (his street numbers are loose cluster references, not locators).
- * The one exception is the guard on `1NHFW171` and `2NHFW171`: the captain
- * himself said those two carry METAL guards — their chips get the decorative
- * `/m` suffix — and seeding them unrecorded while the chip asserts metal
- * would be exactly the drift the guard field exists to prevent.
+ * The exceptions are only what the captain stated himself: the METAL guards
+ * on `1NHFW171` and `2NHFW171` — their chips get the decorative `/m` suffix,
+ * and seeding them unrecorded while the chip asserts metal would be exactly
+ * the drift the guard field exists to prevent — and the plant facts on
+ * `2SHFW171` and `5SHFW171` (see `captainFacts` below).
  *
  * Every bed opens with its one slot OFFERED (`offeredSlots: 1`), unlike the
- * six W 171st beds above: "open all beds for adoption actually … just want
- * to get this ready for people to adopt and name."
+ * four un-renamed W 171st beds above: "open all beds for adoption actually …
+ * just want to get this ready for people to adopt and name."
  *
- * The six existing W 171st beds are deliberately NOT mapped onto these ids.
- * Some of them are physically among these 22 — the captain has not yet said
- * which — so the day he stands at his tree and tells us, the steward moves
- * by `carryStewardByAdmin` (service.ts / scripts/carry-steward.mjs), the
- * duplicate record retires, and nothing keyed to either plate is lost.
+ * Which of the other four existing W 171st beds are physically among these
+ * ids is still unsaid — the captain names them one by one, and his addresses
+ * cannot (they are loose cluster references). The shape 8N/9N set is what a
+ * later one follows: bind the named id to the EXISTING plate here and in
+ * tag-bindings.ts, keep the old opaque tag live because the URL may already
+ * be in somebody's hands, and never mint a fresh bed for it. Where a steward
+ * has meanwhile landed on a duplicate record, `carryStewardByAdmin`
+ * (service.ts / scripts/carry-steward.mjs) moves them keeping `adoptedAt`,
+ * the duplicate record retires, and nothing keyed to either plate is lost.
  */
 export function captainRunBeds(): Bed[] {
   const runBed = (args: {
